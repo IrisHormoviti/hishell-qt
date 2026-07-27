@@ -1,14 +1,14 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import Hishell
 
 Kirigami.ApplicationWindow {
 	id: root
 	width: 800
 	height: 600
 	visible: true
-	title: "Shell Window"
+	title: "Shell"
 
 	FolderConfig {
 		id: folderConfig
@@ -55,7 +55,8 @@ Kirigami.ApplicationWindow {
 				}
 
 				LayoutEngine {
-					layoutString: folderConfig.header_layout
+					fileModel: fileModel
+					layoutString: String(folderConfig.header_layout)
 					Layout.fillWidth: true
 				}
 
@@ -72,7 +73,8 @@ Kirigami.ApplicationWindow {
 
 			// Top Layout area (from config)
 			LayoutEngine {
-				layoutString: folderConfig.top_layout
+				fileModel: fileModel
+				layoutString: String(folderConfig.top_layout)
 				Layout.fillWidth: true
 			}
 
@@ -83,7 +85,8 @@ Kirigami.ApplicationWindow {
 				spacing: 0
 
 				LayoutEngine {
-					layoutString: folderConfig.middle_layout
+					fileModel: fileModel
+					layoutString: String(folderConfig.middle_layout)
 					Layout.fillHeight: true
 				}
 
@@ -97,7 +100,8 @@ Kirigami.ApplicationWindow {
 
 			// Bottom Layout area (from config)
 			LayoutEngine {
-				layoutString: folderConfig.bottom_layout
+				fileModel: fileModel
+				layoutString: String(folderConfig.bottom_layout)
 				Layout.fillWidth: true
 			}
 		}

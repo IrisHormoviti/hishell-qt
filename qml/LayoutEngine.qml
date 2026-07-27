@@ -1,34 +1,41 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
 
 RowLayout {
-	id: root
+	id: layoutEngine
 	property string layoutString: "[]"
 
-	// Collapse entirely when there are no items
-	visible: root.layoutItems.length > 0
-	implicitWidth: root.layoutItems.length > 0 ? undefined : 0
-	implicitHeight: root.layoutItems.length > 0 ? undefined : 0
+	// Expose fileModel here on the engine
+	property var fileModel: null
+
+	visible: layoutEngine.layoutItems.length > 0
+	implicitWidth: layoutEngine.layoutItems.length > 0 ? -1 : 0
+	implicitHeight: layoutEngine.layoutItems.length > 0 ? -1 : 0
 
 	property var layoutItems: {
 		try {
-			return JSON.parse(root.layoutString);
+			return JSON.parse(layoutEngine.layoutString);
 		} catch (e) {
-			console.warn("Failed to parse layout string: " + root.layoutString);
 			return [];
 		}
 	}
 
 	Repeater {
-		model: root.layoutItems
+		model: layoutEngine.layoutItems
 
 		Loader {
 			id: componentLoader
+			required property string modelData
+
 			source: modelData + ".qml"
 
-			onStatusChanged: {
-				if (componentLoader.status == Loader.Error) {
-					console.error("Failed to load component: " + componentLoader.source);
+			onLoaded: {
+				if ("fileModel" in item) {
+					item.fileModel = Qt.binding(function () {
+						return layoutEngine.fileModel;
+					});
 				}
 			}
 		}

@@ -1,0 +1,40 @@
+import QtQuick.tooling 1.2
+
+Module {
+	Component {
+		name: "FolderConfig"
+		defaultProperty: "data"
+			prototype: "QObject"
+			exports: ["Hishell/FolderConfig 1.0"]
+
+			Property { name: "top_layout"; type: "string" }
+			Property { name: "middle_layout"; type: "string" }
+			Property { name: "bottom_layout"; type: "string" }
+			Property { name: "header_layout"; type: "string" }
+			Property { name: "grid_size"; type: "int" }
+			Property { name: "show_dotfiles"; type: "bool" }
+			Property { name: "arbitrary_placement"; type: "bool" }
+			Property { name: "arbitrary_positions"; type: "string" }
+
+			Method {
+				name: "load"
+				Parameter { name: "path"; type: "string" }
+			}
+	}
+
+	Component {
+		name: "FileModel"
+		defaultProperty: "data"
+			prototype: "QObject"
+			exports: ["Hishell/FileModel 1.0"]
+
+			Property { name: "current_path"; type: "string" }
+	}
+
+	Component {
+		name: "FileManager"
+		defaultProperty: "data"
+			prototype: "QObject"
+			exports: ["Hishell/FileManager 1.0"]
+	}
+}

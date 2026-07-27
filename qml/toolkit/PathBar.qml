@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -7,17 +9,15 @@ RowLayout {
 	id: pathBar
 	spacing: Kirigami.Units.smallSpacing
 
-	// Split the current path into breadcrumb segments
-	property string currentPath: fileModel ? fileModel.current_path : ""
+	property var fileModel
+	property string currentPath: pathBar.fileModel ? pathBar.fileModel.current_path : ""
+
 	property var segments: {
-		var p = currentPath;
+		var p = pathBar.currentPath;
 		if (p === "" || p === ".")
 			return ["/"];
-		// Remove trailing slash
-		if (p.endsWith("/") && p.length > 1)
-			p = p.substring(0, p.length - 1);
+		p = p.substring(0, p.length - 1);
 		var parts = p.split("/");
-		// Filter out empty strings but keep a leading "/" for root
 		var result = [];
 		for (var i = 0; i < parts.length; i++) {
 			if (parts[i] !== "") {
@@ -29,9 +29,8 @@ RowLayout {
 		return result;
 	}
 
-	// Build the cumulative path for each breadcrumb index
 	function pathForIndex(idx) {
-		var p = currentPath;
+		var p = pathBar.currentPath;
 		if (p === "" || p === ".")
 			return "/";
 		if (p.endsWith("/") && p.length > 1)
@@ -47,11 +46,15 @@ RowLayout {
 		model: pathBar.segments
 
 		delegate: RowLayout {
+			id: delegateRoot
 			spacing: Kirigami.Units.smallSpacing
 
-			// Separator arrow (skip for the first segment)
+			// Qualify delegate properties for qmllint
+			required property int index
+			required property string modelData
+
 			Label {
-				visible: index > 0
+				visible: delegateRoot.index > 0
 				text: "›"
 				font.pointSize: 12
 				color: Kirigami.Theme.disabledTextColor
@@ -60,11 +63,10 @@ RowLayout {
 			Button {
 				id: crumbButton
 				flat: true
-				text: modelData === "/" ? "Root" : modelData
+				text: delegateRoot.modelData === "/" ? "Root" : delegateRoot.modelData
 
-				// Highlight the last (current) segment
 				background: Rectangle {
-					color: index === pathBar.segments.length - 1 ? Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, Kirigami.Theme.highlightColor.b, 0.15) : "transparent"
+					color: delegateRoot.index === pathBar.segments.length - 1 ? Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, Kirigami.Theme.highlightColor.b, 0.15) : "transparent"
 					radius: Kirigami.Units.smallSpacing
 				}
 
@@ -72,7 +74,7 @@ RowLayout {
 					spacing: Kirigami.Units.smallSpacing
 
 					Kirigami.Icon {
-						visible: index === pathBar.segments.length - 1
+						visible: delegateRoot.index === pathBar.segments.length - 1
 						source: "folder"
 						Layout.preferredWidth: Kirigami.Units.iconSizes.small
 						Layout.preferredHeight: Kirigami.Units.iconSizes.small
@@ -81,15 +83,13 @@ RowLayout {
 					Label {
 						text: crumbButton.text
 						color: Kirigami.Theme.textColor
-						font.bold: index === pathBar.segments.length - 1
+						font.bold: delegateRoot.index === pathBar.segments.length - 1
 					}
 				}
 
 				onClicked: {
-					var target = pathBar.pathForIndex(index);
-					if (fileModel) {
-						fileModel.current_path = target;
-					}
+					var target = pathBar.pathForIndex(delegateRoot.index);
+					pathBar.fileModel.current_path = target;
 				}
 			}
 		}

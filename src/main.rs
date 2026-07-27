@@ -9,7 +9,7 @@ use crate::folder_config::FolderConfig;
 use qmetaobject::prelude::*;
 
 fn main() {
-	const APP_ID: &'static core::ffi::CStr = c"eu.raidev.hishell";
+	const IMPORT_NAME: &'static core::ffi::CStr = c"Hishell";
 
 	// Accept an optional path argument
 	let args: Vec<String> = std::env::args().collect();
@@ -29,9 +29,9 @@ fn main() {
 			.unwrap_or_else(|_| ".".to_string())
 	};
 
-	qmetaobject::qml_register_type::<FolderConfig>(APP_ID, 1, 0, c"FolderConfig");
-	qmetaobject::qml_register_type::<FileModel>(APP_ID, 1, 0, c"FileModel");
-	qmetaobject::qml_register_type::<FileManager>(APP_ID, 1, 0, c"FileManager");
+	qmetaobject::qml_register_type::<FolderConfig>(IMPORT_NAME, 1, 0, c"FolderConfig");
+	qmetaobject::qml_register_type::<FileModel>(IMPORT_NAME, 1, 0, c"FileModel");
+	qmetaobject::qml_register_type::<FileManager>(IMPORT_NAME, 1, 0, c"FileManager");
 
 	let mut engine = QmlEngine::new();
 	engine.set_property(
