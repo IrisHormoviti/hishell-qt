@@ -4,15 +4,15 @@ import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
 RowLayout {
-    Layout.alignment: Qt.AlignRight
+	Layout.alignment: Qt.AlignRight
 
-    Button {
-        text: "New"
-        flat: true
-    }
+	Button {
+		text: "New"
+		flat: true
+	}
 
-    Button {
-        text: "View"
-        flat: true
-    }
+	Button {
+		text: "View"
+		flat: true
+	}
 }
