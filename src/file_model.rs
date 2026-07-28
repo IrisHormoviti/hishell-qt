@@ -11,10 +11,13 @@ cpp! {{
 }}
 
 pub fn get_icon_name(path: &str) -> String {
+	if std::path::Path::new(path).is_dir() {
+		return "folder".to_string();
+	}
+
 	let qpath = QString::from(path);
 	let icon_name = cpp!(unsafe [qpath as "QString"] -> QString as "QString" {
 		QMimeDatabase db;
-		// This automatically handles directories, files, and fallbacks
 		return db.mimeTypeForFile(qpath).iconName();
 	});
 
@@ -38,6 +41,12 @@ pub struct FileModel {
 	current_path: qt_property!(QString; READ get_current_path WRITE set_current_path NOTIFY current_path_changed),
 	current_path_str: String,
 	current_path_changed: qt_signal!(),
+
+	get_icon_name: qt_method!(
+		fn get_icon_name(&self, path: QString) -> QString {
+			get_icon_name(&path.to_string()).into()
+		}
+	),
 
 	load_directory: qt_method!(
 		pub fn load_directory(&mut self, path: String, include_hidden: bool) {
@@ -74,6 +83,7 @@ pub struct FileModel {
 }
 
 impl FileModel {
+
 	pub fn get_current_path(&self) -> QString {
 		self.current_path_str.clone().into()
 	}
