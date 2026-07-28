@@ -8,7 +8,9 @@ Kirigami.ApplicationWindow {
 	width: 800
 	height: 600
 	visible: true
-	title: "Shell"
+	// flags: Qt.Window | Qt.FramelessWindowHint
+
+	WindowOverlay {}
 
 	FolderConfig {
 		id: folderConfig
@@ -35,34 +37,56 @@ Kirigami.ApplicationWindow {
 		rightPadding: 0
 		bottomPadding: 0
 
-		// Remove Kirigami's own header so ours is the only one
+		// Remove Kirigami's own header
 		globalToolBarStyle: Kirigami.ApplicationHeaderStyle.None
 
 		ColumnLayout {
 			anchors.fill: parent
 			spacing: 0
 
-			// Header bar — uses theme background, no hardcoded color
-			RowLayout {
+			// Header bar
+			Item {
 				Layout.fillWidth: true
 				Layout.preferredHeight: 44
-				Layout.margins: 0
-				spacing: Kirigami.Units.smallSpacing
+				Kirigami.Theme.colorSet: Kirigami.Theme.Header
+				Kirigami.Theme.inherit: false
 
-				// Left padding
-				Item {
-					Layout.preferredWidth: Kirigami.Units.largeSpacing
+				Rectangle {
+					anchors.fill: parent
+					z: -1
+					color: Kirigami.Theme.backgroundColor
 				}
 
-				LayoutEngine {
-					fileModel: fileModel
-					layoutString: String(folderConfig.header_layout)
+				RowLayout {
+					anchors.fill: parent
+
 					Layout.fillWidth: true
-				}
+					Layout.preferredHeight: 44
+					Layout.margins: 0
+					spacing: Kirigami.Units.smallSpacing
 
-				// Right padding
-				Item {
-					Layout.preferredWidth: Kirigami.Units.largeSpacing
+					// Make it draggable
+					DragHandler {
+						target: null
+						onActiveChanged: if (active)
+							root.startSystemMove()
+					}
+
+					// Left padding
+					Item {
+						Layout.preferredWidth: Kirigami.Units.largeSpacing
+					}
+
+					LayoutEngine {
+						fileModel: fileModel
+						layoutString: String(folderConfig.header_layout)
+						Layout.fillWidth: true
+					}
+
+					// Right padding
+					Item {
+						Layout.preferredWidth: Kirigami.Units.largeSpacing
+					}
 				}
 			}
 

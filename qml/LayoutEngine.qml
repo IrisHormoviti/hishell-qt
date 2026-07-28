@@ -6,13 +6,7 @@ import QtQuick.Layouts
 RowLayout {
 	id: layoutEngine
 	property string layoutString: "[]"
-
-	// Expose fileModel here on the engine
 	property var fileModel: null
-
-	visible: layoutEngine.layoutItems.length > 0
-	implicitWidth: layoutEngine.layoutItems.length > 0 ? -1 : 0
-	implicitHeight: layoutEngine.layoutItems.length > 0 ? -1 : 0
 
 	property var layoutItems: {
 		try {
@@ -22,21 +16,35 @@ RowLayout {
 		}
 	}
 
-	Repeater {
-		model: layoutEngine.layoutItems
+	visible: layoutEngine.layoutItems.length > 0
+	implicitWidth: layoutEngine.layoutItems.length > 0 ? -1 : 0
+	implicitHeight: layoutEngine.layoutItems.length > 0 ? -1 : 0
 
-		Loader {
-			id: componentLoader
-			required property string modelData
+	property var _createdItems: []
 
-			source: modelData + ".qml"
+	onLayoutItemsChanged: updateLayout()
+	Component.onCompleted: updateLayout()
 
-			onLoaded: {
-				if ("fileModel" in item) {
-					item.fileModel = Qt.binding(function () {
-						return layoutEngine.fileModel;
-					});
+	function updateLayout() {
+		for (var i = 0; i < layoutEngine._createdItems.length; i++) {
+			layoutEngine._createdItems[i].destroy();
+		}
+		layoutEngine._createdItems = [];
+
+		for (var j = 0; j < layoutEngine.layoutItems.length; j++) {
+			var component = Qt.createComponent(layoutEngine.layoutItems[j] + ".qml");
+			if (component.status === Component.Ready) {
+				var obj = component.createObject(layoutEngine);
+				if (obj) {
+					if ("fileModel" in obj) {
+						obj.fileModel = Qt.binding(function () {
+							return layoutEngine.fileModel;
+						});
+					}
+					layoutEngine._createdItems.push(obj);
 				}
+			} else if (component.status === Component.Error) {
+				console.error(component.errorString());
 			}
 		}
 	}

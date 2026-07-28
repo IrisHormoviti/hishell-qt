@@ -20,13 +20,13 @@ pub struct FolderConfig {
 	load: qt_method!(
 		fn load(&mut self, path: QString) {
 			let path_str = path.to_string();
-			let cfg_path = std::path::Path::new(&path_str).join("default.cfg");
+			let cfg_path = std::path::Path::new(&path_str).join(".meta");
 			let parsed = ConfigParser::parse_file(&cfg_path);
 
 			self.top_layout = "[]".into();
 			self.middle_layout = "[]".into();
 			self.bottom_layout = "[]".into();
-			self.header_layout = "[\"toolkit/PathBar\", \"toolkit/Spacer\", \"toolkit/MenuBar\", \"toolkit/CloseButton\"]".into();
+			self.header_layout = "[\"toolkit/PathBar\", \"toolkit/Spacer\", \"toolkit/MenuBar\"]".into();
 
 			self.grid_size = 64;
 			self.show_dotfiles = false;

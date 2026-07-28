@@ -29,12 +29,21 @@ Item {
 		return name !== "" ? name : "Root";
 	}
 
+    Kirigami.Theme.colorSet: Kirigami.Theme.View
+
 	Binding {
 		target: folderView.Window.window
 		property: "title"
 		value: folderView.folderName
 		restoreMode: Binding.RestoreBindingOrValue
 	}
+
+    Rectangle {
+        anchors.fill: parent
+        color: Kirigami.Theme.backgroundColor
+        radius: 8
+        anchors.margins: 4
+    }
 
 	GridView {
 		anchors.fill: parent
