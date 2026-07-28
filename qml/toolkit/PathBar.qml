@@ -16,7 +16,8 @@ RowLayout {
 		var p = pathBar.currentPath;
 		if (p === "" || p === ".")
 			return ["/"];
-		p = p.substring(0, p.length - 1);
+		if (p.endsWith("/") && p.length > 1)
+			p = p.substring(0, p.length - 1);
 		var parts = p.split("/");
 		var result = [];
 		for (var i = 0; i < parts.length; i++) {
@@ -55,7 +56,7 @@ RowLayout {
 
 			Label {
 				visible: delegateRoot.index > 0
-				text: "›"
+				text: "/"
 				font.pointSize: 12
 				color: Kirigami.Theme.disabledTextColor
 			}
@@ -63,15 +64,23 @@ RowLayout {
 			Button {
 				id: crumbButton
 				flat: true
-				text: delegateRoot.modelData === "/" ? "Root" : delegateRoot.modelData
+				hoverEnabled: true
+				text: delegateRoot.modelData === "/" ? "/" : delegateRoot.modelData
+				padding: Kirigami.Units.mediumSpacing
+				implicitWidth: leftPadding + rightPadding + contentLayout.implicitWidth
+				Kirigami.Theme.colorSet: Kirigami.Theme.Inactive
 
 				background: Rectangle {
-					color: delegateRoot.index === pathBar.segments.length - 1 ? Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, Kirigami.Theme.highlightColor.b, 0.15) : "transparent"
-					radius: Kirigami.Units.smallSpacing
+					color: (
+						delegateRoot.index === pathBar.segments.length - 1
+						? Kirigami.Theme.backgroundColor : "transparent"
+					)
+					radius: Kirigami.Units.mediumSpacing
 				}
 
 				contentItem: RowLayout {
-					spacing: Kirigami.Units.smallSpacing
+					id: contentLayout
+					spacing: Kirigami.Units.mediumSpacing
 
 					Kirigami.Icon {
 						visible: delegateRoot.index === pathBar.segments.length - 1
@@ -84,6 +93,8 @@ RowLayout {
 						text: crumbButton.text
 						color: Kirigami.Theme.textColor
 						font.bold: delegateRoot.index === pathBar.segments.length - 1
+						Layout.minimumWidth: implicitWidth
+						elide: Text.ElideNone
 					}
 				}
 

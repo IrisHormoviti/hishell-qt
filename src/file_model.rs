@@ -24,6 +24,36 @@ pub fn get_icon_name(path: &str) -> String {
 	icon_name.to_string()
 }
 
+pub fn open_file(path: String) {
+	let path_buf = std::path::Path::new(&path);
+
+	let mut is_exec = false;
+	if let Ok(mut file) = std::fs::File::open(&path_buf) {
+		use std::io::Read;
+		let mut buffer = [0; 4];
+		if file.read_exact(&mut buffer).is_ok() {
+			if buffer == [0x7f, b'E', b'L', b'F'] || (buffer[0] == b'#' && buffer[1] == b'!') {
+				is_exec = true;
+			}
+		}
+	}
+
+	#[cfg(unix)]
+	if !is_exec {
+		use std::os::unix::fs::PermissionsExt;
+		is_exec = std::fs::metadata(&path_buf)
+		.map(|m| m.permissions().mode() & 0o111 != 0)
+		.unwrap_or(false);
+	}
+
+	if is_exec {
+		let _ = std::process::Command::new(&path).spawn();
+		return;
+	}
+
+	let _ = std::process::Command::new("xdg-open").arg(&path).spawn();
+}
+
 #[derive(Default, Clone)]
 pub struct FileItem {
 	pub name: QString,
@@ -45,6 +75,17 @@ pub struct FileModel {
 	get_icon_name: qt_method!(
 		fn get_icon_name(&self, path: QString) -> QString {
 			get_icon_name(&path.to_string()).into()
+		}
+	),
+
+	open_path: qt_method!(
+		pub fn open_path(&mut self, path: String) {
+			let path_buf = std::path::Path::new(&path);
+			if path_buf.is_file() {
+				open_file(path)
+			} else {
+				self.set_current_path(path.into());
+			}
 		}
 	),
 
@@ -83,7 +124,6 @@ pub struct FileModel {
 }
 
 impl FileModel {
-
 	pub fn get_current_path(&self) -> QString {
 		self.current_path_str.clone().into()
 	}

@@ -73,7 +73,7 @@ Item {
 
 
 			onNavigate: (targetPath) => {
-				folderView.model.current_path = targetPath
+				folderView.model.open_path(targetPath)
 			}
 		}
 	}
