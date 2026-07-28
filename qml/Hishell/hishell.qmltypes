@@ -12,7 +12,7 @@ Module {
 			Property { name: "bottom_layout"; type: "string" }
 			Property { name: "header_layout"; type: "string" }
 			Property { name: "grid_size"; type: "int" }
-			Property { name: "show_dotfiles"; type: "bool" }
+			Property { name: "stash_dotfiles"; type: "bool" }
 			Property { name: "arbitrary_placement"; type: "bool" }
 			Property { name: "arbitrary_positions"; type: "string" }
 

@@ -11,7 +11,7 @@ pub struct FolderConfig {
 	header_layout: qt_property!(QString; NOTIFY config_changed),
 
 	grid_size: qt_property!(i32; NOTIFY config_changed),
-	show_dotfiles: qt_property!(bool; NOTIFY config_changed),
+	stash_dotfiles: qt_property!(bool; NOTIFY config_changed),
 	arbitrary_placement: qt_property!(bool; NOTIFY config_changed),
 	arbitrary_positions: qt_property!(QString; NOTIFY config_changed),
 
@@ -29,7 +29,7 @@ pub struct FolderConfig {
 			self.header_layout = "[\"toolkit/PathBar\", \"toolkit/Spacer\", \"toolkit/MenuBar\"]".into();
 
 			self.grid_size = 64;
-			self.show_dotfiles = false;
+			self.stash_dotfiles = true;
 			self.arbitrary_placement = false;
 			self.arbitrary_positions = "{}".into();
 
@@ -52,8 +52,8 @@ pub struct FolderConfig {
 				if let Some(ConfigValue::Number(n)) = view.get("GridSize") {
 					self.grid_size = *n as i32;
 				}
-				if let Some(ConfigValue::Boolean(b)) = view.get("ShowDotfiles") {
-					self.show_dotfiles = *b;
+				if let Some(ConfigValue::Boolean(b)) = view.get("StashDotFiles") {
+					self.stash_dotfiles = *b;
 				}
 				if let Some(ConfigValue::Boolean(b)) = view.get("ArbitraryPlacement") {
 					self.arbitrary_placement = *b;

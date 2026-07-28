@@ -4,7 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+cpp = "0.5.11"
 nom = "8.0.0"
 qmetaobject = "0.2.10"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+pkg-config = "0.3"
+
+[build-dependencies]
+cpp_build = "0.5.11"
+pkg-config = "0.3"
