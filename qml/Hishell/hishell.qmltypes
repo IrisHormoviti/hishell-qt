@@ -7,6 +7,9 @@ Module {
 			prototype: "QObject"
 			exports: ["Hishell/FolderConfig 1.0"]
 
+			Property { name: "title"; type: "string" }
+			Property { name: "icon"; type: "string" }
+			Property { name: "wallpaper"; type: "string" }
 			Property { name: "top_layout"; type: "string" }
 			Property { name: "middle_layout"; type: "string" }
 			Property { name: "bottom_layout"; type: "string" }
@@ -29,6 +32,17 @@ Module {
 			exports: ["Hishell/FileModel 1.0"]
 
 			Property { name: "current_path"; type: "string" }
+
+			Method {
+				name: "load_directory"; type: "QStringList"
+				Parameter { name: "path"; type: "string"}
+				Parameter { name: "include_hidden"; type: "bool"}
+			}
+
+			Method {
+				name: "open_path";
+				Parameter { name: "path"; type: "string"}
+			}
 	}
 
 	Component {

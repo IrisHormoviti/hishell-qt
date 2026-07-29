@@ -2,6 +2,7 @@ mod config_parser;
 mod file_manager;
 mod file_model;
 mod folder_config;
+mod desktop_entry;
 
 use crate::file_manager::FileManager;
 use crate::file_model::FileModel;

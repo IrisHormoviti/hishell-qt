@@ -46,6 +46,19 @@ impl ConfigValue {
 pub struct ConfigParser;
 
 impl ConfigParser {
+	pub fn parse_files(paths: &[&Path]) -> HashMap<String, HashMap<String, ConfigValue>> {
+		let mut combined = HashMap::new();
+		for path in paths {
+			for (section, items) in Self::parse_file(path) {
+				combined
+				.entry(section)
+				.or_insert_with(HashMap::new)
+				.extend(items);
+			}
+		}
+		combined
+	}
+
 	pub fn parse_file(path: &Path) -> HashMap<String, HashMap<String, ConfigValue>> {
 		let mut config = HashMap::new();
 		if let Ok(content) = fs::read_to_string(path) {

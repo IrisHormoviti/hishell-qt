@@ -2,11 +2,14 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Layouts
+import "Hishell"
 
 RowLayout {
 	id: layoutEngine
 	property string layoutString: "[]"
-	property var fileModel: null
+
+	required property FileModel fileModel
+	required property FolderConfig config
 
 	property var layoutItems: {
 		try {
@@ -39,6 +42,11 @@ RowLayout {
 					if ("fileModel" in obj) {
 						obj.fileModel = Qt.binding(function () {
 							return layoutEngine.fileModel;
+						});
+					}
+					if ("config" in obj) {
+						obj.config = Qt.binding(function () {
+							return layoutEngine.config;
 						});
 					}
 					layoutEngine._createdItems.push(obj);

@@ -1,21 +1,35 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import "../Hishell"
 
 Item {
 	id: folderView
-	property var model
-	property var config
+	property FileModel fileModel
+	property FolderConfig config
+
+	Layout.fillWidth: true
+	Layout.fillHeight: true
+
+	Component.onCompleted: {
+		Qt.callLater(() => {
+			if (folderView.config && folderView.fileModel) {
+				folderView.config.load(folderView.fileModel.current_path);
+				folderView.fileModel.load_directory(folderView.fileModel.current_path, !folderView.config.stash_dotfiles);
+			} else {
+				console.error("FolderView: missing fileModel or config.");
+			}
+		});
+	}
 
 	Connections {
-		target: folderView.model
+		target: folderView.fileModel
 		function onCurrent_pathChanged() {
-			if (folderView.config && folderView.model) {
-				// Load config for the target directory first
-				folderView.config.load(folderView.model.current_path);
-				// Reload directory items using the updated config setting
-				folderView.model.load_directory(folderView.model.current_path, !folderView.config.stash_dotfiles);
+			if (folderView.config && folderView.fileModel) {
+				folderView.config.load(folderView.fileModel.current_path);
+				folderView.fileModel.load_directory(folderView.fileModel.current_path, !folderView.config.stash_dotfiles);
 			}
 		}
 	}
@@ -29,7 +43,7 @@ Item {
 	}
 
 	readonly property string folderName: {
-		var path = folderView.model ? folderView.model.current_path : "";
+		var path = folderView.fileModel ? folderView.fileModel.current_path : "";
 		if (!path || path === "/" || path === ".")
 			return "Root";
 		if (path.endsWith("/") && path.length > 1) {
@@ -63,7 +77,7 @@ Item {
 		flow: GridView.FlowLeftToRight
 		verticalLayoutDirection: GridView.TopToBottom
 
-		model: folderView.model
+		model: folderView.fileModel
 
 		cellWidth: folderView.config.grid_size + Kirigami.Units.gridUnit * 3
 		cellHeight: folderView.config.grid_size + Kirigami.Units.gridUnit * 3
@@ -73,7 +87,7 @@ Item {
 
 
 			onNavigate: (targetPath) => {
-				folderView.model.open_path(targetPath)
+				folderView.fileModel.open_path(targetPath)
 			}
 		}
 	}

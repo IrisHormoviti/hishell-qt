@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
-import Hishell
+import "Hishell"
 
 Kirigami.ApplicationWindow {
 	id: root
@@ -79,6 +79,7 @@ Kirigami.ApplicationWindow {
 
 					LayoutEngine {
 						fileModel: fileModel
+						config: folderConfig
 						layoutString: String(folderConfig.header_layout)
 						Layout.fillWidth: true
 					}
@@ -95,9 +96,10 @@ Kirigami.ApplicationWindow {
 				Layout.fillWidth: true
 			}
 
-			// Top Layout area (from config)
+			// Top Layout area
 			LayoutEngine {
 				fileModel: fileModel
+				config: folderConfig
 				layoutString: String(folderConfig.top_layout)
 				Layout.fillWidth: true
 			}
@@ -110,21 +112,17 @@ Kirigami.ApplicationWindow {
 
 				LayoutEngine {
 					fileModel: fileModel
+					config: folderConfig
 					layoutString: String(folderConfig.middle_layout)
 					Layout.fillHeight: true
-				}
-
-				FolderView {
 					Layout.fillWidth: true
-					Layout.fillHeight: true
-					model: fileModel
-					config: folderConfig
 				}
 			}
 
-			// Bottom Layout area (from config)
+			// Bottom Layout area
 			LayoutEngine {
 				fileModel: fileModel
+				config: folderConfig
 				layoutString: String(folderConfig.bottom_layout)
 				Layout.fillWidth: true
 			}

@@ -2,13 +2,14 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import "../Hishell"
 
 Item {
 	id: fileSlot
 	width: GridView.view.cellWidth
 	height: GridView.view.cellHeight
 
-	required property var config
+	required property FolderConfig config
 
 	required property string name
 	required property bool is_dir

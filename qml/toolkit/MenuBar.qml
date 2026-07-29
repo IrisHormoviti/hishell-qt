@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import org.kde.kirigami as Kirigami
 
 MenuBar {
 	Menu {
@@ -52,12 +53,19 @@ MenuBar {
 
 	Menu {
 		title: qsTr("View")
+
 		MenuItem {
-			text: qsTr("Show Dotfiles")
-			checkable: true
-			// checked: config.stash_dotfiles // bind if applicable
-			onToggled: {
-				// Toggle config setting
+			contentItem: RowLayout {
+				spacing: 2
+
+				Kirigami.NavigationTabButton {
+					text: "General"
+					checked: true
+				}
+
+				Kirigami.NavigationTabButton {
+					text: "This Directory"
+				}
 			}
 		}
 
@@ -81,6 +89,16 @@ MenuBar {
 						// Handle slider value changes here
 					}
 				}
+			}
+		}
+
+
+		MenuItem {
+			text: qsTr("Show Dotfiles")
+			checkable: true
+			// checked: config.stash_dotfiles // bind if applicable
+			onToggled: {
+				// Toggle config setting
 			}
 		}
 	}

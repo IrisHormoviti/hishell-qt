@@ -3,6 +3,7 @@ use cpp::cpp;
 use qmetaobject::prelude::*;
 use std::collections::HashMap;
 use std::fs;
+use std::path::PathBuf;
 
 cpp! {{
 	#include <QtCore/QMimeDatabase>
@@ -12,16 +13,65 @@ cpp! {{
 
 pub fn get_icon_name(path: &str) -> String {
 	if std::path::Path::new(path).is_dir() {
-		return "folder".to_string();
+		return get_folder_icon(path);
+	} else {
+		let qpath = QString::from(path);
+		let icon_name = cpp!(unsafe [qpath as "QString"] -> QString as "QString" {
+			QMimeDatabase db;
+			return db.mimeTypeForFile(qpath).iconName();
+		});
+
+		icon_name.to_string()
+	}
+}
+
+pub fn get_folder_icon(path: &str) -> String {
+	let path_buf = std::path::Path::new(path);
+	let abs_path = std::fs::canonicalize(path_buf).unwrap_or_else(|_| path_buf.to_path_buf());
+
+	// Check folder config
+	if let Some(icon) = crate::folder_config::get_image(&abs_path, "DISPLAY", "Iocn") {
+		if !icon.is_empty() {
+			return icon;
+		}
 	}
 
-	let qpath = QString::from(path);
-	let icon_name = cpp!(unsafe [qpath as "QString"] -> QString as "QString" {
-		QMimeDatabase db;
-		return db.mimeTypeForFile(qpath).iconName();
-	});
+	// Check .directory
+	let dot_directory = abs_path.join(".directory");
+	if let Some(icon) = crate::desktop_entry::get_icon(&dot_directory) {
+		return icon;
+	}
 
-	icon_name.to_string()
+	// XDG Special folders
+	if let Some(home) = dirs::home_dir().and_then(|h| std::fs::canonicalize(h).ok()) {
+		if abs_path == home {
+			return "user-home".to_string();
+		}
+
+		let xdg_dirs: &[(fn() -> Option<PathBuf>, &str, &str)] = &[
+			(dirs::desktop_dir, "Desktop", "folder-desktop"),
+			(dirs::download_dir, "Downloads", "folder-download"),
+			(dirs::picture_dir, "Pictures", "folder-pictures"),
+			(dirs::audio_dir, "Music", "folder-music"),
+			(dirs::video_dir, "Videos", "folder-videos"),
+			(dirs::document_dir, "Documents", "folder-documents"),
+			(dirs::template_dir, "Templates", "folder-templates"),
+			(dirs::public_dir, "Public", "folder-public"),
+		];
+
+		for (get_dir, fallback_name, icon) in xdg_dirs {
+			let target_path = get_dir()
+			.and_then(|d| std::fs::canonicalize(d).ok())
+			.unwrap_or_else(|| home.join(fallback_name));
+
+			if abs_path == target_path {
+				return icon.to_string();
+			}
+		}
+	}
+
+	// fallback
+	"folder".to_string()
 }
 
 pub fn open_file(path: String) {

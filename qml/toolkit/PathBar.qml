@@ -4,12 +4,13 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import "../Hishell"
 
 RowLayout {
 	id: pathBar
 	spacing: Kirigami.Units.smallSpacing
 
-	property var fileModel
+	property FileModel fileModel
 	property string currentPath: pathBar.fileModel ? pathBar.fileModel.current_path : ""
 
 	property var segments: {
