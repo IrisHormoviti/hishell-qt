@@ -7,29 +7,29 @@ import "../Hishell"
 
 Item {
 	id: folderView
-	property FileModel fileModel
-	property FolderConfig config
+	property Directory directory
+	property Config config
 
 	Layout.fillWidth: true
 	Layout.fillHeight: true
 
 	Component.onCompleted: {
 		Qt.callLater(() => {
-			if (folderView.config && folderView.fileModel) {
-				folderView.config.load(folderView.fileModel.current_path);
-				folderView.fileModel.load_directory(folderView.fileModel.current_path, !folderView.config.stash_dotfiles);
+			if (folderView.config && folderView.directory) {
+				folderView.config.load(folderView.directory.path);
+				folderView.directory.load_directory(folderView.directory.path, !folderView.config.stash_dotfiles);
 			} else {
-				console.error("FolderView: missing fileModel or config.");
+				console.error("FolderView: missing directory or config.");
 			}
 		});
 	}
 
 	Connections {
-		target: folderView.fileModel
-		function onCurrent_pathChanged() {
-			if (folderView.config && folderView.fileModel) {
-				folderView.config.load(folderView.fileModel.current_path);
-				folderView.fileModel.load_directory(folderView.fileModel.current_path, !folderView.config.stash_dotfiles);
+		target: folderView.directory
+		function onPathChanged() {
+			if (folderView.config && folderView.directory) {
+				folderView.config.load(folderView.directory.path);
+				folderView.directory.load_directory(folderView.directory.path, !folderView.config.stash_dotfiles);
 			}
 		}
 	}
@@ -43,14 +43,14 @@ Item {
 	}
 
 	readonly property string folderName: {
-		var path = folderView.fileModel ? folderView.fileModel.current_path : "";
+		let path = folderView.directory.path.toString();
 		if (!path || path === "/" || path === ".")
-			return "Root";
+			return "/";
 		if (path.endsWith("/") && path.length > 1) {
 			path = path.substring(0, path.length - 1);
 		}
-		var name = path.split("/").pop();
-		return name !== "" ? name : "Root";
+		let name = path.split("/").pop();
+		return name !== "" ? name : "/";
 	}
 
     Kirigami.Theme.colorSet: Kirigami.Theme.View
@@ -77,7 +77,7 @@ Item {
 		flow: GridView.FlowLeftToRight
 		verticalLayoutDirection: GridView.TopToBottom
 
-		model: folderView.fileModel
+		model: folderView.directory
 
 		cellWidth: folderView.config.grid_size + Kirigami.Units.gridUnit * 3
 		cellHeight: folderView.config.grid_size + Kirigami.Units.gridUnit * 3
@@ -87,7 +87,7 @@ Item {
 
 
 			onNavigate: (targetPath) => {
-				folderView.fileModel.open_path(targetPath)
+				folderView.directory.open_path(targetPath)
 			}
 		}
 	}

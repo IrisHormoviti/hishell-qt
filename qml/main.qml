@@ -12,22 +12,24 @@ Kirigami.ApplicationWindow {
 
 	WindowOverlay {}
 
-	FolderConfig {
-		id: folderConfig
+	Config {
+		id: config
 	}
 
-	FileModel {
-		id: fileModel
+	Directory {
+		id: directory
 	}
 
 	FileManager {
 		id: fileManager
 	}
 
+	property string initialPath: "."
+
 	Component.onCompleted: {
-		var startPath = typeof initialPath !== "undefined" ? initialPath : ".";
-		folderConfig.load(startPath);
-		fileModel.current_path = startPath;
+		var startPath = root.initialPath;
+		config.load(startPath);
+		directory.path = startPath;
 	}
 
 	pageStack.initialPage: Kirigami.Page {
@@ -78,9 +80,9 @@ Kirigami.ApplicationWindow {
 					}
 
 					LayoutEngine {
-						fileModel: fileModel
-						config: folderConfig
-						layoutString: String(folderConfig.header_layout)
+						directory: directory
+						config: config
+						layoutString: String(config.header_layout)
 						Layout.fillWidth: true
 					}
 
@@ -98,9 +100,9 @@ Kirigami.ApplicationWindow {
 
 			// Top Layout area
 			LayoutEngine {
-				fileModel: fileModel
-				config: folderConfig
-				layoutString: String(folderConfig.top_layout)
+				directory: directory
+				config: config
+				layoutString: String(config.top_layout)
 				Layout.fillWidth: true
 			}
 
@@ -111,9 +113,9 @@ Kirigami.ApplicationWindow {
 				spacing: 0
 
 				LayoutEngine {
-					fileModel: fileModel
-					config: folderConfig
-					layoutString: String(folderConfig.middle_layout)
+					directory: directory
+					config: config
+					layoutString: String(config.middle_layout)
 					Layout.fillHeight: true
 					Layout.fillWidth: true
 				}
@@ -121,9 +123,9 @@ Kirigami.ApplicationWindow {
 
 			// Bottom Layout area
 			LayoutEngine {
-				fileModel: fileModel
-				config: folderConfig
-				layoutString: String(folderConfig.bottom_layout)
+				directory: directory
+				config: config
+				layoutString: String(config.bottom_layout)
 				Layout.fillWidth: true
 			}
 		}

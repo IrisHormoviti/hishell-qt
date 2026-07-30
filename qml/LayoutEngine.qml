@@ -8,8 +8,8 @@ RowLayout {
 	id: layoutEngine
 	property string layoutString: "[]"
 
-	required property FileModel fileModel
-	required property FolderConfig config
+	required property Directory directory
+	required property Config config
 
 	property var layoutItems: {
 		try {
@@ -39,9 +39,9 @@ RowLayout {
 			if (component.status === Component.Ready) {
 				var obj = component.createObject(layoutEngine);
 				if (obj) {
-					if ("fileModel" in obj) {
-						obj.fileModel = Qt.binding(function () {
-							return layoutEngine.fileModel;
+					if ("directory" in obj) {
+						obj.directory = Qt.binding(function () {
+							return layoutEngine.directory;
 						});
 					}
 					if ("config" in obj) {

@@ -64,7 +64,7 @@ MenuBar {
 				}
 
 				Kirigami.NavigationTabButton {
-					text: "This Directory"
+					text: "Here"
 				}
 			}
 		}

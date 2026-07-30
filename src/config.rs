@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 /// Loads and combines the default config with a folder's `.meta` config.
-pub fn load_folder_config(path: &Path) -> HashMap<String, HashMap<String, ConfigValue>> {
+pub fn load(path: &Path) -> HashMap<String, HashMap<String, ConfigValue>> {
 	let default_cfg = Path::new("config/default.cfg");
 	let meta_path = path.join(".meta");
 	ConfigParser::parse_files(&[default_cfg, &meta_path])
@@ -12,7 +12,7 @@ pub fn load_folder_config(path: &Path) -> HashMap<String, HashMap<String, Config
 
 /// Retrieves a string property from a folder's config.
 pub fn get_string(path: &Path, section: &str, key: &str) -> Option<String> {
-	let parsed = load_folder_config(path);
+	let parsed = load(path);
 	if let Some(ConfigValue::String(val)) = parsed.get(section).and_then(|sec| sec.get(key)) {
 		Some(val.clone())
 	} else {
@@ -20,7 +20,7 @@ pub fn get_string(path: &Path, section: &str, key: &str) -> Option<String> {
 	}
 }
 
-/// Resolves the icon for a given folder path from its config.
+/// Resolves an image for a given folder path from its config.
 pub fn get_image(path: &Path, section: &str, key: &str) -> Option<String> {
 	if let Some(icon) = get_string(path, section, key) {
 		let rel = path.join(&icon);
@@ -47,30 +47,30 @@ pub fn get_image(path: &Path, section: &str, key: &str) -> Option<String> {
 }
 
 #[derive(QObject, Default)]
-pub struct FolderConfig {
+pub struct Config {
 	base: qt_base_class!(trait QObject),
 
-	title: qt_property!(QString; NOTIFY config_changed),
-	icon: qt_property!(QString; NOTIFY config_changed),
-	wallpaper: qt_property!(QString; NOTIFY config_changed),
+	title: qt_property!(String; NOTIFY config_changed),
+	icon: qt_property!(String; NOTIFY config_changed),
+	wallpaper: qt_property!(String; NOTIFY config_changed),
 
-	top_layout: qt_property!(QString; NOTIFY config_changed),
-	middle_layout: qt_property!(QString; NOTIFY config_changed),
-	bottom_layout: qt_property!(QString; NOTIFY config_changed),
-	header_layout: qt_property!(QString; NOTIFY config_changed),
+	top_layout: qt_property!(String; NOTIFY config_changed),
+	middle_layout: qt_property!(String; NOTIFY config_changed),
+	bottom_layout: qt_property!(String; NOTIFY config_changed),
+	header_layout: qt_property!(String; NOTIFY config_changed),
 
 	grid_size: qt_property!(i32; NOTIFY config_changed),
 	stash_dotfiles: qt_property!(bool; NOTIFY config_changed),
 	arbitrary_placement: qt_property!(bool; NOTIFY config_changed),
-	arbitrary_positions: qt_property!(QString; NOTIFY config_changed),
+	arbitrary_positions: qt_property!(String; NOTIFY config_changed),
 
 	config_changed: qt_signal!(),
 
 	load: qt_method!(
-		fn load(&mut self, path: QString) {
+		pub fn load(&mut self, path: String) {
 			let path_str = path.to_string();
 			let path_buf = Path::new(&path_str);
-			let parsed = load_folder_config(path_buf);
+			let parsed = load(path_buf);
 
 			self.title = "".into();
 			self.icon = "./.icon".into();
@@ -90,7 +90,7 @@ pub struct FolderConfig {
 
 			if let Some(ConfigValue::String(v)) = get("DISPLAY", "Title") { self.title = v.clone().into(); }
 			if let Some(ConfigValue::String(v)) = get("DISPLAY", "Icon") { self.icon = v.clone().into(); }
-			if let Some(ConfigValue::String(v)) = get("DISPLAY", "Wallpaper") { self.icon = v.clone().into(); }
+			if let Some(ConfigValue::String(v)) = get("DISPLAY", "Wallpaper") { self.wallpaper = v.clone().into(); }
 
 			if let Some(v @ ConfigValue::Array(_)) = get("LAYOUT", "Top") { self.top_layout = v.to_json_string().into(); }
 			if let Some(v @ ConfigValue::Array(_)) = get("LAYOUT", "Middle") { self.middle_layout = v.to_json_string().into(); }

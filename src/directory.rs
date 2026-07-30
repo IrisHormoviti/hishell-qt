@@ -1,9 +1,13 @@
 #![allow(dead_code)]
 use cpp::cpp;
-use qmetaobject::prelude::*;
-use std::collections::HashMap;
 use std::fs;
+use std::collections::HashMap;
 use std::path::PathBuf;
+use qmetaobject::prelude::*;
+use qmetaobject::QObjectBox;
+
+use crate::config;
+use crate::config::Config;
 
 cpp! {{
 	#include <QtCore/QMimeDatabase>
@@ -11,7 +15,7 @@ cpp! {{
 	#include <QtCore/QString>
 }}
 
-pub fn get_icon_name(path: &str) -> String {
+pub fn get_icon(path: &str) -> String {
 	if std::path::Path::new(path).is_dir() {
 		return get_folder_icon(path);
 	} else {
@@ -30,7 +34,7 @@ pub fn get_folder_icon(path: &str) -> String {
 	let abs_path = std::fs::canonicalize(path_buf).unwrap_or_else(|_| path_buf.to_path_buf());
 
 	// Check folder config
-	if let Some(icon) = crate::folder_config::get_image(&abs_path, "DISPLAY", "Iocn") {
+	if let Some(icon) = config::get_image(&abs_path, "DISPLAY", "Iocn") {
 		if !icon.is_empty() {
 			return icon;
 		}
@@ -113,18 +117,19 @@ pub struct FileItem {
 }
 
 #[derive(QObject, Default)]
-pub struct FileModel {
+pub struct Directory {
 	base: qt_base_class!(trait QAbstractListModel),
-
 	items: Vec<FileItem>,
+	config: QObjectBox<Config>,
+	config_changed: qt_signal!(),
 
-	current_path: qt_property!(QString; READ get_current_path WRITE set_current_path NOTIFY current_path_changed),
-	current_path_str: String,
-	current_path_changed: qt_signal!(),
+	path: qt_property!(String; READ get_path WRITE set_path NOTIFY path_changed),
+	path_str: String,
+	path_changed: qt_signal!(),
 
-	get_icon_name: qt_method!(
-		fn get_icon_name(&self, path: QString) -> QString {
-			get_icon_name(&path.to_string()).into()
+	get_icon: qt_method!(
+		fn get_icon(&self, path: QString) -> QString {
+			get_icon(&path.to_string()).into()
 		}
 	),
 
@@ -134,7 +139,7 @@ pub struct FileModel {
 			if path_buf.is_file() {
 				open_file(path)
 			} else {
-				self.set_current_path(path.into());
+				self.set_path(path.into());
 			}
 		}
 	),
@@ -154,38 +159,48 @@ pub struct FileModel {
 
 					let p = entry.path().to_string_lossy().to_string();
 					let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
-					let icon = get_icon_name(&p).into();
+					let icon = get_icon(&p).into();
 
 					self.items.push(FileItem {
 						name: name.into(),
-						path: p.into(),
-						is_dir,
-						icon,
+									path: p.into(),
+									is_dir,
+									icon,
 					});
 				}
 			}
 
 			self.items
-				.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then(a.name.cmp(&b.name)));
+			.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then(a.name.cmp(&b.name)));
 
 			self.end_reset_model();
 		}
-	),
+	)
 }
 
-impl FileModel {
-	pub fn get_current_path(&self) -> QString {
-		self.current_path_str.clone().into()
+impl Directory {
+	pub fn get_path(&self) -> String {
+		self.path_str.clone().into()
 	}
 
-	pub fn set_current_path(&mut self, path: QString) {
-		let p = path.to_string();
-		self.current_path_str = p.clone();
-		self.current_path_changed();
+	pub fn set_path(&mut self, path: String) {
+		let path_buf = std::path::Path::new(&path);
+
+		let abs_path = std::fs::canonicalize(path_buf)
+		.unwrap_or_else(|_| path_buf.to_path_buf());
+
+		let abs_str = abs_path.to_string_lossy().to_string();
+
+		self.path_str = abs_str.clone();
+		self.load_directory(abs_str, false);
+		self.config.pinned().borrow_mut().load(path);
+
+		self.path_changed();
+		self.config_changed();
 	}
 }
 
-impl QAbstractListModel for FileModel {
+impl QAbstractListModel for Directory {
 	fn row_count(&self) -> i32 {
 		self.items.len() as i32
 	}

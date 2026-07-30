@@ -10,8 +10,8 @@ RowLayout {
 	id: pathBar
 	spacing: Kirigami.Units.smallSpacing
 
-	property FileModel fileModel
-	property string currentPath: pathBar.fileModel ? pathBar.fileModel.current_path : ""
+	property Directory directory
+	property string currentPath: pathBar.directory ? pathBar.directory.path : ""
 
 	property var segments: {
 		var p = pathBar.currentPath;
@@ -85,7 +85,7 @@ RowLayout {
 
 					Kirigami.Icon {
 						visible: delegateRoot.index === pathBar.segments.length - 1
-						source: pathBar.fileModel ? pathBar.fileModel.get_icon_name(pathBar.pathForIndex(delegateRoot.index)) : ""
+						source: pathBar.directory ? pathBar.directory.get_icon(pathBar.pathForIndex(delegateRoot.index)) : ""
 						Layout.preferredWidth: Kirigami.Units.iconSizes.small
 						Layout.preferredHeight: Kirigami.Units.iconSizes.small
 					}
@@ -101,7 +101,7 @@ RowLayout {
 
 				onClicked: {
 					var target = pathBar.pathForIndex(delegateRoot.index);
-					pathBar.fileModel.current_path = target;
+					pathBar.directory.path = target;
 				}
 			}
 		}

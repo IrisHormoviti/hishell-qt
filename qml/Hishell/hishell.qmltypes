@@ -2,10 +2,10 @@ import QtQuick.tooling 1.2
 
 Module {
 	Component {
-		name: "FolderConfig"
+		name: "Config"
 		defaultProperty: "data"
 			prototype: "QObject"
-			exports: ["Hishell/FolderConfig 1.0"]
+			exports: ["Hishell/Config 1.0"]
 
 			Property { name: "title"; type: "string" }
 			Property { name: "icon"; type: "string" }
@@ -26,12 +26,13 @@ Module {
 	}
 
 	Component {
-		name: "FileModel"
+		name: "Directory"
 		defaultProperty: "data"
 			prototype: "QObject"
-			exports: ["Hishell/FileModel 1.0"]
+			exports: ["Hishell/Directory 1.0"]
 
-			Property { name: "current_path"; type: "string" }
+			Property { name: "path"; type: "string" }
+
 
 			Method {
 				name: "load_directory"; type: "QStringList"
@@ -41,6 +42,11 @@ Module {
 
 			Method {
 				name: "open_path";
+				Parameter { name: "path"; type: "string"}
+			}
+
+			Method {
+				name: "get_icon";
 				Parameter { name: "path"; type: "string"}
 			}
 	}

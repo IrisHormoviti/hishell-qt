@@ -1,12 +1,12 @@
 mod config_parser;
 mod file_manager;
-mod file_model;
-mod folder_config;
+mod directory;
+mod config;
 mod desktop_entry;
 
 use crate::file_manager::FileManager;
-use crate::file_model::FileModel;
-use crate::folder_config::FolderConfig;
+use crate::directory::Directory;
+use crate::config::Config;
 use qmetaobject::prelude::*;
 
 fn main() {
@@ -30,8 +30,8 @@ fn main() {
 			.unwrap_or_else(|_| ".".to_string())
 	};
 
-	qmetaobject::qml_register_type::<FolderConfig>(IMPORT_NAME, 1, 0, c"FolderConfig");
-	qmetaobject::qml_register_type::<FileModel>(IMPORT_NAME, 1, 0, c"FileModel");
+	qmetaobject::qml_register_type::<Config>(IMPORT_NAME, 1, 0, c"Config");
+	qmetaobject::qml_register_type::<Directory>(IMPORT_NAME, 1, 0, c"Directory");
 	qmetaobject::qml_register_type::<FileManager>(IMPORT_NAME, 1, 0, c"FileManager");
 
 	let mut engine = QmlEngine::new();

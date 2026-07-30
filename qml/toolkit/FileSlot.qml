@@ -9,7 +9,7 @@ Item {
 	width: GridView.view.cellWidth
 	height: GridView.view.cellHeight
 
-	required property FolderConfig config
+	required property Config config
 
 	required property string name
 	required property bool is_dir
