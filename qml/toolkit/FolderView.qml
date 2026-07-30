@@ -8,7 +8,7 @@ import "../Hishell"
 Item {
 	id: folderView
 	property Directory directory
-	property Config config
+	property Config config: directory.config
 
 	Layout.fillWidth: true
 	Layout.fillHeight: true
@@ -62,12 +62,20 @@ Item {
 		restoreMode: Binding.RestoreBindingOrValue
 	}
 
-    Rectangle {
-        anchors.fill: parent
-        color: Kirigami.Theme.backgroundColor
-        radius: 8
-        anchors.margins: 4
-    }
+	Image {
+		id: wallpaper
+		anchors.fill: parent
+		source: String(folderView.config ? folderView.config.wallpaper : "")
+		fillMode: Image.PreserveAspectCrop
+		visible: status === Image.Ready
+	}
+
+	Rectangle {
+		anchors.fill: parent
+		color: wallpaper.status === Image.Ready ? "transparent" : Kirigami.Theme.backgroundColor
+		radius: 8
+		anchors.margins: 4
+	}
 
 	GridView {
 		anchors.fill: parent
@@ -83,8 +91,7 @@ Item {
 		cellHeight: folderView.config.grid_size + Kirigami.Units.gridUnit * 3
 
 		delegate: FileSlot {
-			config: folderView.config
-
+			gridSize: folderView.config.grid_size
 
 			onNavigate: (targetPath) => {
 				folderView.directory.open_path(targetPath)

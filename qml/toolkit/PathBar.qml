@@ -85,7 +85,7 @@ RowLayout {
 
 					Kirigami.Icon {
 						visible: delegateRoot.index === pathBar.segments.length - 1
-						source: pathBar.directory ? pathBar.directory.get_icon(pathBar.pathForIndex(delegateRoot.index)) : ""
+						source: pathBar.directory ? String(pathBar.directory.icon) : ""
 						Layout.preferredWidth: Kirigami.Units.iconSizes.small
 						Layout.preferredHeight: Kirigami.Units.iconSizes.small
 					}

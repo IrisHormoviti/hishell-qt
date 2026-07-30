@@ -1,20 +1,21 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
-import "../Hishell"
+
 
 Item {
 	id: fileSlot
 	width: GridView.view.cellWidth
 	height: GridView.view.cellHeight
 
-	required property Config config
-
-	required property string name
-	required property bool is_dir
 	required property string path
 	required property string icon
+	required property string title
+
+	property int gridSize: 64
 
 	signal navigate(string targetPath)
 
@@ -25,16 +26,17 @@ Item {
 		Kirigami.Icon {
 			Layout.alignment: Qt.AlignHCenter
 			source: fileSlot.icon
-			Layout.preferredWidth: fileSlot.config.grid_size
-			Layout.preferredHeight: fileSlot.config.grid_size
+			Layout.preferredWidth: fileSlot.gridSize
+			Layout.preferredHeight: fileSlot.gridSize
 		}
 
 		Label {
+			id: labelItem
 			Layout.alignment: Qt.AlignHCenter
-			text: fileSlot.name
+			text: fileSlot.title
 			color: Kirigami.Theme.textColor
 			elide: Text.ElideMiddle
-			Layout.maximumWidth: fileSlot.config.grid_size + Kirigami.Units.gridUnit * 2
+			Layout.maximumWidth: fileSlot.gridSize + Kirigami.Units.gridUnit * 2
 			horizontalAlignment: Text.AlignHCenter
 		}
 	}

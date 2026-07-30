@@ -32,7 +32,9 @@ Module {
 			exports: ["Hishell/Directory 1.0"]
 
 			Property { name: "path"; type: "string" }
-
+			Property { name: "title"; type: "string"}
+			Property { name: "config"; type: "Config"}
+			Property { name: "icon"; type: "string"}
 
 			Method {
 				name: "load_directory"; type: "QStringList"
@@ -42,11 +44,6 @@ Module {
 
 			Method {
 				name: "open_path";
-				Parameter { name: "path"; type: "string"}
-			}
-
-			Method {
-				name: "get_icon";
 				Parameter { name: "path"; type: "string"}
 			}
 	}

@@ -12,10 +12,6 @@ Kirigami.ApplicationWindow {
 
 	WindowOverlay {}
 
-	Config {
-		id: config
-	}
-
 	Directory {
 		id: directory
 	}
@@ -28,7 +24,7 @@ Kirigami.ApplicationWindow {
 
 	Component.onCompleted: {
 		var startPath = root.initialPath;
-		config.load(startPath);
+		directory.config.load(startPath);
 		directory.path = startPath;
 	}
 
@@ -81,8 +77,7 @@ Kirigami.ApplicationWindow {
 
 					LayoutEngine {
 						directory: directory
-						config: config
-						layoutString: String(config.header_layout)
+						layoutString: String(directory.config.header_layout)
 						Layout.fillWidth: true
 					}
 
@@ -93,7 +88,7 @@ Kirigami.ApplicationWindow {
 				}
 			}
 
-			// Thin separator line
+			// Separator line
 			Kirigami.Separator {
 				Layout.fillWidth: true
 			}
@@ -101,8 +96,7 @@ Kirigami.ApplicationWindow {
 			// Top Layout area
 			LayoutEngine {
 				directory: directory
-				config: config
-				layoutString: String(config.top_layout)
+				layoutString: String(directory.config.top_layout)
 				Layout.fillWidth: true
 			}
 
@@ -114,8 +108,7 @@ Kirigami.ApplicationWindow {
 
 				LayoutEngine {
 					directory: directory
-					config: config
-					layoutString: String(config.middle_layout)
+					layoutString: String(directory.config.middle_layout)
 					Layout.fillHeight: true
 					Layout.fillWidth: true
 				}
@@ -124,8 +117,7 @@ Kirigami.ApplicationWindow {
 			// Bottom Layout area
 			LayoutEngine {
 				directory: directory
-				config: config
-				layoutString: String(config.bottom_layout)
+				layoutString: String(directory.config.bottom_layout)
 				Layout.fillWidth: true
 			}
 		}

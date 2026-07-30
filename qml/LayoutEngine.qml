@@ -9,7 +9,6 @@ RowLayout {
 	property string layoutString: "[]"
 
 	required property Directory directory
-	required property Config config
 
 	property var layoutItems: {
 		try {
@@ -46,7 +45,7 @@ RowLayout {
 					}
 					if ("config" in obj) {
 						obj.config = Qt.binding(function () {
-							return layoutEngine.config;
+							return layoutEngine.directory.config;
 						});
 					}
 					layoutEngine._createdItems.push(obj);
