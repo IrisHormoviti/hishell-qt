@@ -34,25 +34,53 @@ RowLayout {
 		layoutEngine._createdItems = [];
 
 		for (var j = 0; j < layoutEngine.layoutItems.length; j++) {
-			var component = Qt.createComponent(layoutEngine.layoutItems[j] + ".qml");
-			if (component.status === Component.Ready) {
-				var obj = component.createObject(layoutEngine);
-				if (obj) {
-					if ("directory" in obj) {
-						obj.directory = Qt.binding(function () {
-							return layoutEngine.directory;
-						});
+			(function (itemSpec) {
+				var isPath = itemSpec.startsWith("/") || itemSpec.startsWith(".") || itemSpec.startsWith("~");
+				var componentFile = isPath ? "FolderView.qml" : itemSpec + ".qml";
+
+				var component = Qt.createComponent(componentFile);
+				if (component.status === Component.Ready) {
+					var obj = component.createObject(layoutEngine);
+					if (obj) {
+						if ("windowDirectory" in obj) {
+							obj.windowDirectory = Qt.binding(function () {
+								return layoutEngine.directory;
+							});
+						}
+
+						if (isPath) {
+							var customDir = Qt.createQmlObject('import "Hishell"; Directory {}', obj);
+							if (customDir) {
+								customDir.path = Qt.binding(function () {
+									var base = layoutEngine.directory ? layoutEngine.directory.path : "";
+									if (itemSpec.startsWith("/")) {
+										return itemSpec;
+									}
+									if (!base)
+										return itemSpec;
+									return base + "/" + itemSpec;
+								});
+								obj.directory = customDir;
+								layoutEngine._createdItems.push(customDir);
+							}
+						} else {
+							if ("directory" in obj) {
+								obj.directory = Qt.binding(function () {
+									return layoutEngine.directory;
+								});
+							}
+							if ("config" in obj) {
+								obj.config = Qt.binding(function () {
+									return layoutEngine.directory.config;
+								});
+							}
+						}
+						layoutEngine._createdItems.push(obj);
 					}
-					if ("config" in obj) {
-						obj.config = Qt.binding(function () {
-							return layoutEngine.directory.config;
-						});
-					}
-					layoutEngine._createdItems.push(obj);
+				} else if (component.status === Component.Error) {
+					console.error(component.errorString());
 				}
-			} else if (component.status === Component.Error) {
-				console.error(component.errorString());
-			}
+			})(layoutEngine.layoutItems[j]);
 		}
 	}
 }

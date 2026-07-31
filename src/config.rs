@@ -2,6 +2,7 @@ use crate::config_parser::{ConfigParser, ConfigValue};
 use qmetaobject::prelude::*;
 use std::collections::HashMap;
 use std::path::Path;
+use dirs
 
 /// Loads and combines the default config with a folder's `.meta` config.
 pub fn load_path(path: &Path) -> HashMap<String, HashMap<String, ConfigValue>> {
@@ -60,6 +61,8 @@ pub struct Config {
 	pub header_layout: qt_property!(String; NOTIFY config_changed),
 
 	pub grid_size: qt_property!(i32; NOTIFY config_changed),
+	pub show_labels: qt_property!(bool; NOTIFY config_changed),
+	pub view_mode: qt_property!(i16; NOTIFY config_changed),
 	pub stash_dotfiles: qt_property!(bool; NOTIFY config_changed),
 	pub arbitrary_placement: qt_property!(bool; NOTIFY config_changed),
 	pub arbitrary_positions: qt_property!(String; NOTIFY config_changed),
@@ -72,40 +75,52 @@ pub struct Config {
 			let path_buf = Path::new(&path_str);
 			let parsed = load_path(path_buf);
 
-			self.title = "".into();
-			self.icon = "./.icon".into();
+			let get = |sec, key| parsed.get(sec).and_then(|s| s.get(key));
+
+			let get_str = |sec, key, default: &str| {
+				if let Some(ConfigValue::String(v)) = get(sec, key) { v.clone() } else { default.to_string() }
+			};
+			let get_bool = |sec, key, default| {
+				if let Some(ConfigValue::Boolean(b)) = get(sec, key) { *b } else { default }
+			};
+			let get_num = |sec, key, default| {
+				if let Some(ConfigValue::Number(n)) = get(sec, key) { *n as i32 } else { default }
+			};
+			let get_json = |sec, key, default: &str| {
+				match get(sec, key) {
+					Some(v @ ConfigValue::Array(_)) | Some(v @ ConfigValue::Dictionary(_)) => v.to_json_string(),
+					 _ => default.to_string(),
+				}
+			};
+
+			self.title = get_str("DISPLAY", "Title", "").into();
+			self.icon = get_image(path_buf, "DISPLAY", "Icon")
+				.map(|p| if p.starts_with('/') { format!("file://{}", p) } else { p })
+				.unwrap_or_default();
 			self.wallpaper = get_image(path_buf, "DISPLAY", "Wallpaper")
 				.map(|p| if p.starts_with('/') { format!("file://{}", p) } else { p })
 				.unwrap_or_default();
 
-			self.top_layout = "[]".into();
-			self.middle_layout = "[\"toolkit/FolderView\"]".into();
-			self.bottom_layout = "[]".into();
-			self.header_layout = "[\"toolkit/PathBar\", \"toolkit/Spacer\", \"toolkit/MenuBar\"]".into();
+			self.top_layout = get_json("LAYOUT", "Top", "[]").into();
+			self.middle_layout = get_json("LAYOUT", "Middle", r#"["./"]"#).into();
+			self.bottom_layout = get_json("LAYOUT", "Bottom", "[]").into();
+			self.header_layout = get_json("LAYOUT", "Header", r#"["toolkit/PathBar, "toolkit/Spacer", "toolkit/MenuBar"]"#).into();
 
-			self.grid_size = 64;
-			self.stash_dotfiles = true;
-			self.arbitrary_placement = false;
-			self.arbitrary_positions = "{}".into();
+			self.grid_size = get_num("VIEW", "GridSize", 64);
+			self.show_labels = get_bool("VIEW", "ShowLabels", true);
 
-			let get = |sec, key| parsed.get(sec)?.get(key);
+			self.view_mode = match get_str("VIEW", "ViewMode", "GRID").to_uppercase().as_str() {
+				"LIST" => 1,
+				_ => 0,
+			};
 
-			if let Some(ConfigValue::String(v)) = get("DISPLAY", "Title") { self.title = v.clone().into(); }
-			if let Some(ConfigValue::String(v)) = get("DISPLAY", "Icon") { self.icon = v.clone().into(); }
-
-			if let Some(v @ ConfigValue::Array(_)) = get("LAYOUT", "Top") { self.top_layout = v.to_json_string().into(); }
-			if let Some(v @ ConfigValue::Array(_)) = get("LAYOUT", "Middle") { self.middle_layout = v.to_json_string().into(); }
-			if let Some(v @ ConfigValue::Array(_)) = get("LAYOUT", "Bottom") { self.bottom_layout = v.to_json_string().into(); }
-			if let Some(v @ ConfigValue::Array(_)) = get("LAYOUT", "Header") { self.header_layout = v.to_json_string().into(); }
-
-			if let Some(ConfigValue::Number(n)) = get("VIEW", "GridSize") { self.grid_size = *n as i32; }
-			if let Some(ConfigValue::Boolean(b)) = get("VIEW", "StashDotFiles") { self.stash_dotfiles = *b; }
-			if let Some(ConfigValue::Boolean(b)) = get("VIEW", "ArbitraryPlacement") { self.arbitrary_placement = *b; }
-			if let Some(v @ ConfigValue::Dictionary(_)) = get("VIEW", "ArbitraryPlacementPositions") {
-				self.arbitrary_positions = v.to_json_string().into();
-			}
+			self.stash_dotfiles = get_bool("VIEW", "StashDotFiles", true);
+			self.arbitrary_placement = get_bool("VIEW", "ArbitraryPlacement", false);
+			self.arbitrary_positions = get_json("VIEW", "ArbitraryPlacementPositions", "{}").into();
 
 			self.config_changed();
 		}
 	),
+
+
 }

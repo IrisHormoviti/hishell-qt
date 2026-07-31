@@ -3,12 +3,14 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
-import "../Hishell"
+import "Hishell"
+import "toolkit"
 
 Item {
 	id: folderView
 	property Directory directory
 	property Config config: directory.config
+	property Directory windowDirectory: folderView.directory
 
 	Layout.fillWidth: true
 	Layout.fillHeight: true
@@ -53,7 +55,7 @@ Item {
 		return name !== "" ? name : "/";
 	}
 
-    Kirigami.Theme.colorSet: Kirigami.Theme.View
+	Kirigami.Theme.colorSet: Kirigami.Theme.View
 
 	Binding {
 		target: folderView.Window.window
@@ -94,7 +96,7 @@ Item {
 			gridSize: folderView.config.grid_size
 
 			onNavigate: (targetPath) => {
-				folderView.directory.open_path(targetPath)
+				(folderView.windowDirectory || folderView.directory).open_path(targetPath)
 			}
 		}
 	}

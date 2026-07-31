@@ -16,15 +16,16 @@ Item {
 	required property string title
 
 	property int gridSize: 64
+	property bool labelBesideIcon: gridSize < 32
 
 	signal navigate(string targetPath)
 
-	ColumnLayout {
+	GridLayout {
 		anchors.centerIn: parent
-		spacing: Kirigami.Units.smallSpacing
+		columns: fileSlot.labelBesideIcon ? 2 : 1
 
 		Kirigami.Icon {
-			Layout.alignment: Qt.AlignHCenter
+			Layout.alignment: fileSlot.labelBesideIcon ? Qt.AlignVCenter : Qt.AlignHCenter
 			source: fileSlot.icon
 			Layout.preferredWidth: fileSlot.gridSize
 			Layout.preferredHeight: fileSlot.gridSize
@@ -32,12 +33,14 @@ Item {
 
 		Label {
 			id: labelItem
-			Layout.alignment: Qt.AlignHCenter
+			Layout.alignment: fileSlot.labelBesideIcon ? Qt.AlignVCenter : Qt.AlignHCenter
 			text: fileSlot.title
 			color: Kirigami.Theme.textColor
 			elide: Text.ElideMiddle
-			Layout.maximumWidth: fileSlot.gridSize + Kirigami.Units.gridUnit * 2
-			horizontalAlignment: Text.AlignHCenter
+			Layout.maximumWidth: fileSlot.labelBesideIcon
+			? fileSlot.width - fileSlot.gridSize - Kirigami.Units.gridUnit * 2
+			: fileSlot.gridSize + Kirigami.Units.gridUnit * 2
+			horizontalAlignment: fileSlot.labelBesideIcon ? Text.AlignLeft : Text.AlignHCenter
 		}
 	}
 
