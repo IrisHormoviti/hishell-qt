@@ -34,6 +34,10 @@ Item {
 				folderView.directory.load_directory(folderView.directory.path, !folderView.config.stash_dotfiles);
 			}
 		}
+		function onConfig_changed() {
+			console.log("we got em")
+			folderView.directory.load_directory(folderView.directory.path, !folderView.config.stash_dotfiles);
+		}
 	}
 
 	property var positions: {
@@ -79,24 +83,30 @@ Item {
 		anchors.margins: 4
 	}
 
-	GridView {
+	Flickable {
 		anchors.fill: parent
-		anchors.margins: Kirigami.Units.largeSpacing
+		anchors.margins: Kirigami.Units.mediumSpacing
+		contentWidth: width
+		contentHeight: flowLayout.height
 
-		// Align content to the top-left
-		flow: GridView.FlowLeftToRight
-		verticalLayoutDirection: GridView.TopToBottom
+		Flow {
+			id: flowLayout
+			width: parent.width
+			spacing: Kirigami.Units.mediumSpacing
 
-		model: folderView.directory
+			Repeater {
+				model: folderView.directory
 
-		cellWidth: folderView.config.grid_size + Kirigami.Units.gridUnit * 3
-		cellHeight: folderView.config.grid_size + Kirigami.Units.gridUnit * 3
+				delegate: FileSlot {
+					width: labelBesideIcon ? Kirigami.Units.gridUnit * 10 : gridSize + Kirigami.Units.gridUnit * 3
+					height: labelBesideIcon ? Kirigami.Units.gridUnit * 2 : gridSize + Kirigami.Units.gridUnit * 3
 
-		delegate: FileSlot {
-			gridSize: folderView.config.grid_size
+					gridSize: folderView.config.grid_size
 
-			onNavigate: (targetPath) => {
-				(folderView.windowDirectory || folderView.directory).open_path(targetPath)
+					onNavigate: (targetPath) => {
+						(folderView.windowDirectory || folderView.directory).open_path(targetPath)
+					}
+				}
 			}
 		}
 	}

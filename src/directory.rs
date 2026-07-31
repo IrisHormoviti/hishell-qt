@@ -35,6 +35,7 @@ pub struct Directory {
 
 	title: qt_property!(String; READ get_title),
 	icon: qt_property!(String; READ get_icon NOTIFY path_changed),
+	has_meta: qt_property!(bool; READ get_has_meta NOTIFY path_changed),
 
 	path: qt_property!(String; READ get_path WRITE set_path NOTIFY path_changed),
 	path_str: String,
@@ -48,6 +49,19 @@ pub struct Directory {
 			} else {
 				self.set_path(path);
 			}
+		}
+	),
+
+	set_config: qt_method!(
+		pub fn set_config(&mut self, section: String, key: String, value: String, local: bool) {
+			self.config.pinned().borrow_mut()._set(Path::new(&self.path_str), &section, &key, &value, local);
+			self.config_changed();
+		}
+	),
+
+	refresh: qt_method!(
+		pub fn refresh(&mut self) {
+			self.path_changed()
 		}
 	),
 
@@ -107,6 +121,13 @@ impl Directory {
 			return "folder".to_string();
 		}
 		get_icon(&self.path_str)
+	}
+
+	pub fn get_has_meta(&self) -> bool {
+		if self.path_str.is_empty() {
+			return false;
+		}
+		Path::new(&self.path_str).join(".meta").is_file()
 	}
 
 	pub fn set_path(&mut self, path: String) {
@@ -179,8 +200,8 @@ pub fn get_item_title(path: &Path) -> String {
 	}
 
 	path.file_name()
-		.map(|name| name.to_string_lossy().to_string())
-		.unwrap_or_else(|| path.to_string_lossy().to_string())
+	.map(|name| name.to_string_lossy().to_string())
+	.unwrap_or_else(|| path.to_string_lossy().to_string())
 }
 
 pub fn get_icon(path: &str) -> String {
@@ -201,20 +222,17 @@ pub fn get_folder_icon(path: &str) -> String {
 	let path_buf = Path::new(path);
 	let abs_path = std::fs::canonicalize(path_buf).unwrap_or_else(|_| path_buf.to_path_buf());
 
-	// Passing &abs_path (&PathBuf) auto-coerces to &Path
 	if let Some(icon) = config::get_image(&abs_path, "DISPLAY", "Icon") {
 		if !icon.is_empty() {
 			return icon;
 		}
 	}
 
-	// Check .directory
 	let dot_directory = abs_path.join(".directory");
 	if let Some(icon) = crate::desktop_entry::get_icon(&dot_directory) {
 		return icon;
 	}
 
-	// XDG Special folders
 	if let Some(home) = dirs::home_dir().and_then(|h| std::fs::canonicalize(h).ok()) {
 		if abs_path == home {
 			return "user-home".to_string();
@@ -242,7 +260,6 @@ pub fn get_folder_icon(path: &str) -> String {
 		}
 	}
 
-	// fallback
 	"folder".to_string()
 }
 

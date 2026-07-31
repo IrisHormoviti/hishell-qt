@@ -30,9 +30,9 @@ impl ConfigValue {
 			}
 			ConfigValue::Dictionary(dict) => {
 				let items: Vec<String> = dict
-					.iter()
-					.map(|(k, v)| format!("\"{}\":{}", k, v.to_json_string()))
-					.collect();
+				.iter()
+				.map(|(k, v)| format!("\"{}\":{}", k, v.to_json_string()))
+				.collect();
 				format!("{{{}}}", items.join(","))
 			}
 			ConfigValue::Vector2(x, y) => {
@@ -88,6 +88,51 @@ impl ConfigParser {
 			}
 		}
 		config
+	}
+
+	pub fn set_value(path: &Path, section: &str, key: &str, value: &str) {
+		let content = fs::read_to_string(path).unwrap_or_default();
+		let mut out = String::new();
+		let mut in_section = false;
+		let mut replaced = false;
+
+		for line in content.lines() {
+			let trimmed = line.trim();
+
+			if trimmed.starts_with('[') && trimmed.ends_with(']') {
+				if in_section && !replaced {
+					out.push_str(&format!("{}={}\n", key, value));
+					replaced = true;
+				}
+				in_section = trimmed == format!("[{}]", section);
+			} else if in_section && trimmed.starts_with(key) {
+				if let Some((k, _)) = trimmed.split_once('=') {
+					if k.trim() == key {
+						out.push_str(&format!("{}={}\n", key, value));
+						replaced = true;
+						continue;
+					}
+				}
+			}
+
+			out.push_str(line);
+			out.push('\n');
+		}
+
+		if !replaced {
+			if !in_section {
+				out.push_str(&format!("\n[{}]\n", section));
+			}
+			out.push_str(&format!("{}={}\n", key, value));
+		}
+
+		if let Some(parent) = path.parent() {
+			let _ = fs::create_dir_all(parent);
+		}
+
+		if let Err(e) = fs::write(path, out) {
+			eprintln!("Failed to save config: {}", e);
+		}
 	}
 
 	fn parse_value(s: &str) -> ConfigValue {

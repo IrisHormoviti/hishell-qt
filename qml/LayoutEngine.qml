@@ -69,11 +69,6 @@ RowLayout {
 									return layoutEngine.directory;
 								});
 							}
-							if ("config" in obj) {
-								obj.config = Qt.binding(function () {
-									return layoutEngine.directory.config;
-								});
-							}
 						}
 						layoutEngine._createdItems.push(obj);
 					}

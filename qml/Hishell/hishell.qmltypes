@@ -31,6 +31,7 @@ Module {
 			prototype: "QObject"
 			exports: ["Hishell/Directory 1.0"]
 
+			Property { name: "has_meta"; type: "bool" }
 			Property { name: "path"; type: "string" }
 			Property { name: "title"; type: "string"}
 			Property { name: "config"; type: "Config"}
@@ -45,6 +46,10 @@ Module {
 			Method {
 				name: "open_path";
 				Parameter { name: "path"; type: "string"}
+			}
+
+			Method {
+				name: "refresh";
 			}
 	}
 

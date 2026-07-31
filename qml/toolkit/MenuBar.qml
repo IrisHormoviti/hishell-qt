@@ -1,104 +1,350 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
 MenuBar {
+	id: menuBar
+
+	property var directory
+	property var config: directory.config
+	property bool isLocal: directory.has_meta
+
+	Action {
+		id: newFolderAction
+		text: qsTr("New Folder")
+		shortcut: "Ctrl+Shift+N"
+		onTriggered: {}
+	}
+
+	Action {
+		id: newTextFileAction
+		text: qsTr("New Text File")
+		shortcut: "Alt+Shift+N"
+		onTriggered: {}
+	}
+
+	Action {
+		id: copyAction
+		text: qsTr("Copy")
+		shortcut: "Ctrl+C"
+		onTriggered: {}
+	}
+
+	Action {
+		id: cutAction
+		text: qsTr("Cut")
+		shortcut: Qt.CTRL | Qt.Key_X
+		onTriggered: {}
+	}
+
+	Action {
+		id: duplicateAction
+		text: qsTr("Duplicate")
+		shortcut: "Ctrl+D"
+		onTriggered: {}
+	}
+
+	Action {
+		id: linkAction
+		text: qsTr("Create Link")
+		shortcut: "Ctrl+S"
+		onTriggered: {}
+	}
+
+	Action {
+		id: renameAction
+		text: qsTr("Rename")
+		shortcut: "F2"
+		onTriggered: {}
+	}
+
+	Action {
+		id: increaseSizeAction
+		text: qsTr("Increase Size")
+		shortcut: "Ctrl+="
+		onTriggered: {
+			gridSizeSlider.value = Math.min(gridSizeSlider.value + 4, gridSizeSlider.to)
+		}
+	}
+
+	Action {
+		id: decreaseSizeAction
+		text: qsTr("Decrease Size")
+		shortcut: "Ctrl+-"
+		onTriggered: {
+			gridSizeSlider.value = Math.max(gridSizeSlider.value - 4, 0)
+		}
+	}
+
+	ButtonGroup {
+		id: viewModeGroup
+		onClicked: button => {
+			menuBar.directory.set_config("VIEW", "ViewMode", button.objectName, menuBar.isLocal);
+		}
+	}
+
+	ButtonGroup {
+		id: sortGroup
+		onClicked: button => {
+			menuBar.directory.set_config("VIEW", "Sort", button.objectName, menuBar.isLocal);
+		}
+	}
+
+	ButtonGroup {
+		id: sortDateMode
+		onClicked: button => {
+			menuBar.directory.set_config("VIEW", "SortDateMode", button.objectName, menuBar.isLocal);
+		}
+	}
+
+	ButtonGroup {
+		id: sortAlphaMode
+		onClicked: button => {
+			menuBar.directory.set_config("VIEW", "SortAlphaMode", button.objectName, menuBar.isLocal);
+		}
+	}
+
 	Menu {
 		title: qsTr("New")
+		popupType: Popup.Window
+
 		MenuItem {
 			text: qsTr("Folder")
 			icon.name: "folder-add"
-			onTriggered: {
-				// Handle new folder action
-			}
+			action: newFolderAction
 		}
 		MenuItem {
 			text: qsTr("Text File")
 			icon.name: "text-plain"
-			onTriggered: {
-				// Handle new file action
-			}
+			action: newTextFileAction
 		}
 	}
 
 	Menu {
 		title: qsTr("Edit")
+		popupType: Popup.Window
+
 		MenuItem {
 			text: qsTr("Copy")
 			icon.name: "edit-copy"
-			onTriggered: { /* ... */ }
+			action: copyAction
 		}
 		MenuItem {
 			text: qsTr("Cut")
 			icon.name: "edit-cut"
-			onTriggered: { /* ... */ }
+			action: cutAction
 		}
 		MenuItem {
 			text: qsTr("Duplicate")
 			icon.name: "edit-duplicate"
-			onTriggered: { /* ... */ }
+			action: duplicateAction
 		}
 		MenuItem {
-			text: qsTr("Link")
+			text: qsTr("Create Link");
 			icon.name: "edit-link"
-			onTriggered: { /* ... */ }
+			action: linkAction
 		}
 		MenuItem {
 			text: qsTr("Rename")
 			icon.name: "edit-rename"
-			onTriggered: { /* ... */ }
+			action: renameAction
 		}
 	}
 
 	Menu {
 		title: qsTr("View")
+		popupType: Popup.Window
 
-		MenuItem {
-			contentItem: RowLayout {
-				spacing: 2
+		onClosed: {
+			menuBar.directory.refresh();
+		}
 
-				Kirigami.NavigationTabButton {
-					text: "General"
-					checked: true
-				}
+		TabBar {
+			id: viewTabBar
+			Layout.fillWidth: true
+			currentIndex: menuBar.isLocal ? 1 : 0
 
-				Kirigami.NavigationTabButton {
-					text: "Here"
-				}
+			TabButton {
+				text: qsTr("General")
+				onClicked: menuBar.isLocal = false
+			}
+			TabButton {
+				text: qsTr("Here")
+				onClicked: menuBar.isLocal = true
 			}
 		}
 
+		MenuSeparator {}
+
 		MenuItem {
-			onTriggered: {
-				// optional code
-			}
-
 			contentItem: RowLayout {
-				spacing: 10
-
 				Label {
-					text: qsTr("Icon Size")
+					text: "Icon Size"
 				}
 
 				Slider {
-					from: 32
+					id: gridSizeSlider
+					value: menuBar.config.grid_size
+					from: 0
 					to: 128
-					value: 64
+					stepSize: 4
 					onMoved: {
-						// Handle slider value changes here
+						menuBar.directory.set_config("VIEW", "GridSize", value.toString(), menuBar.isLocal);
+						menuBar.directory.refresh()
 					}
+				}
+
+				TextMetrics {
+					id: charMetrics
+					text: "000"
+				}
+
+				Label {
+					text: gridSizeSlider.value
+					Layout.preferredWidth: charMetrics.width
+					horizontalAlignment: Text.AlignHCenter
 				}
 			}
 		}
 
+		MenuSeparator {}
 
 		MenuItem {
-			text: qsTr("Show Dotfiles")
-			checkable: true
-			// checked: config.stash_dotfiles // bind if applicable
-			onToggled: {
-				// Toggle config setting
+			contentItem: RowLayout {
+				spacing: 4
+
+				Label {
+					text: qsTr("View Mode")
+				}
+
+				ToolButton {
+					icon.name: "view-grid"
+					checkable: true
+					checked: menuBar.config.view_mode === 0
+					display: AbstractButton.IconOnly
+					ToolTip.text: qsTr("Grid View")
+					ToolTip.visible: hovered
+					ButtonGroup.group: viewModeGroup
+					objectName: "GRID"
+				}
+
+				ToolButton {
+					icon.name: "view-list-details"
+					checkable: true
+					checked: menuBar.config.view_mode === 1
+					display: AbstractButton.IconOnly
+					ToolTip.text: qsTr("List View")
+					ButtonGroup.group: viewModeGroup
+					ToolTip.visible: hovered
+					objectName: "LIST"
+				}
+			}
+		}
+
+		MenuSeparator {}
+
+		Menu {
+			title: qsTr("Sort By...")
+			icon.name: "view-sort"
+			popupType: Popup.Window
+
+			MenuItem {
+				text: qsTr("Newest")
+				checkable: true
+				ButtonGroup.group: sortGroup
+				checked: menuBar.config.sort === 0
+				objectName: "NEWEST"
+			}
+			MenuItem {
+				text: qsTr("Oldest")
+				checkable: true
+				ButtonGroup.group: sortGroup
+				checked: menuBar.config.sort === 1
+				objectName: "OLDEST"
+			}
+			Menu {
+				title: qsTr("Which date...")
+				popupType: Popup.Window
+
+				MenuItem {
+					text: qsTr("Modified")
+					checkable: true
+					ButtonGroup.group: sortDateMode
+					checked: menuBar.config.sort_date_mode === 0
+					objectName: "MODIFIED"
+				}
+				MenuItem {
+					text: qsTr("Created")
+					checkable: true
+					ButtonGroup.group: sortDateMode
+					checked: menuBar.config.sort_date_mode === 1
+					objectName: "CREATED"
+				}
+				MenuItem {
+					text: qsTr("Accessed")
+					checkable: true
+					ButtonGroup.group: sortDateMode
+					checked: menuBar.config.sort_date_mode === 2
+					objectName: "ACCESSED"
+				}
+			}
+
+			MenuSeparator { }
+
+			MenuItem {
+				text: qsTr("Alphabetical")
+				checkable: true
+				ButtonGroup.group: sortGroup
+				checked: menuBar.config.sort === 2
+				objectName: "ALPHABETICAL"
+			}
+
+			Menu {
+				title: qsTr("Which name...")
+				popupType: Popup.Window
+
+				MenuItem {
+					text: qsTr("Title")
+					checkable: true
+					ButtonGroup.group: sortAlphaMode
+					checked: menuBar.config.sort_alpha_mode === 0
+					objectName: "TITLES"
+				}
+				MenuItem {
+					text: qsTr("File Name")
+					checkable: true
+					ButtonGroup.group: sortAlphaMode
+					checked: menuBar.config.sort_alpha_mode === 1
+					objectName: "FILENAMES"
+				}
+			}
+		}
+
+		MenuSeparator {}
+
+		Menu {
+			title: qsTr("Stash")
+			icon.name: "pane-hide"
+			popupType: Popup.Window
+
+			MenuItem {
+				text: qsTr("Show Stash")
+				checkable: true
+				checked: menuBar.config.stash_shown
+				onToggled: {
+					menuBar.config.set(menuBar.directory.path, "VIEW", "StashShown", String(checked), menuBar.isLocal);
+				}
+			}
+			MenuItem {
+				text: qsTr("Stash Dotfiles")
+				checkable: true
+				checked: menuBar.config.stash_dotfiles
+				onToggled: {
+					menuBar.config.set(menuBar.directory.path, "VIEW", "StashDotFiles", String(checked), menuBar.isLocal);
+				}
 			}
 		}
 	}
