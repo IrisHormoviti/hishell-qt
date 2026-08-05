@@ -3,22 +3,23 @@ This is a unique file manager for Linux that focuses on per folder customization
 Still very much a work in progress
 ## What is "Hishell"
 Hishell isn't intended to just be the name for this file manager, but a specific spec for formatting folders to appear a certain way between systems. This includes:
-- Folder icons, static and dynamic ones
-- Folder titles (Separate from names)
-- Wallpapers
-- Custom themes
-- Playing audio when entering a folder
-- Window control overrides
-- Custom item positions
-- Multiple folder views within one directory
-- View modes (Grid, List etc)
-- Sorting modes
-- Layout directions
-- "Stash" feature (Hidden items)
-- Behavior overrides (e.g. always open in new windows)
-- In-folder text or images
-- Directory inheritance
-- Potentially scripting...? (Security is a big concern there)
+- [X] Folder icons
+- [ ] Dynamic icons
+- [X] Folder titles (Separate from names)
+- [X] Wallpapers
+- [ ] Custom themes
+- [ ] Playing audio when entering a folder
+- [X] Window control overrides
+- [ ] Custom item positions
+- [X] Multiple folder views within one directory
+- [X] View modes (Grid, List etc)
+- [ ] Sorting modes
+- [ ] Layout directions
+- [ ] "Stash" feature (Hidden items)
+- [ ] Behavior overrides (e.g. always open in new windows)
+- [ ] In-folder text or images
+- [ ] Directory inheritance
+- [ ] Potentially scripting...? (Security is a big concern there)
 
 All these things would be able to be set per folder using a few dot files, allowing the user to customize their workspace, aesthetically and practically, and even create mini applications to help with their workflow.
 
