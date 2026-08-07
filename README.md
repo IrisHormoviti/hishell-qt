@@ -30,6 +30,7 @@ Planned features:
 - [ ] Copy, Paste etc, essential file manager stuff
 - [ ] Selection mode, enabled by clicking and holding on an item or pressing space.
 - [X] Breadcrumb path bar
+- [ ] File thumbnailing
 - [ ] Quickly filtering files by typing
 - [ ] Menubar with context related actions
 - [ ] Right click context menu
