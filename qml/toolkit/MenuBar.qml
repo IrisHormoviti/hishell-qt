@@ -11,19 +11,32 @@ MenuBar {
 	property var directory
 	property var config: directory.config
 	property bool isLocal: directory.has_meta
+property var fileManager
 
 	Action {
 		id: newFolderAction
 		text: qsTr("New Folder")
 		shortcut: "Ctrl+Shift+N"
-		onTriggered: {}
+		onTriggered: {
+			if (menuBar.fileManager && menuBar.directory) {
+				if (menuBar.fileManager.new_folder(menuBar.directory.path)) {
+					menuBar.directory.refresh();
+				}
+			}
+		}
 	}
 
 	Action {
 		id: newTextFileAction
 		text: qsTr("New Text File")
 		shortcut: "Alt+Shift+N"
-		onTriggered: {}
+		onTriggered: {
+			if (menuBar.fileManager && menuBar.directory) {
+				if (menuBar.fileManager.new_text_file(menuBar.directory.path)) {
+					menuBar.directory.refresh();
+				}
+			}
+		}
 	}
 
 	Action {

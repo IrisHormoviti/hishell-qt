@@ -9,6 +9,7 @@ RowLayout {
 	property string layoutString: "[]"
 
 	required property Directory directory
+	property var fileManager: root.fileManager
 
 	property var layoutItems: {
 		try {
@@ -67,6 +68,11 @@ RowLayout {
 							if ("directory" in obj) {
 								obj.directory = Qt.binding(function () {
 									return layoutEngine.directory;
+								});
+							}
+							if ("fileManager" in obj) {
+								obj.fileManager = Qt.binding(function () {
+									return layoutEngine.fileManager;
 								});
 							}
 						}

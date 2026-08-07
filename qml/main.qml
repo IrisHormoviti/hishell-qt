@@ -90,6 +90,7 @@ Kirigami.ApplicationWindow {
 
 					LayoutEngine {
 						directory: directory
+						fileManager: fileManager
 						layoutString: String(directory.config.header_layout)
 						Layout.fillWidth: true
 					}
@@ -109,6 +110,7 @@ Kirigami.ApplicationWindow {
 			// Top Layout area
 			LayoutEngine {
 				directory: directory
+				fileManager: fileManager
 				layoutString: String(directory.config.top_layout)
 				Layout.fillWidth: true
 			}
@@ -121,6 +123,7 @@ Kirigami.ApplicationWindow {
 
 				LayoutEngine {
 					directory: directory
+					fileManager: fileManager
 					layoutString: String(directory.config.middle_layout)
 					Layout.fillHeight: true
 					Layout.fillWidth: true
@@ -130,6 +133,7 @@ Kirigami.ApplicationWindow {
 			// Bottom Layout area
 			LayoutEngine {
 				directory: directory
+				fileManager: fileManager
 				layoutString: String(directory.config.bottom_layout)
 				Layout.fillWidth: true
 			}

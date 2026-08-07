@@ -28,6 +28,64 @@ pub struct FileManager {
 		}
 	),
 
+	new_folder: qt_method!(
+		fn new_folder(&self, parent: QString) -> bool {
+			let parent_string = parent.to_string();
+			let parent_path = Path::new(&parent_string);
+			if !parent_path.is_dir() {
+				return false;
+			}
+
+			let base_name = "New Folder";
+			let mut candidate = parent_path.join(base_name);
+			if candidate.exists() {
+				let mut created = false;
+				for idx in 1..100 {
+					let next = parent_path.join(format!("{} {}", base_name, idx));
+					if !next.exists() {
+						candidate = next;
+						created = true;
+						break;
+					}
+				}
+				if !created {
+					return false;
+				}
+			}
+
+			fs::create_dir(&candidate).is_ok()
+		}
+	),
+
+	new_text_file: qt_method!(
+		fn new_text_file(&self, parent: QString) -> bool {
+			let parent_string = parent.to_string();
+			let parent_path = Path::new(&parent_string);
+			if !parent_path.is_dir() {
+				return false;
+			}
+
+			let base_name = "New Text File";
+			let mut candidate = parent_path.join(format!("{}.txt", base_name));
+			if candidate.exists() {
+				let mut created = false;
+				for idx in 1..100 {
+					let next = parent_path.join(format!("{} {}.txt", base_name, idx));
+					if !next.exists() {
+						candidate = next;
+						created = true;
+						break;
+					}
+				}
+				if !created {
+					return false;
+				}
+			}
+
+			std::fs::File::create(&candidate).is_ok()
+		}
+	),
+
 	create_link: qt_method!(
 		fn create_link(&self, source: QString, dest: QString) -> bool {
 			#[cfg(unix)]
