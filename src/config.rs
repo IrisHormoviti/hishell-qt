@@ -4,18 +4,19 @@ use std::collections::HashMap;
 use std::path::Path;
 
 /// Loads and combines the default config with a folder's `.meta` config.
-pub fn load_path(path: &Path) -> HashMap<String, HashMap<String, ConfigValue>> {
-	let default_cfg = Path::new("config/default.cfg");
-	let global_cfg = dirs::config_dir()
-	.map(|mut p| {
-		p.push("hishell");
-		p.push("folder.cfg");
-		p
-	})
-	.unwrap_or_else(|| std::path::PathBuf::from("config/default.cfg"));
-	let meta_path = path.join(".meta");
-	ConfigParser::parse_files(&[default_cfg, &global_cfg, &meta_path])
-}
+	pub fn load_path(path: &Path) -> HashMap<String, HashMap<String, ConfigValue>> {
+		let default_cfg = Path::new("config/default.cfg");
+		let global_cfg = dirs::config_dir()
+			.map(|mut p| {
+				p.push("hishell");
+				p.push("folder.cfg");
+				p
+			})
+			.unwrap_or_else(|| std::path::PathBuf::from("config/default.cfg"));
+		let meta_path = path.join(".meta");
+		let paths: Vec<&Path> = vec![default_cfg, global_cfg.as_path(), meta_path.as_path()];
+		ConfigParser::parse_files(&paths)
+	}
 
 /// Retrieves a string property from a folder's config.
 pub fn get_string(path: &Path, section: &str, key: &str) -> Option<String> {
@@ -161,7 +162,8 @@ impl Config {
 			"LAYOUT",
 			"Header",
 			r#"["toolkit/PathBar", "toolkit/Spacer", "toolkit/MenuBar"]"#,
-		).into();
+		)
+		.into();
 
 		self.grid_size = get_num("VIEW", "GridSize", 64) as u16;
 		self.show_labels = get_bool("VIEW", "ShowLabels", true);
@@ -179,14 +181,20 @@ impl Config {
 			_ => 0,
 		};
 
-		self.sort_date_mode = match get_str("VIEW", "SortDateMode", "MODIFIED").to_uppercase().as_str() {
+		self.sort_date_mode = match get_str("VIEW", "SortDateMode", "MODIFIED")
+			.to_uppercase()
+			.as_str()
+		{
 			"MODIFIED" => 0,
 			"CREATED" => 1,
 			"ACCESSED" => 2,
 			_ => 0,
 		};
 
-		self.sort_alpha_mode = match get_str("VIEW", "SortAlphaMode", "TITLES").to_uppercase().as_str() {
+		self.sort_alpha_mode = match get_str("VIEW", "SortAlphaMode", "TITLES")
+			.to_uppercase()
+			.as_str()
+		{
 			"TITLES" => 0,
 			"FILENAMES" => 1,
 			_ => 0,
@@ -194,7 +202,6 @@ impl Config {
 
 		self.stash_shown = get_bool("VIEW", "StashShown", false);
 		self.stash_dotfiles = get_bool("VIEW", "StashDotFiles", true);
-		self.arbitrary_placement = get_bool("VIEW", "ArbitraryPlacement", false);
 		self.arbitrary_positions = get_json("VIEW", "ArbitraryPlacementPositions", "{}").into();
 
 		self.config_changed();
@@ -205,12 +212,12 @@ impl Config {
 			path.join(".meta")
 		} else {
 			dirs::config_dir()
-			.map(|mut p| {
-				p.push("hishell");
-				p.push("folder.cfg");
-				p
-			})
-			.unwrap_or_else(|| std::path::PathBuf::from("config/default.cfg"))
+				.map(|mut p| {
+					p.push("hishell");
+					p.push("folder.cfg");
+					p
+				})
+				.unwrap_or_else(|| std::path::PathBuf::from("config/default.cfg"))
 		};
 
 		crate::config_parser::ConfigParser::set_value(&file_path, section, key, value);
