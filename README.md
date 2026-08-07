@@ -48,4 +48,51 @@ If you still want a sidebar though, you'll want to add a specific folder to the 
 The settings will be the "general config", a folder config that can will be applied to every folder by default, stored in `~/.config/hishell/folder.cfg`. Everything there can be altered on a per folder basis. There will be a GUI for everything in here, just don't expect a "Settings" menu.
 
 ## Install / Build
-Not ready yet
+
+### Requirements
+
+- Rust toolchain
+- `cargo`
+- `cmake` >= 3.20
+- `pkg-config`
+- Qt6 development packages for Core, Gui, Qml, and Quick
+- `gio` executable (`glib2.0-bin` / `glib2`)
+- `xdg-open` (`xdg-utils`)
+- `bsdtar` (`libarchive-tools` / `libarchive`)
+- `convert` (`imagemagick`)
+
+### Debian packages
+
+```bash
+sudo apt install build-essential cmake pkg-config qt6-base-dev qt6-declarative-dev libqt6qml-dev libqt6quick-dev glib2.0-bin xdg-utils libarchive-tools imagemagick
+```
+
+### Fedora packages
+
+```bash
+sudo dnf install @development-tools cmake pkgconfig qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qml-devel qt6-qtquickcontrols2-devel glib2-devel xdg-utils libarchive imagemagick
+```
+
+### Arch packages
+
+```bash
+sudo pacman -Syu qt6 qt6-declarative cmake pkgconf glib2 xdg-utils libarchive imagemagick
+```
+
+### Build
+
+```bash
+cargo build
+```
+
+### Run
+
+```bash
+cargo run
+```
+
+Or add a path:
+
+```bash
+cargo run -- ~/Downloads
+```
