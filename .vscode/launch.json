@@ -1,0 +1,45 @@
+{
+  "version": "0.2.0",
+  "compounds": [
+    {
+      "name": "Launch hishell-qt + QML debugger",
+      "configurations": ["Launch hishell-qt", "Attach to QML debugger"]
+    }
+  ],
+  "configurations": [
+    {
+      "name": "Launch hishell-qt",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/target/debug/hishell-qt",
+      "args": [
+        "-qmljsdebugger=host:127.0.0.1,port:3768,block,services:DebugMessages,QmlDebugger,V8Debugger"
+      ],
+      "cwd": "${workspaceFolder}",
+      "stopAtEntry": false,
+      "externalConsole": false,
+      "linux": {
+        "MIMode": "gdb",
+        "miDebuggerPath": "/usr/bin/gdb"
+      }
+    },
+    {
+      "name": "Attach to QML debugger",
+      "type": "qml",
+      "request": "attach",
+      "host": "127.0.0.1",
+      "port": 3768
+    },
+    {
+      "name": "Debug hishell-qt with LLDB",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/target/debug/hishell-qt",
+      "args": [
+        "-qmljsdebugger=host:127.0.0.1,port:3768,block,services:DebugMessages,QmlDebugger,V8Debugger"
+      ],
+      "cwd": "${workspaceFolder}",
+      "stopOnEntry": false
+    }
+  ]
+}

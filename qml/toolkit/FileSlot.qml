@@ -25,11 +25,40 @@ Item {
 		x: fileSlot.labelBesideIcon ? Kirigami.Units.largeSpacing : (parent.width - width) / 2
 		columns: fileSlot.labelBesideIcon ? 2 : 1
 
-		Kirigami.Icon {
+		Item {
 			Layout.alignment: fileSlot.labelBesideIcon ? Qt.AlignVCenter : Qt.AlignHCenter
-			source: fileSlot.icon
 			Layout.preferredWidth: fileSlot.gridSize
 			Layout.preferredHeight: fileSlot.gridSize
+				Loader {
+					anchors.fill: parent
+					// treat both file:// URIs and absolute filesystem paths as thumbnails
+					sourceComponent: (fileSlot.icon.startsWith("file://") || fileSlot.icon.startsWith("/")) ? thumbnailComponent : iconComponent
+				}
+
+			Component {
+				id: thumbnailComponent
+				Image {
+					source: fileSlot.icon
+					asynchronous: true
+					cache: true
+					fillMode: Image.PreserveAspectFit
+					smooth: true
+					anchors.fill: parent
+					clip: true
+					anchors.centerIn: parent
+				}
+			}
+
+			Component {
+				id: iconComponent
+				Kirigami.Icon {
+					source: fileSlot.icon
+					Layout.preferredWidth: fileSlot.gridSize
+					Layout.preferredHeight: fileSlot.gridSize
+					Layout.fillWidth: false
+					Layout.fillHeight: false
+				}
+			}
 		}
 
 		Label {

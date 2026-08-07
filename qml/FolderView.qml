@@ -26,6 +26,17 @@ Item {
 		});
 	}
 
+	Timer {
+		interval: 400
+		running: true
+		repeat: true
+		onTriggered: {
+			if (folderView.directory) {
+				folderView.directory.poll_thumbnails()
+			}
+		}
+	}
+
 	Connections {
 		target: folderView.directory
 		function onPathChanged() {

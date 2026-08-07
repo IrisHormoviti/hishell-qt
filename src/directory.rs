@@ -1,19 +1,56 @@
 #![allow(dead_code)]
-use cpp::cpp;
+use mime_guess::from_path;
 use std::fs;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use qmetaobject::prelude::*;
 use qmetaobject::QObjectBox;
+use once_cell::sync::Lazy;
+use std::sync::Mutex;
+use std::process::Command;
 
 use crate::config;
 use crate::config::Config;
+use crate::thumbnailer;
 
-cpp! {{
-	#include <QtCore/QMimeDatabase>
-	#include <QtCore/QMimeType>
-	#include <QtCore/QString>
-}}
+static ICON_CACHE: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+
+fn query_gio_icon(path: &str) -> Option<String> {
+	if let Ok(output) = Command::new("gio").arg("info").arg(path).output() {
+		if output.status.success() {
+			let out = String::from_utf8_lossy(&output.stdout);
+			for line in out.lines() {
+				if line.contains("standard::icon") {
+					// Try to extract a reasonable icon token from the line.
+					// First, look for quoted tokens.
+					if let Some(start) = line.find('\'') {
+						if let Some(end_rel) = line[start+1..].find('\'') {
+							let icon = &line[start+1..start+1+end_rel];
+							if !icon.is_empty() {
+								return Some(icon.to_string());
+							}
+						}
+					}
+
+					// If no quoted token, split the remainder into candidate tokens
+					if let Some(pos) = line.find(':') {
+						let rem = line[pos+1..].trim();
+						// split on common separators and examine candidates
+						for raw in rem.split(|c: char| c == '[' || c == ']' || c == ',' || c == ' ' || c == '\'' || c == '"') {
+							let tok = raw.trim();
+							if tok.is_empty() { continue; }
+							// prefer tokens that look like icon names (contain '-') or short words
+							if tok.contains('-') || (tok.len() <= 20 && tok.chars().all(|c| c.is_alphanumeric() || c == '.' || c == '_' )) {
+								return Some(tok.to_string());
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	None
+}
 
 #[derive(Default, Clone)]
 pub struct FileItem {
@@ -49,6 +86,23 @@ pub struct Directory {
 			} else {
 				self.set_path(path);
 			}
+		}
+	),
+
+	poll_thumbnails: qt_method!(
+		pub fn poll_thumbnails(&mut self) {
+			let updates = crate::thumbnailer::drain_results();
+			if updates.is_empty() {
+				return;
+			}
+			for (src, dst) in updates {
+				if let Some(idx) = self.items.iter().position(|it| it.path == src) {
+					self.items[idx].icon = format!("file://{}", dst);
+				}
+			}
+			// notify QML to refresh model (use model reset to avoid triggering path reloads)
+			self.begin_reset_model();
+			self.end_reset_model();
 		}
 	),
 
@@ -89,7 +143,38 @@ impl Directory {
 				let p = entry_path.to_string_lossy().to_string();
 				let title = get_item_title(&entry_path);
 				let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
-				let icon = get_icon(&p);
+				let mut icon = get_icon(&p);
+
+				// enqueue thumbnail generation for images/videos and use cached thumbnail if available
+				if !is_dir {
+					let size = self.config.pinned().borrow().grid_size as u32;
+					if let Some(ext) = Path::new(&p).extension().and_then(|e| e.to_str()) {
+						let ext_l = ext.to_lowercase();
+						let image_exts = ["png", "jpg", "jpeg", "bmp", "gif", "webp", "avif", "tiff", "svg", "kra", "desktop", "appimage"];
+						let video_exts = ["mp4", "mkv", "webm", "avi", "mov", "mpeg", "mpg"];
+						// also allow filenames that end with .AppImage even if ext detection fails
+						let fname = Path::new(&p).file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
+						let is_appimage_name = fname.ends_with(".appimage");
+						if image_exts.contains(&ext_l.as_str()) || video_exts.contains(&ext_l.as_str()) || is_appimage_name {
+							if let Some(uri) = thumbnailer::thumbnail_uri_if_exists(Path::new(&p), size) {
+								icon = uri;
+							} else {
+								// avoid generating thumbnails for very large files
+								const MAX_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
+								match fs::metadata(&p) {
+									Ok(meta) => {
+										if meta.len() <= MAX_BYTES {
+											thumbnailer::enqueue(Path::new(&p), size);
+										}
+									}
+									Err(_) => {
+										thumbnailer::enqueue(Path::new(&p), size);
+									}
+								}
+							}
+						}
+					}
+				}
 
 
 				self.items.push(FileItem {
@@ -135,10 +220,16 @@ impl Directory {
 			return;
 		}
 
+		// ignore spurious current-dir assignments coming from QML during startup
+		if path == "." || path == "./" || path == "/./" {
+			return;
+		}
+
 		let path_buf = Path::new(&path);
 		let abs_path = std::fs::canonicalize(path_buf)
 		.unwrap_or_else(|_| path_buf.to_path_buf());
 		let abs_str = abs_path.to_string_lossy().to_string();
+
 
 		self.path_str = abs_str.clone();
 
@@ -147,6 +238,7 @@ impl Directory {
 		} else {
 			abs_str.clone()
 		};
+        
 
 		self.load_directory(load_path.clone(), false);
 		self.config.pinned().borrow_mut().load(load_path);
@@ -208,13 +300,36 @@ pub fn get_icon(path: &str) -> String {
 	if Path::new(path).is_dir() {
 		return get_folder_icon(path);
 	} else {
-		let qpath = QString::from(path);
-		let icon_name = cpp!(unsafe [qpath as "QString"] -> QString as "QString" {
-			QMimeDatabase db;
-			return db.mimeTypeForFile(qpath).iconName();
-		});
+		// Prefer system icons via `gio` when available, caching per-extension or per-mime.
+		let mime = from_path(path).first_or_octet_stream().essence_str().to_string();
+		let key = if let Some(ext) = Path::new(path).extension().and_then(|e| e.to_str()) {
+			format!("ext:{}", ext.to_lowercase())
+		} else {
+			format!("mime:{}", mime)
+		};
 
-		icon_name.to_string()
+		if let Some(cached) = ICON_CACHE.lock().unwrap().get(&key) {
+			return cached.clone();
+		}
+
+		if let Some(icon) = query_gio_icon(path) {
+			ICON_CACHE.lock().unwrap().insert(key.clone(), icon.clone());
+			return icon;
+		}
+
+		// fallback: map common mime types to generic icons
+		let icon = if mime.starts_with("image/") {
+			"image-x-generic".to_string()
+		} else if mime.starts_with("video/") {
+			"video-x-generic".to_string()
+		} else if mime.starts_with("text/") {
+			"text-x-generic".to_string()
+		} else {
+			"text-x-generic".to_string()
+		};
+
+		ICON_CACHE.lock().unwrap().insert(key, icon.clone());
+		icon
 	}
 }
 

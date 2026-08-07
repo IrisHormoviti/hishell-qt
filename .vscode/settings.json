@@ -1,0 +1,11 @@
+{
+  "qt-qml.qmlls.enabled": true,
+  "qt-qml.qmlls.customExePath": "/usr/bin/qmlls6",
+  "qt-qml.qmlls.additionalImportPaths": [
+    "${workspaceFolder}/qml"
+  ],
+  "qt-qml.qmlls.useQmlImportPathEnvVar": false,
+  "files.exclude": {
+    "**/target": true
+  }
+}

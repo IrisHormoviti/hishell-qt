@@ -1,0 +1,7 @@
+{
+  "recommendations": [
+    "theqtcompany.qt-qml",
+    "ms-vscode.cpptools",
+    "vadimcn.vscode-lldb"
+  ]
+}

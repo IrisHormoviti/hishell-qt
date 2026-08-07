@@ -20,10 +20,22 @@ Kirigami.ApplicationWindow {
 		id: fileManager
 	}
 
-	property string initialPath: "."
-
 	Component.onCompleted: {
+		// Prefer command-line argument if provided (Qt.application.arguments),
+		// otherwise fall back to the root initialPath property.
+		var args = Qt.application.arguments;
 		var startPath = root.initialPath;
+		if (args && args.length > 1) {
+			var a = args[1];
+			if (typeof a === 'string') {
+				if (a.indexOf('file://') === 0) {
+					try {
+						a = decodeURIComponent(a.substring(7));
+					} catch (e) {}
+				}
+				startPath = a;
+			}
+		}
 		directory.config.load(startPath);
 		directory.path = startPath;
 	}

@@ -4,14 +4,18 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-cpp = "0.5.11"
 nom = "8.0.0"
 qmetaobject = "0.2.10"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 pkg-config = "0.3"
 dirs = "5.0"
+md5 = "0.7"
+image = "0.24"
+crossbeam-channel = "0.5"
+mime_guess = "2.0"
+zip = "0.6"
+once_cell = "1.18"
 
 [build-dependencies]
-cpp_build = "0.5.11"
 pkg-config = "0.3"
