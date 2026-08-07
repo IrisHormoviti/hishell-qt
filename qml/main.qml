@@ -21,10 +21,8 @@ Kirigami.ApplicationWindow {
 	}
 
 	Component.onCompleted: {
-		// Prefer command-line argument if provided (Qt.application.arguments),
-		// otherwise fall back to the root initialPath property.
 		var args = Qt.application.arguments;
-		var startPath = root.initialPath;
+		var startPath = typeof initialPath !== 'undefined' && initialPath !== null && initialPath !== '' ? initialPath : ".";
 		if (args && args.length > 1) {
 			var a = args[1];
 			if (typeof a === 'string') {
@@ -35,6 +33,9 @@ Kirigami.ApplicationWindow {
 				}
 				startPath = a;
 			}
+		}
+		if (!startPath || startPath === "") {
+			startPath = ".";
 		}
 		directory.config.load(startPath);
 		directory.path = startPath;

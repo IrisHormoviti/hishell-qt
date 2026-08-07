@@ -17,7 +17,6 @@ fn main() {
 	static DIRECTORY_STR: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Directory\0") };
 	static FILEMANAGER_STR: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"FileManager\0") };
 
-	// Accept an optional path argument
 	let args: Vec<String> = std::env::args().collect();
 	fn percent_decode(input: &str) -> String {
 		let mut out = String::with_capacity(input.len());
@@ -68,6 +67,7 @@ fn main() {
 			.map(|cwd| cwd.to_string_lossy().to_string())
 			.unwrap_or_else(|_| ".".to_string())
 	};
+	println!("startup initial_path={}", initial_path);
 
 	qmetaobject::qml_register_type::<Config>(IMPORT_NAME, 1, 0, CONFIG_STR);
 	qmetaobject::qml_register_type::<Directory>(IMPORT_NAME, 1, 0, DIRECTORY_STR);
