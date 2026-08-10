@@ -44,6 +44,10 @@ Module {
 			}
 
 			Method {
+				name: "row_count"; type: "int";
+			}
+
+			Method {
 				name: "open_path";
 				Parameter { name: "path"; type: "string"}
 			}

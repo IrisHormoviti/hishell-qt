@@ -11,7 +11,33 @@ MenuBar {
 	property var directory
 	property var config: directory.config
 	property bool isLocal: directory.has_meta
-property var fileManager
+	property var fileManager
+
+	// Shared selection state injected by LayoutEngine
+	property var selectionState: null
+
+	readonly property int selectedCount: menuBar.selectionState ? menuBar.selectionState.selectedCount : 0
+	readonly property var selectedPaths: menuBar.selectionState ? menuBar.selectionState.selectedPaths : ({})
+
+	// Collect the list of selected path strings
+	readonly property var selectedPathList: {
+		var sel = menuBar.selectedPaths;
+		if (!sel) return [];
+		return Object.keys(sel);
+	}
+
+	// ── Helper: run an operation on all selected paths ────────────────────
+
+	function forEachSelected(fn) {
+		var paths = menuBar.selectedPathList;
+		var ok = true;
+		for (var i = 0; i < paths.length; i++) {
+			if (!fn(paths[i])) ok = false;
+		}
+		return ok;
+	}
+
+	// ── Actions ───────────────────────────────────────────────────────────
 
 	Action {
 		id: newFolderAction
@@ -43,35 +69,107 @@ property var fileManager
 		id: copyAction
 		text: qsTr("Copy")
 		shortcut: "Ctrl+C"
-		onTriggered: {}
+		enabled: menuBar.selectedCount > 0
+		onTriggered: {
+			if (!menuBar.fileManager) return;
+			var paths = menuBar.selectedPathList.join("\n");
+			menuBar.fileManager.copy_paths_to_clipboard(paths);
+		}
 	}
 
 	Action {
 		id: cutAction
 		text: qsTr("Cut")
 		shortcut: Qt.CTRL | Qt.Key_X
-		onTriggered: {}
+		enabled: menuBar.selectedCount > 0
+		onTriggered: {
+			if (!menuBar.fileManager) return;
+			var paths = menuBar.selectedPathList.join("\n");
+			menuBar.fileManager.cut_paths_to_clipboard(paths);
+		}
 	}
 
 	Action {
 		id: duplicateAction
 		text: qsTr("Duplicate")
 		shortcut: "Ctrl+D"
-		onTriggered: {}
+		enabled: menuBar.selectedCount > 0
+		onTriggered: {
+			if (!menuBar.fileManager) return;
+			menuBar.forEachSelected(function(p) {
+				return menuBar.fileManager.duplicate_file(p);
+			});
+			menuBar.directory.refresh();
+		}
 	}
 
 	Action {
 		id: linkAction
 		text: qsTr("Create Link")
-		shortcut: "Ctrl+S"
-		onTriggered: {}
+		shortcut: "Ctrl+Shift+L"
+		enabled: menuBar.selectedCount > 0
+		onTriggered: {
+			if (!menuBar.fileManager) return;
+			menuBar.forEachSelected(function(p) {
+				// Create link next to source with " (link)" suffix
+				var name = p.substring(p.lastIndexOf("/") + 1);
+				var parent = p.substring(0, p.lastIndexOf("/"));
+				var dest = parent + "/" + name + " (link)";
+				return menuBar.fileManager.create_link(p, dest);
+			});
+			menuBar.directory.refresh();
+		}
 	}
 
 	Action {
 		id: renameAction
 		text: qsTr("Rename")
 		shortcut: "F2"
-		onTriggered: {}
+		// Rename only when exactly one item is selected
+		enabled: menuBar.selectedCount === 1
+		onTriggered: {
+			if (menuBar.selectedCount !== 1) return;
+			renameDialog.filePath = menuBar.selectedPathList[0];
+			var name = renameDialog.filePath.substring(renameDialog.filePath.lastIndexOf("/") + 1);
+			renameDialog.originalName = name;
+			renameDialog.newName = name;
+			renameDialog.open();
+		}
+	}
+
+	Action {
+		id: trashAction
+		text: qsTr("Move to Trash")
+		shortcut: "Delete"
+		enabled: menuBar.selectedCount > 0
+		onTriggered: {
+			if (!menuBar.fileManager) return;
+			menuBar.forEachSelected(function(p) {
+				return menuBar.fileManager.trash_file(p);
+			});
+			// Clear selection and refresh
+			if (menuBar.selectionState) {
+				menuBar.selectionState.selectionActive = false;
+				menuBar.selectionState.selectedPaths = ({});
+				menuBar.selectionState.selectedCount = 0;
+			}
+			menuBar.directory.refresh();
+		}
+	}
+
+	Action {
+		id: pasteAction
+		text: qsTr("Paste")
+		shortcut: "Ctrl+V"
+		// Paste is always active — works without selection mode
+		enabled: true
+		onTriggered: {
+			if (menuBar.fileManager && menuBar.directory) {
+				if (menuBar.fileManager.paste_from_clipboard(menuBar.directory.path)) {
+					menuBar.directory.refresh();
+				}
+			}
+		}
 	}
 
 	Action {
@@ -120,6 +218,66 @@ property var fileManager
 		}
 	}
 
+	// ── Rename dialog ─────────────────────────────────────────────────────
+
+	Dialog {
+		id: renameDialog
+		title: qsTr("Rename")
+		standardButtons: Dialog.Ok | Dialog.Cancel
+		modal: true
+		anchors.centerIn: parent
+
+		property string filePath: ""
+		property string originalName: ""
+		property string newName: ""
+
+		onAccepted: {
+			var trimmed = renameDialog.newName.trim();
+			if (trimmed.length > 0 && trimmed !== renameDialog.originalName) {
+				if (menuBar.fileManager) {
+					menuBar.fileManager.rename_file(renameDialog.filePath, trimmed);
+					menuBar.directory.refresh();
+				}
+			}
+		}
+
+		ColumnLayout {
+			spacing: Kirigami.Units.smallSpacing
+			width: 320
+
+			Label {
+				text: qsTr("New name:")
+			}
+
+			TextField {
+				id: renameField
+				Layout.fillWidth: true
+				text: renameDialog.newName
+				onTextChanged: renameDialog.newName = text
+				Keys.onReturnPressed: renameDialog.accept()
+				Keys.onEnterPressed:  renameDialog.accept()
+				Keys.onEscapePressed: renameDialog.reject()
+
+				Component.onCompleted: {
+					// Select the filename stem, not the extension
+					var dot = text.lastIndexOf(".");
+					if (dot > 0) {
+						Qt.callLater(function() { renameField.select(0, dot); });
+					} else {
+						Qt.callLater(function() { renameField.selectAll(); });
+					}
+				}
+			}
+		}
+
+		onOpened: {
+			renameField.text = renameDialog.originalName;
+			renameField.forceActiveFocus();
+		}
+	}
+
+	// ── Menu declarations ─────────────────────────────────────────────────
+
 	Menu {
 		title: qsTr("New")
 		popupType: Popup.Window
@@ -136,10 +294,19 @@ property var fileManager
 		}
 	}
 
+	// Edit menu: always visible since Paste works without selection.
+	// Other actions are individually enabled/disabled based on selection count.
 	Menu {
+		id: editMenu
 		title: qsTr("Edit")
 		popupType: Popup.Window
 
+		MenuItem {
+			text: qsTr("Paste")
+			icon.name: "edit-paste"
+			action: pasteAction
+		}
+		MenuSeparator {}
 		MenuItem {
 			text: qsTr("Copy")
 			icon.name: "edit-copy"
@@ -150,20 +317,29 @@ property var fileManager
 			icon.name: "edit-cut"
 			action: cutAction
 		}
+		MenuSeparator {}
 		MenuItem {
 			text: qsTr("Duplicate")
-			icon.name: "edit-duplicate"
+			icon.name: "edit-copy"
 			action: duplicateAction
 		}
 		MenuItem {
-			text: qsTr("Create Link");
+			text: qsTr("Create Link")
 			icon.name: "edit-link"
 			action: linkAction
 		}
+		MenuSeparator {}
+		// Rename: only enabled for single selection
 		MenuItem {
 			text: qsTr("Rename")
 			icon.name: "edit-rename"
 			action: renameAction
+		}
+		MenuSeparator {}
+		MenuItem {
+			text: qsTr("Move to Trash")
+			icon.name: "user-trash"
+			action: trashAction
 		}
 	}
 

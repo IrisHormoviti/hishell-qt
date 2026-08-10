@@ -10,6 +10,7 @@ RowLayout {
 
 	required property Directory directory
 	property var fileManager: root.fileManager
+	property var selectionState: null
 
 	property var layoutItems: {
 		try {
@@ -46,6 +47,13 @@ RowLayout {
 						if ("windowDirectory" in obj) {
 							obj.windowDirectory = Qt.binding(function () {
 								return layoutEngine.directory;
+							});
+						}
+
+						// Inject shared selection state into any component that accepts it
+						if ("selectionState" in obj) {
+							obj.selectionState = Qt.binding(function () {
+								return layoutEngine.selectionState;
 							});
 						}
 

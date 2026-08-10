@@ -20,6 +20,14 @@ Kirigami.ApplicationWindow {
 		id: fileManager
 	}
 
+	// Shared selection state — written by FolderView, read by MenuBar
+	QtObject {
+		id: selectionState
+		property bool selectionActive: false
+		property var  selectedPaths: ({})
+		property int  selectedCount: 0
+	}
+
 	Component.onCompleted: {
 		var args = Qt.application.arguments;
 		var startPath = typeof initialPath !== 'undefined' && initialPath !== null && initialPath !== '' ? initialPath : ".";
@@ -91,6 +99,7 @@ Kirigami.ApplicationWindow {
 					LayoutEngine {
 						directory: directory
 						fileManager: fileManager
+						selectionState: selectionState
 						layoutString: String(directory.config.header_layout)
 						Layout.fillWidth: true
 					}
@@ -111,6 +120,7 @@ Kirigami.ApplicationWindow {
 			LayoutEngine {
 				directory: directory
 				fileManager: fileManager
+				selectionState: selectionState
 				layoutString: String(directory.config.top_layout)
 				Layout.fillWidth: true
 			}
@@ -124,6 +134,7 @@ Kirigami.ApplicationWindow {
 				LayoutEngine {
 					directory: directory
 					fileManager: fileManager
+					selectionState: selectionState
 					layoutString: String(directory.config.middle_layout)
 					Layout.fillHeight: true
 					Layout.fillWidth: true
@@ -134,6 +145,7 @@ Kirigami.ApplicationWindow {
 			LayoutEngine {
 				directory: directory
 				fileManager: fileManager
+				selectionState: selectionState
 				layoutString: String(directory.config.bottom_layout)
 				Layout.fillWidth: true
 			}

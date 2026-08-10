@@ -1,4 +1,5 @@
 
 [VIEW]
-GridSize=68
-Sort=OLDEST
+GridSize=76
+Sort=NEWEST
+ViewMode=GRID
