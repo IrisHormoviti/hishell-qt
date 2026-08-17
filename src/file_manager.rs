@@ -171,15 +171,60 @@ pub struct FileManager {
 			if !dest_path.is_dir() {
 				return false;
 			}
-			let uris = read_clipboard_uris();
+			let (uris, is_cut) = read_clipboard_uris_and_action();
 			if uris.is_empty() {
 				return false;
 			}
+			let uris_str = uris.join("\n");
+			let action = if is_cut { "move" } else { "copy" };
+			self.process_uris_action(dest_dir, QString::from(uris_str.as_str()), QString::from(action))
+		}
+	),
+
+	/// Return MIME type string for a file path (guessed via mime_guess).
+	get_mime_type: qt_method!(
+		fn get_mime_type(&self, path: QString) -> QString {
+			let p = path.to_string();
+			let mime = mime_guess::from_path(&p).first_or_octet_stream().essence_str().to_string();
+			QString::from(mime.as_str())
+		}
+	),
+
+	/// Return text file content (capped at 64KB) for text/plain drag payload.
+	get_text_content: qt_method!(
+		fn get_text_content(&self, path: QString) -> QString {
+			let p = path.to_string();
+			let path_buf = Path::new(&p);
+			if path_buf.is_file() {
+				if let Ok(meta) = fs::metadata(path_buf) {
+					if meta.len() <= 64 * 1024 {
+						if let Ok(content) = fs::read_to_string(path_buf) {
+							return QString::from(content.as_str());
+						}
+					}
+				}
+			}
+			QString::default()
+		}
+	),
+
+	/// Process URIs list with specified action ("copy", "move", "link") into dest_dir.
+	process_uris_action: qt_method!(
+		fn process_uris_action(&self, dest_dir: QString, uris_newline: QString, action: QString) -> bool {
+			let dest = dest_dir.to_string();
+			let dest_path = Path::new(&dest);
+			if !dest_path.is_dir() {
+				return false;
+			}
+			let raw_uris = uris_newline.to_string();
+			let uris = parse_uri_list(&raw_uris);
+			if uris.is_empty() {
+				return false;
+			}
+			let action_str = action.to_string();
 			let mut any_ok = false;
 			for uri in &uris {
-				// Strip "file://" prefix and percent-decode
 				let raw = if uri.starts_with("file://") { &uri[7..] } else { uri.as_str() };
-				// Simple percent-decode for common cases (%20 = space, etc.)
 				let src_str = percent_decode(raw);
 				let src = Path::new(&src_str);
 				if !src.exists() {
@@ -187,10 +232,32 @@ pub struct FileManager {
 				}
 				if let Some(fname) = src.file_name() {
 					let dst = dest_path.join(fname);
-					if src.is_dir() {
-						if copy_dir_recursive(src, &dst) { any_ok = true; }
-					} else if fs::copy(src, &dst).is_ok() {
-						any_ok = true;
+					if src == dst {
+						continue;
+					}
+					match action_str.as_str() {
+						"move" => {
+							if move_item(src, &dst) {
+								any_ok = true;
+							}
+						}
+						"link" => {
+							#[cfg(unix)]
+							{
+								if std::os::unix::fs::symlink(src, &dst).is_ok() {
+									any_ok = true;
+								}
+							}
+						}
+						_ => {
+							if src.is_dir() {
+								if copy_dir_recursive(src, &dst) {
+									any_ok = true;
+								}
+							} else if fs::copy(src, &dst).is_ok() {
+								any_ok = true;
+							}
+						}
 					}
 				}
 			}
@@ -199,7 +266,22 @@ pub struct FileManager {
 	),
 }
 
-// ─── helpers ─────────────────────────────────────────────────────────────────
+fn move_item(src: &Path, dst: &Path) -> bool {
+	if fs::rename(src, dst).is_ok() {
+		return true;
+	}
+	// Fallback for cross-filesystem move
+	if src.is_dir() {
+		if copy_dir_recursive(src, dst) {
+			let _ = fs::remove_dir_all(src);
+			return true;
+		}
+	} else if fs::copy(src, dst).is_ok() {
+		let _ = fs::remove_file(src);
+		return true;
+	}
+	false
+}
 
 fn copy_dir_recursive(src: &Path, dest: &Path) -> bool {
 	if fs::create_dir_all(dest).is_err() {
@@ -312,10 +394,27 @@ fn try_xsel(data: &str) -> bool {
 		.unwrap_or(false)
 }
 
-/// Read file URIs from the system clipboard (text/uri-list).
-/// Tries wl-paste (Wayland) first, then xclip (X11).
-fn read_clipboard_uris() -> Vec<String> {
-	// Wayland
+/// Read file URIs from the system clipboard and return (uris, is_cut).
+fn read_clipboard_uris_and_action() -> (Vec<String>, bool) {
+	// First try nautilus-clipboard format for cut detection
+	if let Ok(out) = Command::new("wl-paste")
+		.args(["--type", "x-special/nautilus-clipboard", "--no-newline"])
+		.output()
+	{
+		if out.status.success() {
+			let text = String::from_utf8_lossy(&out.stdout);
+			let lines: Vec<&str> = text.lines().collect();
+			if lines.len() >= 2 {
+				let is_cut = lines[0].trim() == "cut" || lines[1].trim() == "cut";
+				let uris = parse_uri_list(&text);
+				if !uris.is_empty() {
+					return (uris, is_cut);
+				}
+			}
+		}
+	}
+
+	// Wayland standard uri-list
 	if let Ok(out) = Command::new("wl-paste")
 		.args(["--type", "text/uri-list", "--no-newline"])
 		.output()
@@ -324,12 +423,12 @@ fn read_clipboard_uris() -> Vec<String> {
 			let text = String::from_utf8_lossy(&out.stdout);
 			let uris = parse_uri_list(&text);
 			if !uris.is_empty() {
-				return uris;
+				return (uris, false);
 			}
 		}
 	}
 
-	// X11
+	// X11 standard uri-list
 	if let Ok(out) = Command::new("xclip")
 		.args(["-selection", "clipboard", "-t", "text/uri-list", "-o"])
 		.output()
@@ -338,12 +437,12 @@ fn read_clipboard_uris() -> Vec<String> {
 			let text = String::from_utf8_lossy(&out.stdout);
 			let uris = parse_uri_list(&text);
 			if !uris.is_empty() {
-				return uris;
+				return (uris, false);
 			}
 		}
 	}
 
-	vec![]
+	(vec![], false)
 }
 
 fn parse_uri_list(text: &str) -> Vec<String> {

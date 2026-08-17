@@ -145,12 +145,36 @@ impl Directory {
 				let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
 				let mut icon = get_icon(&p);
 
+				// If this is a .desktop file, prefer the Icon= value from the desktop entry
+				if let Some(ext) = Path::new(&p).extension().and_then(|e| e.to_str()) {
+					if ext.eq_ignore_ascii_case("desktop") {
+						if let Some(desktop_icon) = crate::desktop_entry::get_icon(Path::new(&p)) {
+							// If the icon looks like a path, prefer an absolute/relative file if it exists
+							if desktop_icon.contains('/') {
+								let candidate = if desktop_icon.starts_with('/') {
+									std::path::PathBuf::from(&desktop_icon)
+								} else {
+									Path::new(&p).parent().unwrap_or(Path::new("/")).join(&desktop_icon)
+								};
+								if candidate.exists() {
+									icon = format!("file://{}", candidate.to_string_lossy());
+								} else {
+									icon = desktop_icon;
+								}
+							} else {
+								// treat as theme icon name
+								icon = desktop_icon;
+							}
+						}
+					}
+				}
+
 				// enqueue thumbnail generation for images/videos and use cached thumbnail if available
 				if !is_dir {
 					let size = self.config.pinned().borrow().grid_size as u32;
 					if let Some(ext) = Path::new(&p).extension().and_then(|e| e.to_str()) {
 						let ext_l = ext.to_lowercase();
-						let image_exts = ["png", "jpg", "jpeg", "bmp", "gif", "webp", "avif", "tiff", "svg", "kra", "desktop", "appimage"];
+						let image_exts = ["png", "jpg", "jpeg", "bmp", "gif", "webp", "avif", "tiff", "svg", "kra", "appimage"];
 						let video_exts = ["mp4", "mkv", "webm", "avi", "mov", "mpeg", "mpg"];
 						// also allow filenames that end with .AppImage even if ext detection fails
 						let fname = Path::new(&p).file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();

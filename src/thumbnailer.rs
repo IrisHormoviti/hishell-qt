@@ -15,6 +15,15 @@ use md5;
 use std::fs::File;
 use zip::ZipArchive;
 
+fn imagemagick_command() -> Option<String> {
+    if Command::new("magick").arg("--version").output().is_ok() {
+        return Some("magick".to_string());
+    }
+    if Command::new("convert").arg("--version").output().is_ok() {
+        return Some("convert".to_string());
+    }
+    None
+}
 #[derive(Clone)]
 struct SystemThumb {
     mime_globs: Vec<String>,
@@ -106,6 +115,7 @@ fn generate_thumbnail(src: &Path, size: u32) -> Result<(), String> {
             return Err("file too large".to_string());
         }
     }
+    let mime = from_path(src).first_or_octet_stream().essence_str().to_string();
     // Quick path: for .kra (zip) files try to extract an embedded preview image
     if let Some(ext) = src.extension().and_then(|e| e.to_str()) {
         if ext.eq_ignore_ascii_case("kra") {
@@ -218,22 +228,28 @@ fn generate_thumbnail(src: &Path, size: u32) -> Result<(), String> {
         }
     }
 
-    // fallback to ImageMagick `convert` for images
-    if Command::new("convert").arg("--version").output().is_ok() {
-        let status = Command::new("convert")
-            .arg(src.as_os_str())
-            .arg("-thumbnail")
-            .arg(format!("{}x{}^", size, size))
-            .arg("-gravity")
-            .arg("center")
-            .arg("-extent")
-            .arg(format!("{}x{}", size, size))
-            .arg(&dst.as_os_str())
-            .status();
+    // Only attempt ImageMagick on files that look like images (or known image-like extensions)
+    let im_cmd = imagemagick_command();
+    let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    if let Some(im) = im_cmd {
+        if mime.starts_with("image/") || ext == "svg" || ext == "xpm" {
+            let status = Command::new(&im)
+                .arg(src.as_os_str())
+                .arg("-thumbnail")
+                .arg(format!("{}x{}^", size, size))
+                .arg("-gravity")
+                .arg("center")
+                .arg("-extent")
+                .arg(format!("{}x{}", size, size))
+                .arg(&dst.as_os_str())
+                .status();
 
-        if let Ok(status) = status {
-            if status.success() {
-                return Ok(());
+            if let Ok(status) = status {
+                if status.success() && dst.exists() && fs::metadata(&dst).map(|m| m.len() > 0).unwrap_or(false) {
+                    return Ok(());
+                } else if dst.exists() {
+                    let _ = fs::remove_file(&dst);
+                }
             }
         }
     }
@@ -394,9 +410,10 @@ fn try_extract_icon_from_appimage(src: &Path, dst: &Path, size: u32) -> Result<b
 
     // extract the candidate entry and pipe to convert if available, otherwise write tmp and use image crate
     let dst_str = dst.to_string_lossy().to_string();
-    if Command::new("convert").arg("--version").output().is_ok() {
+    if imagemagick_command().is_some() {
         // use bsdtar to extract to stdout and convert from stdin
-        let cmd = format!("bsdtar -xOf '{}' '{}' | convert png:- -thumbnail {s}x{s}^ -gravity center -extent {s}x{s} '{dst}'", src.to_string_lossy(), candidate, s=size, dst=dst_str);
+        let im = imagemagick_command().unwrap_or_else(|| "convert".to_string());
+        let cmd = format!("bsdtar -xOf '{}' '{}' | {im} png:- -thumbnail {s}x{s}^ -gravity center -extent {s}x{s} '{dst}'", src.to_string_lossy(), candidate, im=im, s=size, dst=dst_str);
         let status = Command::new("sh").arg("-c").arg(cmd).status();
         if let Ok(st) = status {
             if st.success() && dst.exists() { return Ok(true); }
@@ -420,9 +437,8 @@ fn try_extract_icon_from_appimage(src: &Path, dst: &Path, size: u32) -> Result<b
 }
 
 fn run_icon_to_dst(icon_path: &Path, dst: &Path, size: u32) -> Result<bool, String> {
-    // prefer ImageMagick convert if available (handles svg)
-    if Command::new("convert").arg("--version").output().is_ok() {
-        let status = Command::new("convert")
+    if let Some(im) = imagemagick_command() {
+        let status = Command::new(&im)
             .arg(icon_path.as_os_str())
             .arg("-thumbnail")
             .arg(format!("{}x{}^", size, size))

@@ -13,17 +13,76 @@ Item {
 	property Config config: directory.config
 	property Directory windowDirectory: folderView.directory
 
-	// ── Selection state (shared upward via selectionState) ────────────────
 	property var selectionState: null
-
 	property bool selectionActive: false
 	// Map of path -> true for selected items
 	property var selectedPaths: ({})
 	readonly property int selectedCount: Object.keys(folderView.selectedPaths).length
-	// Index of the last item touched (for shift-click range)
+	// Index of the last selected item, used in range selection
 	property int lastSelectedIndex: -1
 
-	// Propagate our selection state up to the shared object
+	// Drag n Drop stuff
+	property string dragAction: "copy" // "copy", "move", "link"
+	property bool dragActive: false
+	property real dragCursorX: 0
+	property real dragCursorY: 0
+	property string dragIcon: ""
+	property string dragTitle: ""
+	property int dragItemCount: 1
+	property var shakePositions: []
+
+	function trackMouseShake(x, y) {
+		folderView.dragCursorX = x;
+		folderView.dragCursorY = y;
+		folderView.dragActive = true;
+
+		var now = Date.now();
+		var history = folderView.shakePositions.slice();
+		history.push({ x: x, y: y, time: now });
+
+		// Filter entries older than 450ms
+		history = history.filter(function(p) { return now - p.time <= 450; });
+		folderView.shakePositions = history;
+
+		if (history.length < 5) return;
+
+		var reversals = 0;
+		var lastDx = 0;
+		var lastDy = 0;
+		var totalDistance = 0;
+
+		for (var i = 1; i < history.length; i++) {
+			var dx = history[i].x - history[i - 1].x;
+			var dy = history[i].y - history[i - 1].y;
+			var dist = Math.sqrt(dx * dx + dy * dy);
+			totalDistance += dist;
+
+			if ((dx > 3 && lastDx < -3) || (dx < -3 && lastDx > 3)) {
+				reversals++;
+			} else if ((dy > 3 && lastDy < -3) || (dy < -3 && lastDy > 3)) {
+				reversals++;
+			}
+
+			if (Math.abs(dx) > 2) lastDx = dx;
+			if (Math.abs(dy) > 2) lastDy = dy;
+		}
+
+		if (reversals >= 3 && totalDistance > 50) {
+			cycleDragAction();
+			folderView.shakePositions = [];
+		}
+	}
+
+	function cycleDragAction() {
+		if (folderView.dragAction === "copy") {
+			folderView.dragAction = "move";
+		} else if (folderView.dragAction === "move") {
+			folderView.dragAction = "link";
+		} else {
+			folderView.dragAction = "copy";
+		}
+	}
+
 	onSelectionActiveChanged: {
 		if (folderView.selectionState) {
 			folderView.selectionState.selectionActive = folderView.selectionActive;
@@ -35,8 +94,6 @@ Item {
 			folderView.selectionState.selectedCount = folderView.selectedCount;
 		}
 	}
-
-	// ── Selection functions ───────────────────────────────────────────────
 
 	function enterSelectionMode() {
 		folderView.selectionActive = true;
@@ -60,9 +117,11 @@ Item {
 		}
 		folderView.selectedPaths = sel;
 		folderView.lastSelectedIndex = idx;
+		if (folderView.selectedCount == 0) {
+			exitSelectionMode();
+		}
 	}
 
-	// Select all items between fromIndex and toIndex (inclusive), adding to selection
 	function rangeSelect(fromIndex, toIndex) {
 		var lo = Math.min(fromIndex, toIndex);
 		var hi = Math.max(fromIndex, toIndex);
@@ -89,9 +148,8 @@ Item {
 	function deselectAll() {
 		folderView.selectedPaths = {};
 		folderView.lastSelectedIndex = -1;
+		exitSelectionMode();
 	}
-
-	// ── Lifecycle / connections ───────────────────────────────────────────
 
 	Layout.fillWidth: true
 	Layout.fillHeight: true
@@ -162,7 +220,7 @@ Item {
 		restoreMode: Binding.RestoreBindingOrValue
 	}
 
-	// ── Background ────────────────────────────────────────────────────────
+	// ── Background ──
 
 	Image {
 		id: wallpaper
@@ -179,7 +237,156 @@ Item {
 		anchors.margins: 4
 	}
 
-	// ── Keyboard: Space to enter selection mode ───────────────────────────
+	function isDropValid(targetPath, sourcePaths) {
+		if (!targetPath || targetPath === "" || !sourcePaths || sourcePaths.length === 0) {
+			return false;
+		}
+
+		var normTarget = String(targetPath);
+		if (normTarget.length > 1 && normTarget.endsWith("/")) {
+			normTarget = normTarget.substring(0, normTarget.length - 1);
+		}
+
+		for (var i = 0; i < sourcePaths.length; i++) {
+			var src = String(sourcePaths[i]);
+			if (!src || src === "") continue;
+
+			if (src.indexOf("file://") === 0) {
+				src = src.substring(7);
+			}
+
+			if (src.length > 1 && src.endsWith("/")) {
+				src = src.substring(0, src.length - 1);
+			}
+
+			var lastSlash = src.lastIndexOf("/");
+			var srcParent = lastSlash > 0 ? src.substring(0, lastSlash) : (lastSlash === 0 ? "/" : "");
+
+			// Cannot drop into the exact same parent folder
+			if (normTarget === srcParent) {
+				return false;
+			}
+
+			// Cannot drop folder into itself or a subfolder of itself
+			if (normTarget === src || normTarget.indexOf(src + "/") === 0) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	// Active Drop Highlight Border around folderView background
+	Rectangle {
+		anchors.fill: parent
+		anchors.margins: 4
+		radius: 8
+		color: "transparent"
+		border.color: Kirigami.Theme.highlightColor
+		border.width: 3
+		z: 10
+		opacity: bgDropArea.isHovered ? 0.85 : 0.0
+		Behavior on opacity { NumberAnimation { duration: 120 } }
+	}
+
+	// Background Drop Area for dropping files into current directory
+	DropArea {
+		id: bgDropArea
+		anchors.fill: parent
+		keys: ["text/uri-list", "text/plain"]
+		z: 0
+
+		property bool isHovered: false
+
+		onEntered: (drag) => {
+			var sourcePaths = [];
+			if (typeof rootDragHandle !== 'undefined' && rootDragHandle.dragSourcePaths && rootDragHandle.dragSourcePaths.length > 0) {
+				sourcePaths = rootDragHandle.dragSourcePaths;
+			} else if (drag.source) {
+				sourcePaths = drag.source.dragSourcePaths || (drag.source.mainPath ? [drag.source.mainPath] : []);
+			} else if (drag.hasUrls) {
+				sourcePaths = drag.urls;
+			}
+
+			if (!folderView.isDropValid(folderView.directory.path, sourcePaths)) {
+				bgDropArea.isHovered = false;
+				if (typeof rootDragHandle !== 'undefined') rootDragHandle.tooltipActive = false;
+				drag.accepted = false;
+				return;
+			}
+
+			bgDropArea.isHovered = true;
+			if (typeof rootDragHandle !== 'undefined') {
+				rootDragHandle.tooltipActive = true;
+				var pt = bgDropArea.mapToItem(null, drag.x, drag.y);
+				rootDragHandle.trackMouseShake(pt.x, pt.y);
+			}
+			drag.accept();
+		}
+
+		onPositionChanged: (drag) => {
+			var sourcePaths = [];
+			if (typeof rootDragHandle !== 'undefined' && rootDragHandle.dragSourcePaths && rootDragHandle.dragSourcePaths.length > 0) {
+				sourcePaths = rootDragHandle.dragSourcePaths;
+			} else if (drag.source) {
+				sourcePaths = drag.source.dragSourcePaths || (drag.source.mainPath ? [drag.source.mainPath] : []);
+			} else if (drag.hasUrls) {
+				sourcePaths = drag.urls;
+			}
+
+			if (!folderView.isDropValid(folderView.directory.path, sourcePaths)) {
+				bgDropArea.isHovered = false;
+				if (typeof rootDragHandle !== 'undefined') rootDragHandle.tooltipActive = false;
+				drag.accepted = false;
+				return;
+			}
+
+			bgDropArea.isHovered = true;
+			if (typeof rootDragHandle !== 'undefined') {
+				rootDragHandle.tooltipActive = true;
+				var pt = bgDropArea.mapToItem(null, drag.x, drag.y);
+				rootDragHandle.trackMouseShake(pt.x, pt.y);
+			}
+		}
+
+		onExited: {
+			bgDropArea.isHovered = false;
+			if (typeof rootDragHandle !== 'undefined') rootDragHandle.tooltipActive = false;
+		}
+
+		onDropped: (drop) => {
+			bgDropArea.isHovered = false;
+			if (typeof rootDragHandle !== 'undefined') rootDragHandle.tooltipActive = false;
+
+			var uris = "";
+			if (typeof rootDragHandle !== 'undefined' && rootDragHandle.dragUris && rootDragHandle.dragUris.length > 0) {
+				uris = rootDragHandle.dragUris.join("\n");
+			} else if (drop.source && drop.source.dragUris) {
+				uris = drop.source.dragUris.join("\n");
+			} else if (drop.hasUrls) {
+				uris = drop.urls.join("\n");
+			} else if (drop.hasText) {
+				uris = drop.text;
+			}
+
+			if (uris.length > 0 && typeof fileManager !== 'undefined' && fileManager) {
+				var action = (typeof rootDragHandle !== 'undefined' && rootDragHandle.dragAction) ? rootDragHandle.dragAction : "copy";
+				if (fileManager.process_uris_action(folderView.directory.path, uris, action)) {
+					folderView.directory.refresh();
+				}
+				drop.accept();
+			}
+		}
+	}
+
+	DragTooltip {
+		active: folderView.dragActive
+		action: folderView.dragAction
+		cursorX: folderView.dragCursorX + 16
+		cursorY: folderView.dragCursorY + 16
+	}
+
+	// ── Input stuff ---
 	Keys.onPressed: (event) => {
 		if (event.key === Qt.Key_Space && !folderView.selectionActive) {
 			folderView.enterSelectionMode();
@@ -195,15 +402,15 @@ Item {
 	}
 	focus: true
 
-	// ── File grid ─────────────────────────────────────────────────────────
+	// ── Grid ───
 
 	Flickable {
 		id: flickable
+		z: 1
 		anchors {
 			top: parent.top
 			left: parent.left
 			right: parent.right
-			// Leave room for the selection bar at the bottom when active
 			bottom: selectionBar.top
 		}
 		anchors.margins: Kirigami.Units.mediumSpacing
@@ -251,10 +458,11 @@ Item {
 		}
 	}
 
-	// ── Selection bar ─────────────────────────────────────────────────────
+	// ── Selection Toolbar ───
 
 	Rectangle {
 		id: selectionBar
+		z: 2
 
 		anchors.left: parent.left
 		anchors.right: parent.right
@@ -269,7 +477,6 @@ Item {
 		Kirigami.Theme.colorSet: Kirigami.Theme.Header
 		color: Kirigami.Theme.backgroundColor
 
-		// Top separator
 		Kirigami.Separator {
 			anchors.top: parent.top
 			anchors.left: parent.left
@@ -304,7 +511,7 @@ Item {
 			ToolButton {
 				text: qsTr("Select All")
 				icon.name: "edit-select-all"
-				display: AbstractButton.IconOnly
+				// display: AbstractButton.IconOnly
 				ToolTip.text: qsTr("Select All")
 				ToolTip.visible: hovered
 				flat: true
@@ -314,29 +521,11 @@ Item {
 			ToolButton {
 				text: qsTr("Deselect All")
 				icon.name: "edit-select-none"
-				display: AbstractButton.IconOnly
+				// display: AbstractButton.IconOnly
 				ToolTip.text: qsTr("Deselect All")
 				ToolTip.visible: hovered
 				flat: true
 				onClicked: folderView.deselectAll()
-			}
-
-			// Separator
-			Rectangle {
-				width: 1
-				height: 24
-				color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.2)
-				Layout.leftMargin: Kirigami.Units.smallSpacing
-				Layout.rightMargin: Kirigami.Units.smallSpacing
-			}
-
-			ToolButton {
-				icon.name: "window-close"
-				display: AbstractButton.IconOnly
-				flat: true
-				ToolTip.text: qsTr("Exit Selection Mode")
-				ToolTip.visible: hovered
-				onClicked: folderView.exitSelectionMode()
 			}
 		}
 	}
