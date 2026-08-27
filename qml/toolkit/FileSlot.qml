@@ -16,6 +16,8 @@ Item {
 
 	property int  gridSize: 64
 	property bool labelBesideIcon: gridSize < 32
+	property bool fixedWidth: true
+	property bool showIcon: icon != ""
 
 	// Selection state passed from FolderView
 	property bool selectionActive: false
@@ -32,9 +34,6 @@ Item {
 
 	// Emitted on press and hold
 	signal pressHeld(string path, int idx)
-
-	property bool fixedWidth: true
-	property bool showIcon: icon != ""
 
 	// --- Slot ---
 	implicitWidth: contentLayout.implicitWidth + (fileSlot.labelBesideIcon && fileSlot.showIcon ? Kirigami.Units.largeSpacing * 2 : Kirigami.Units.smallSpacing * 2)
@@ -179,7 +178,9 @@ Item {
 
 		function checkValid(drag) {
 			var sourcePaths = [];
-			if (typeof rootDragHandle !== 'undefined' && rootDragHandle.dragSourcePaths && rootDragHandle.dragSourcePaths.length > 0) {
+			if (
+				typeof rootDragHandle !== 'undefined' && rootDragHandle.dragSourcePaths && rootDragHandle.dragSourcePaths.length > 0
+			) {
 				sourcePaths = rootDragHandle.dragSourcePaths;
 			} else if (drag.source) {
 				sourcePaths = drag.source.dragSourcePaths || (drag.source.mainPath ? [drag.source.mainPath] : []);
