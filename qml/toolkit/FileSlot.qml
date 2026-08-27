@@ -33,21 +33,30 @@ Item {
 	// Emitted on press and hold
 	signal pressHeld(string path, int idx)
 
+	property bool fixedWidth: true
+	property bool showIcon: icon != ""
+
 	// --- Slot ---
+	implicitWidth: contentLayout.implicitWidth + (fileSlot.labelBesideIcon && fileSlot.showIcon ? Kirigami.Units.largeSpacing * 2 : Kirigami.Units.smallSpacing * 2)
+	implicitHeight: contentLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
+
+	// ── Layout ──
 
 	GridLayout {
 		id: contentLayout
 		anchors.verticalCenter: parent.verticalCenter
-		x: fileSlot.labelBesideIcon ? Kirigami.Units.largeSpacing : (parent.width - width) / 2
-		columns: fileSlot.labelBesideIcon ? 2 : 1
+		x: (fileSlot.labelBesideIcon && fileSlot.showIcon) ? Kirigami.Units.largeSpacing : (parent.width - width) / 2
+		columns: (fileSlot.labelBesideIcon && fileSlot.showIcon) ? 2 : 1
 
 		Item {
-			Layout.alignment: fileSlot.labelBesideIcon ? Qt.AlignVCenter : Qt.AlignHCenter
+			visible: fileSlot.showIcon
+			Layout.alignment: (fileSlot.labelBesideIcon && fileSlot.showIcon) ? Qt.AlignVCenter : Qt.AlignHCenter
 			Layout.preferredWidth: fileSlot.gridSize
 			Layout.preferredHeight: fileSlot.gridSize
 
 			Loader {
 				anchors.fill: parent
+				active: fileSlot.showIcon
 				sourceComponent: (fileSlot.icon.startsWith("file://") || fileSlot.icon.startsWith("/")) ? thumbnailComponent : iconComponent
 			}
 
@@ -94,9 +103,9 @@ Item {
 			color: Kirigami.Theme.textColor
 			wrapMode: Text.Wrap
 			maximumLineCount: 2
-			elide: fileSlot.labelBesideIcon ? Text.ElideNone : Text.ElideMiddle
+			elide: fileSlot.labelBesideIcon ? Text.ElideMiddle : Text.ElideMiddle
 			Layout.maximumWidth: fileSlot.labelBesideIcon
-			? fileSlot.width - fileSlot.gridSize - Kirigami.Units.gridUnit * 2
+			? (fileSlot.fixedWidth ? fileSlot.width - fileSlot.gridSize - Kirigami.Units.gridUnit * 2 : 250)
 			: fileSlot.gridSize + Kirigami.Units.gridUnit * 2
 			horizontalAlignment: fileSlot.labelBesideIcon ? Text.AlignLeft : Text.AlignHCenter
 		}

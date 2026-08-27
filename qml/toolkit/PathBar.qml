@@ -62,46 +62,24 @@ RowLayout {
 				color: Kirigami.Theme.disabledTextColor
 			}
 
-			Button {
-				id: crumbButton
-				flat: true
-				hoverEnabled: true
-				text: delegateRoot.modelData === "/" ? "/" : delegateRoot.modelData
-				padding: Kirigami.Units.mediumSpacing
-				implicitWidth: leftPadding + rightPadding + contentLayout.implicitWidth
-				Kirigami.Theme.colorSet: Kirigami.Theme.Inactive
+			FileSlot {
+				id: crumbSlot
+				path: pathBar.pathForIndex(delegateRoot.index)
+				title: delegateRoot.modelData === "/" ? "/" : delegateRoot.modelData
+				icon: delegateRoot.index === pathBar.segments.length - 1 && pathBar.directory ? String(pathBar.directory.icon) : ""
 
-				background: Rectangle {
-					color: (
-						delegateRoot.index === pathBar.segments.length - 1
-						? Kirigami.Theme.backgroundColor : "transparent"
-					)
-					radius: Kirigami.Units.mediumSpacing
-				}
+				is_dir: true
+				index: delegateRoot.index
+				gridSize: 22
+				labelBesideIcon: true
+				isSelected: delegateRoot.index === pathBar.segments.length - 1
+				fixedWidth: false
 
-				contentItem: RowLayout {
-					id: contentLayout
-					spacing: Kirigami.Units.mediumSpacing
+				Layout.preferredWidth: implicitWidth
+				Layout.preferredHeight: implicitHeight
 
-					Kirigami.Icon {
-						visible: delegateRoot.index === pathBar.segments.length - 1
-						source: pathBar.directory ? String(pathBar.directory.icon) : ""
-						Layout.preferredWidth: Kirigami.Units.iconSizes.small
-						Layout.preferredHeight: Kirigami.Units.iconSizes.small
-					}
-
-					Label {
-						text: crumbButton.text
-						color: Kirigami.Theme.textColor
-						font.bold: delegateRoot.index === pathBar.segments.length - 1
-						Layout.minimumWidth: implicitWidth
-						elide: Text.ElideNone
-					}
-				}
-
-				onClicked: {
-					var target = pathBar.pathForIndex(delegateRoot.index);
-					pathBar.directory.path = target;
+				onNavigate: (targetPath) => {
+					pathBar.directory.path = targetPath;
 				}
 			}
 		}
