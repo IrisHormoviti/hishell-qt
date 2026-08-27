@@ -115,9 +115,11 @@ Item {
 		} else {
 			sel[path] = true;
 		}
-		folderView.selectedPaths = sel;
+
+		folderView.selectedPaths = Object.assign({}, sel);
+
 		folderView.lastSelectedIndex = idx;
-		if (folderView.selectedCount == 0) {
+		if (folderView.selectedCount === 0) {
 			exitSelectionMode();
 		}
 	}
@@ -132,7 +134,8 @@ Item {
 				sel[itemPath] = true;
 			}
 		}
-		folderView.selectedPaths = sel;
+
+		folderView.selectedPaths = Object.assign({}, sel);
 	}
 
 	function selectAll() {
@@ -142,8 +145,10 @@ Item {
 			var p = folderView.directory.data(folderView.directory.index(i, 0), 0x0101);
 			if (p) sel[p] = true;
 		}
-		folderView.selectedPaths = sel;
+
+		folderView.selectedPaths = Object.assign({}, sel);
 	}
+
 
 	function deselectAll() {
 		folderView.selectedPaths = {};

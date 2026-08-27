@@ -278,6 +278,61 @@ MenuBar {
 
 	// ── Menu declarations ─────────────────────────────────────────────────
 
+	Instantiator {
+		// Only create and insert the menu if items are selected
+		active: menuBar.selectedCount > 0
+
+		onObjectAdded: (index, object) => menuBar.insertMenu(0, object)
+		onObjectRemoved: (index, object) => menuBar.removeMenu(object)
+
+		Menu {
+			id: editMenu
+			title: qsTr("Edit")
+			popupType: Popup.Window
+
+			MenuItem {
+				text: qsTr("Paste")
+				icon.name: "edit-paste"
+				action: pasteAction
+			}
+			MenuSeparator {}
+			MenuItem {
+				text: qsTr("Copy")
+				icon.name: "edit-copy"
+				action: copyAction
+			}
+			MenuItem {
+				text: qsTr("Cut")
+				icon.name: "edit-cut"
+				action: cutAction
+			}
+			MenuSeparator {}
+			MenuItem {
+				text: qsTr("Duplicate")
+				icon.name: "edit-copy"
+				action: duplicateAction
+			}
+			MenuItem {
+				text: qsTr("Create Link")
+				icon.name: "edit-link"
+				action: linkAction
+			}
+			MenuSeparator {}
+			MenuItem {
+				text: qsTr("Rename")
+				icon.name: "edit-rename"
+				action: renameAction
+			}
+			MenuSeparator {}
+			MenuItem {
+				text: qsTr("Move to Trash")
+				icon.name: "user-trash"
+				action: trashAction
+			}
+		}
+	}
+
+
 	Menu {
 		title: qsTr("New")
 		popupType: Popup.Window
@@ -291,55 +346,6 @@ MenuBar {
 			text: qsTr("Text File")
 			icon.name: "text-plain"
 			action: newTextFileAction
-		}
-	}
-
-	// Edit menu: always visible since Paste works without selection.
-	// Other actions are individually enabled/disabled based on selection count.
-	Menu {
-		id: editMenu
-		title: qsTr("Edit")
-		popupType: Popup.Window
-
-		MenuItem {
-			text: qsTr("Paste")
-			icon.name: "edit-paste"
-			action: pasteAction
-		}
-		MenuSeparator {}
-		MenuItem {
-			text: qsTr("Copy")
-			icon.name: "edit-copy"
-			action: copyAction
-		}
-		MenuItem {
-			text: qsTr("Cut")
-			icon.name: "edit-cut"
-			action: cutAction
-		}
-		MenuSeparator {}
-		MenuItem {
-			text: qsTr("Duplicate")
-			icon.name: "edit-copy"
-			action: duplicateAction
-		}
-		MenuItem {
-			text: qsTr("Create Link")
-			icon.name: "edit-link"
-			action: linkAction
-		}
-		MenuSeparator {}
-		// Rename: only enabled for single selection
-		MenuItem {
-			text: qsTr("Rename")
-			icon.name: "edit-rename"
-			action: renameAction
-		}
-		MenuSeparator {}
-		MenuItem {
-			text: qsTr("Move to Trash")
-			icon.name: "user-trash"
-			action: trashAction
 		}
 	}
 
@@ -377,8 +383,8 @@ MenuBar {
 				Slider {
 					id: gridSizeSlider
 					value: menuBar.config.grid_size
-					from: 0
-					to: 128
+					from: 16
+					to: 256
 					stepSize: 4
 					onMoved: {
 						menuBar.directory.set_config("VIEW", "GridSize", value.toString(), menuBar.isLocal);

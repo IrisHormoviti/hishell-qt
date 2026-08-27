@@ -20,9 +20,9 @@ Kirigami.ApplicationWindow {
 		id: fileManager
 	}
 
-	// Persistent Root Drag Handle (owned by ApplicationWindow, never destroyed during model reset)
+	// Persistent Drag & Drop Handler
 	Item {
-		id: rootDragHandle
+		id: dragHandler
 		visible: true
 		opacity: 0
 		width: 1
@@ -31,8 +31,14 @@ Kirigami.ApplicationWindow {
 		Drag.dragType: Drag.Automatic
 		Drag.supportedActions: Qt.CopyAction | Qt.MoveAction | Qt.LinkAction
 		Drag.proposedAction: Qt.CopyAction
-		Drag.hotSpot.x: 24
-		Drag.hotSpot.y: 24
+
+		property real dragIconWidth: 0
+		property real dragIconHeight: 0
+		Drag.hotSpot.x: dragIconWidth / 2
+		Drag.hotSpot.y: dragIconHeight / 2
+
+		property var activeDraggedPaths: []
+		property bool isSystemDragging: Drag.active
 
 		property string mainPath: ""
 		property var dragUris: []
@@ -47,16 +53,18 @@ Kirigami.ApplicationWindow {
 		property real dragCursorY: 0
 		property var shakePositions: []
 
+		property var draggedSlot: null
+
 		function trackMouseShake(x, y) {
-			rootDragHandle.dragCursorX = x;
-			rootDragHandle.dragCursorY = y;
+			dragHandler.dragCursorX = x;
+			dragHandler.dragCursorY = y;
 
 			var now = Date.now();
-			var history = rootDragHandle.shakePositions.slice();
+			var history = dragHandler.shakePositions.slice();
 			history.push({ x: x, y: y, time: now });
 
 			history = history.filter(function(p) { return now - p.time <= 450; });
-			rootDragHandle.shakePositions = history;
+			dragHandler.shakePositions = history;
 
 			if (history.length < 5) return;
 
@@ -83,37 +91,38 @@ Kirigami.ApplicationWindow {
 
 			if (reversals >= 3 && totalDistance > 50) {
 				cycleDragAction();
-				rootDragHandle.shakePositions = [];
+				dragHandler.shakePositions = [];
 			}
 		}
 
 		function cycleDragAction() {
-			if (rootDragHandle.dragAction === "copy") {
-				rootDragHandle.dragAction = "move";
-			} else if (rootDragHandle.dragAction === "move") {
-				rootDragHandle.dragAction = "link";
+			if (dragHandler.dragAction === "copy") {
+				dragHandler.dragAction = "move";
+			} else if (dragHandler.dragAction === "move") {
+				dragHandler.dragAction = "link";
 			} else {
-				rootDragHandle.dragAction = "copy";
+				dragHandler.dragAction = "copy";
 			}
 		}
 
 		Drag.onActiveChanged: {
 			if (!Drag.active) {
-				rootDragHandle.tooltipActive = false;
-				rootDragHandle.shakePositions = [];
+				dragHandler.activeDraggedPaths = [];
+				dragHandler.tooltipActive = false;
+				dragHandler.shakePositions = [];
 			}
 		}
 	}
 
-	// Persistent Root Drag Tooltip
+	// Drag Tooltip
 	DragTooltip {
-		active: rootDragHandle.tooltipActive && rootDragHandle.Drag.active
-		action: rootDragHandle.dragAction
-		cursorX: rootDragHandle.dragCursorX + 16
-		cursorY: rootDragHandle.dragCursorY + 16
+		active: dragHandler.tooltipActive && dragHandler.Drag.active
+		action: dragHandler.dragAction
+		cursorX: dragHandler.dragCursorX + 16
+		cursorY: dragHandler.dragCursorY + 16
 	}
 
-	// Shared selection state — written by FolderView, read by MenuBar
+	// Shared selection state, written by FolderView, read by MenuBar
 	QtObject {
 		id: selectionState
 		property bool selectionActive: false

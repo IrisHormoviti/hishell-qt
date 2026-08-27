@@ -38,6 +38,7 @@ Item {
 	// --- Slot ---
 	implicitWidth: contentLayout.implicitWidth + (fileSlot.labelBesideIcon && fileSlot.showIcon ? Kirigami.Units.largeSpacing * 2 : Kirigami.Units.smallSpacing * 2)
 	implicitHeight: contentLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
+	opacity: !(dragHandler.isSystemDragging && dragHandler.activeDraggedPaths.indexOf(fileSlot.path) !== -1)
 
 	// ── Layout ──
 
@@ -64,7 +65,7 @@ Item {
 				Image {
 					source: fileSlot.icon
 					asynchronous: true
-					cache: true
+					cache: false
 					fillMode: Image.PreserveAspectFit
 					smooth: true
 					anchors.fill: parent
@@ -179,9 +180,9 @@ Item {
 		function checkValid(drag) {
 			var sourcePaths = [];
 			if (
-				typeof rootDragHandle !== 'undefined' && rootDragHandle.dragSourcePaths && rootDragHandle.dragSourcePaths.length > 0
+				typeof dragHandler !== 'undefined' && dragHandler.dragSourcePaths && dragHandler.dragSourcePaths.length > 0
 			) {
-				sourcePaths = rootDragHandle.dragSourcePaths;
+				sourcePaths = dragHandler.dragSourcePaths;
 			} else if (drag.source) {
 				sourcePaths = drag.source.dragSourcePaths || (drag.source.mainPath ? [drag.source.mainPath] : []);
 			} else if (drag.hasUrls) {
@@ -200,17 +201,17 @@ Item {
 
 			if (fView && !fView.isDropValid(fileSlot.path, sourcePaths)) {
 				slotDropArea.isHovered = false;
-				if (typeof rootDragHandle !== 'undefined') rootDragHandle.tooltipActive = false;
+				if (typeof dragHandler !== 'undefined') dragHandler.tooltipActive = false;
 				drag.accepted = false;
 				hoverNavTimer.stop();
 				return false;
 			}
 
 			slotDropArea.isHovered = true;
-			if (typeof rootDragHandle !== 'undefined') {
-				rootDragHandle.tooltipActive = true;
+			if (typeof dragHandler !== 'undefined') {
+				dragHandler.tooltipActive = true;
 				var pt = slotDropArea.mapToItem(null, drag.x, drag.y);
-				rootDragHandle.trackMouseShake(pt.x, pt.y);
+				dragHandler.trackMouseShake(pt.x, pt.y);
 			}
 			drag.accept();
 			return true;
@@ -229,17 +230,17 @@ Item {
 		onExited: {
 			slotDropArea.isHovered = false;
 			hoverNavTimer.stop();
-			if (typeof rootDragHandle !== 'undefined') rootDragHandle.tooltipActive = false;
+			if (typeof dragHandler !== 'undefined') dragHandler.tooltipActive = false;
 		}
 
 		onDropped: (drop) => {
 			slotDropArea.isHovered = false;
 			hoverNavTimer.stop();
-			if (typeof rootDragHandle !== 'undefined') rootDragHandle.tooltipActive = false;
+			if (typeof dragHandler !== 'undefined') dragHandler.tooltipActive = false;
 
 			var uris = "";
-			if (typeof rootDragHandle !== 'undefined' && rootDragHandle.dragUris && rootDragHandle.dragUris.length > 0) {
-				uris = rootDragHandle.dragUris.join("\n");
+			if (typeof dragHandler !== 'undefined' && dragHandler.dragUris && dragHandler.dragUris.length > 0) {
+				uris = dragHandler.dragUris.join("\n");
 			} else if (drop.source && drop.source.dragUris) {
 				uris = drop.source.dragUris.join("\n");
 			} else if (drop.hasUrls) {
@@ -249,7 +250,7 @@ Item {
 			}
 
 			if (uris.length > 0 && typeof fileManager !== 'undefined' && fileManager) {
-				var action = (typeof rootDragHandle !== 'undefined' && rootDragHandle.dragAction) ? rootDragHandle.dragAction : "copy";
+				var action = (typeof dragHandler !== 'undefined' && dragHandler.dragAction) ? dragHandler.dragAction : "copy";
 				if (fileManager.process_uris_action(fileSlot.path, uris, action)) {
 					var p = fileSlot.parent;
 					while (p) {
@@ -272,7 +273,7 @@ Item {
 		onTriggered: {
 			if (slotDropArea.isHovered && fileSlot.is_dir) {
 				var targetPath = fileSlot.path;
-				if (typeof rootDragHandle !== 'undefined') rootDragHandle.tooltipActive = false;
+				if (typeof dragHandler !== 'undefined') dragHandler.tooltipActive = false;
 				Qt.callLater(function() {
 					fileSlot.navigate(targetPath);
 				});
@@ -297,116 +298,150 @@ Item {
 		drag.axis: Drag.XAndYAxis
 
 		property bool dragStarted: false
+		property bool isPressAndHoldActive: false
+
+		// Track where the mouse was first pressed down
+		property int startX: 0
+		property int startY: 0
+		property bool dragInitiated: false
 
 		Component.onDestruction: {
-			if (typeof rootDragHandle !== 'undefined' && mouseArea.dragStarted) {
-				rootDragHandle.Drag.active = false;
-				rootDragHandle.tooltipActive = false;
+			if (typeof dragHandler !== 'undefined' && mouseArea.dragStarted) {
+				dragHandler.Drag.active = false;
+				dragHandler.tooltipActive = false;
 			}
 		}
 
-		onPositionChanged: (mouse) => {
-			if (mouseArea.drag.active && typeof rootDragHandle !== 'undefined') {
-				if (!rootDragHandle.Drag.active && !mouseArea.dragStarted) {
-					mouseArea.dragStarted = true;
-					Qt.callLater(function() {
-						if (typeof rootDragHandle !== 'undefined') {
-							rootDragHandle.Drag.active = true;
-						}
-					});
+		// Reusable function to assemble metadata only when a true drag is confirmed
+		function initiateDragPayload() {
+			if (dragInitiated) return;
+			dragInitiated = true;
+
+			var uris = [];
+			var rawPaths = [];
+			var mainPath = fileSlot.path;
+			var mainUri = mainPath.startsWith("file://") ? mainPath : ("file://" + mainPath);
+
+			var fView = null;
+			var p = fileSlot.parent;
+			while (p) {
+				if (typeof p.selectedCount !== 'undefined' && typeof p.selectedPaths !== 'undefined') {
+					fView = p;
+					break;
 				}
-				var pt = mouseArea.mapToItem(null, mouse.x, mouse.y);
-				rootDragHandle.trackMouseShake(pt.x, pt.y);
+				p = p.parent;
+			}
+
+			if (fView && fView.selectedCount > 1 && fView.selectedPaths[mainPath]) {
+				var keys = Object.keys(fView.selectedPaths);
+				for (var i = 0; i < keys.length; i++) {
+					var pathKey = keys[i];
+					rawPaths.push(pathKey);
+					uris.push(pathKey.startsWith("file://") ? pathKey : ("file://" + pathKey));
+				}
+			} else {
+				rawPaths.push(mainPath);
+				uris.push(mainUri);
+			}
+
+			dragHandler.mainPath = mainPath;
+			dragHandler.dragUris = uris;
+			dragHandler.dragSourcePaths = rawPaths;
+			dragHandler.itemCount = uris.length;
+			dragHandler.fileTitle = fileSlot.title;
+			dragHandler.fileIcon = fileSlot.icon;
+
+			var urisStr = uris.join("\n");
+			var mimeData = {
+				"text/uri-list": urisStr,
+				"text/plain": urisStr
+			};
+
+			if (uris.length === 1 && !fileSlot.is_dir && typeof fileManager !== 'undefined' && fileManager) {
+				var mimeType = fileManager.get_mime_type(mainPath);
+				if (mimeType && mimeType !== "") {
+					mimeData[mimeType] = mainUri;
+					if (mimeType.startsWith("text/")) {
+						var textContent = fileManager.get_text_content(mainPath);
+						if (textContent && textContent !== "") {
+							mimeData["text/plain"] = textContent;
+						}
+					}
+				}
+			}
+
+			dragHandler.Drag.mimeData = mimeData;
+			dragHandler.Drag.keys = Object.keys(mimeData);
+			dragHandler.dragIconWidth = fileSlot.width;
+			dragHandler.dragIconHeight = fileSlot.height;
+			dragHandler.activeDraggedPaths = rawPaths;
+
+			fileSlot.grabToImage(function(result) {
+				// Guard against selection overrides during the async render window
+				if (mouseArea.isPressAndHoldActive) {
+					dragHandler.activeDraggedPaths = [];
+					return;
+				}
+
+				dragHandler.Drag.imageSource = result.url;
+				mouseArea.dragStarted = true;
+				dragHandler.Drag.active = true;
+			});
+		}
+
+		onPositionChanged: (mouse) => {
+			if (typeof dragHandler !== 'undefined') {
+				// If a drag hasn't officially started yet, check if mouse crossed the threshold
+				if (!mouseArea.dragStarted && !mouseArea.isPressAndHoldActive && mouseArea.drag.active) {
+					var deltaX = mouse.x - mouseArea.startX;
+					var deltaY = mouse.y - mouseArea.startY;
+					var distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+					// 10 pixels is standard for desktop dragging thresholds
+					if (distance > 10) {
+						mouseArea.initiateDragPayload();
+					}
+				}
+
+				// Keep updating tooltip shake positions if the system drag loop is active
+				if (mouseArea.dragStarted) {
+					var pt = mouseArea.mapToItem(null, mouse.x, mouse.y);
+					dragHandler.trackMouseShake(pt.x, pt.y);
+				}
+			}
+		}
+
+		onPressed: (mouse) => {
+			if (mouse.button === Qt.LeftButton && typeof dragHandler !== 'undefined') {
+				mouseArea.isPressAndHoldActive = false;
+				mouseArea.dragInitiated = false;
+
+				// Store original click centerpoint to calculate mouse travel distance
+				mouseArea.startX = mouse.x;
+				mouseArea.startY = mouse.y;
 			}
 		}
 
 		onReleased: (mouse) => {
-			if (typeof rootDragHandle !== 'undefined') {
-				rootDragHandle.Drag.active = false;
-				rootDragHandle.tooltipActive = false;
+			mouseArea.isPressAndHoldActive = false;
+			mouseArea.dragInitiated = false;
+
+			if (typeof dragHandler !== 'undefined') {
+				dragHandler.Drag.active = false;
+				dragHandler.Drag.imageSource = "";
+				dragHandler.tooltipActive = false;
 			}
 			mouseArea.dragStarted = false;
 		}
 
-		onPressed: (mouse) => {
-			if (mouse.button === Qt.LeftButton && typeof rootDragHandle !== 'undefined') {
-				var uris = [];
-				var rawPaths = [];
-				var mainPath = fileSlot.path;
-				var mainUri = mainPath.startsWith("file://") ? mainPath : ("file://" + mainPath);
-
-				// Check selection state
-				var fView = null;
-				var p = fileSlot.parent;
-				while (p) {
-					if (typeof p.selectedCount !== 'undefined' && typeof p.selectedPaths !== 'undefined') {
-						fView = p;
-						break;
-					}
-					p = p.parent;
-				}
-
-				if (fView && fView.selectedCount > 1 && fView.selectedPaths[mainPath]) {
-					var keys = Object.keys(fView.selectedPaths);
-					for (var i = 0; i < keys.length; i++) {
-						var pathKey = keys[i];
-						rawPaths.push(pathKey);
-						uris.push(pathKey.startsWith("file://") ? pathKey : ("file://" + pathKey));
-					}
-				} else {
-					rawPaths.push(mainPath);
-					uris.push(mainUri);
-				}
-
-				rootDragHandle.mainPath = mainPath;
-				rootDragHandle.dragUris = uris;
-				rootDragHandle.dragSourcePaths = rawPaths;
-				rootDragHandle.itemCount = uris.length;
-				rootDragHandle.fileTitle = fileSlot.title;
-				rootDragHandle.fileIcon = fileSlot.icon;
-
-				var urisStr = uris.join("\n");
-				var mimeData = {
-					"text/uri-list": urisStr,
-					"text/plain": urisStr
-				};
-
-				// If single file, advertise text content for text files
-				if (uris.length === 1 && !fileSlot.is_dir && typeof fileManager !== 'undefined' && fileManager) {
-					var mimeType = fileManager.get_mime_type(mainPath);
-					if (mimeType && mimeType !== "") {
-						mimeData[mimeType] = mainUri;
-						if (mimeType.startsWith("text/")) {
-							var textContent = fileManager.get_text_content(mainPath);
-							if (textContent && textContent !== "") {
-								mimeData["text/plain"] = textContent;
-							}
-						}
-					}
-				}
-
-				rootDragHandle.Drag.mimeData = mimeData;
-				rootDragHandle.Drag.keys = Object.keys(mimeData);
-
-				// Grab fileSlot visual item to URL for native Wayland system drag icon (Drag.imageSource)
-				fileSlot.grabToImage(function(result) {
-					rootDragHandle.Drag.imageSource = result.url;
-				}, Qt.size(fileSlot.width, fileSlot.height));
-			}
-		}
-
 		onPressAndHold: {
+			mouseArea.isPressAndHoldActive = true;
 			fileSlot.pressHeld(fileSlot.path, fileSlot.index);
 		}
 
 		onClicked: (mouse) => {
-			if (mouse.button === Qt.RightButton) {
-				return;
-			}
-
-			if (mouse.button === Qt.MiddleButton) {
-				return;
-			}
+			if (mouse.button === Qt.RightButton) return;
+			if (mouse.button === Qt.MiddleButton) return;
 
 			if (fileSlot.selectionActive) {
 				if (mouse.modifiers & Qt.ShiftModifier) {
@@ -415,11 +450,11 @@ Item {
 					fileSlot.selectionToggled(fileSlot.path, fileSlot.index);
 				}
 			} else if (mouse.modifiers & Qt.ControlModifier) {
-				// Ctrl+click: start selection mode and select this item
 				fileSlot.selectionToggled(fileSlot.path, fileSlot.index);
 			} else {
 				fileSlot.navigate(fileSlot.path);
 			}
 		}
 	}
+
 }
