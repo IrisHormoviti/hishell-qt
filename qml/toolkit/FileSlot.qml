@@ -272,34 +272,50 @@ Item {
 
 	// ── Mouse & Drag Handling ───
 
+	Item {
+		id: localDragTarget
+		visible: false
+	}
+
 	MouseArea {
 		id: mouseArea
 		anchors.fill: parent
 		acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
 		pressAndHoldInterval: 600
 
-		drag.target: typeof rootDragHandle !== 'undefined' ? rootDragHandle : null
+		drag.target: localDragTarget
 		drag.axis: Drag.XAndYAxis
 
-		Connections {
-			target: mouseArea.drag
-			function onActiveChanged() {
-				if (typeof rootDragHandle !== 'undefined') {
-					if (mouseArea.drag.active) {
-						rootDragHandle.Drag.active = true;
-					} else {
-						rootDragHandle.Drag.active = false;
-						rootDragHandle.tooltipActive = false;
-					}
-				}
+		property bool dragStarted: false
+
+		Component.onDestruction: {
+			if (typeof rootDragHandle !== 'undefined' && mouseArea.dragStarted) {
+				rootDragHandle.Drag.active = false;
+				rootDragHandle.tooltipActive = false;
 			}
 		}
 
 		onPositionChanged: (mouse) => {
 			if (mouseArea.drag.active && typeof rootDragHandle !== 'undefined') {
+				if (!rootDragHandle.Drag.active && !mouseArea.dragStarted) {
+					mouseArea.dragStarted = true;
+					Qt.callLater(function() {
+						if (typeof rootDragHandle !== 'undefined') {
+							rootDragHandle.Drag.active = true;
+						}
+					});
+				}
 				var pt = mouseArea.mapToItem(null, mouse.x, mouse.y);
 				rootDragHandle.trackMouseShake(pt.x, pt.y);
 			}
+		}
+
+		onReleased: (mouse) => {
+			if (typeof rootDragHandle !== 'undefined') {
+				rootDragHandle.Drag.active = false;
+				rootDragHandle.tooltipActive = false;
+			}
+			mouseArea.dragStarted = false;
 		}
 
 		onPressed: (mouse) => {
@@ -365,7 +381,7 @@ Item {
 				// Grab fileSlot visual item to URL for native Wayland system drag icon (Drag.imageSource)
 				fileSlot.grabToImage(function(result) {
 					rootDragHandle.Drag.imageSource = result.url;
-				});
+				}, Qt.size(fileSlot.width, fileSlot.height));
 			}
 		}
 

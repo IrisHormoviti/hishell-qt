@@ -23,7 +23,8 @@ Kirigami.ApplicationWindow {
 	// Persistent Root Drag Handle (owned by ApplicationWindow, never destroyed during model reset)
 	Item {
 		id: rootDragHandle
-		visible: false
+		visible: true
+		opacity: 0
 		width: 1
 		height: 1
 
