@@ -1,7 +1,6 @@
 use std::fs;
 use std::path::Path;
 
-
 pub fn get_icon(path: &Path) -> Option<String> {
 	let content = fs::read_to_string(path).ok()?;
 	let mut in_desktop_entry = false;

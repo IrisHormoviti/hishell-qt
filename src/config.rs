@@ -4,19 +4,19 @@ use std::collections::HashMap;
 use std::path::Path;
 
 /// Loads and combines the default config with a folder's `.meta` config.
-	pub fn load_path(path: &Path) -> HashMap<String, HashMap<String, ConfigValue>> {
-		let default_cfg = Path::new("config/default.cfg");
-		let global_cfg = dirs::config_dir()
-			.map(|mut p| {
-				p.push("hishell");
-				p.push("folder.cfg");
-				p
-			})
-			.unwrap_or_else(|| std::path::PathBuf::from("config/default.cfg"));
-		let meta_path = path.join(".meta");
-		let paths: Vec<&Path> = vec![default_cfg, global_cfg.as_path(), meta_path.as_path()];
-		ConfigParser::parse_files(&paths)
-	}
+pub fn load_path(path: &Path) -> HashMap<String, HashMap<String, ConfigValue>> {
+	let default_cfg = Path::new("config/default.cfg");
+	let global_cfg = dirs::config_dir()
+		.map(|mut p| {
+			p.push("hishell");
+			p.push("folder.cfg");
+			p
+		})
+		.unwrap_or_else(|| std::path::PathBuf::from("config/default.cfg"));
+	let meta_path = path.join(".meta");
+	let paths: Vec<&Path> = vec![default_cfg, global_cfg.as_path(), meta_path.as_path()];
+	ConfigParser::parse_files(&paths)
+}
 
 /// Retrieves a string property from a folder's config.
 pub fn get_string(path: &Path, section: &str, key: &str) -> Option<String> {

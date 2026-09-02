@@ -1,13 +1,13 @@
-mod config_parser;
-mod file_manager;
-mod directory;
 mod config;
+mod config_parser;
 mod desktop_entry;
+mod directory;
+mod file_manager;
 mod thumbnailer;
 
-use crate::file_manager::FileManager;
-use crate::directory::Directory;
 use crate::config::Config;
+use crate::directory::Directory;
+use crate::file_manager::FileManager;
 use qmetaobject::prelude::*;
 use std::ffi::CStr;
 
@@ -15,7 +15,8 @@ fn main() {
 	static IMPORT_NAME: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Hishell\0") };
 	static CONFIG_STR: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Config\0") };
 	static DIRECTORY_STR: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Directory\0") };
-	static FILEMANAGER_STR: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"FileManager\0") };
+	static FILEMANAGER_STR: &CStr =
+		unsafe { CStr::from_bytes_with_nul_unchecked(b"FileManager\0") };
 
 	let args: Vec<String> = std::env::args().collect();
 	fn percent_decode(input: &str) -> String {
@@ -24,8 +25,8 @@ fn main() {
 		let mut i = 0;
 		while i < bytes.len() {
 			if bytes[i] == b'%' && i + 2 < bytes.len() {
-				if let (Some(h), Some(l)) = (hex_char(bytes[i+1]), hex_char(bytes[i+2])) {
-					out.push((h*16 + l) as char);
+				if let (Some(h), Some(l)) = (hex_char(bytes[i + 1]), hex_char(bytes[i + 2])) {
+					out.push((h * 16 + l) as char);
 					i += 3;
 					continue;
 				}
@@ -88,15 +89,30 @@ fn main() {
 		let cwd = std::env::current_dir().ok();
 		if let Some(c) = cwd {
 			let p = c.join("qml/main.qml");
-			if p.exists() { return Some(std::fs::canonicalize(&p).unwrap_or_else(|_| p.clone())); }
+			if p.exists() {
+				return Some(std::fs::canonicalize(&p).unwrap_or_else(|_| p.clone()));
+			}
 		}
 
-		if let Ok(mut dir) = std::env::current_exe().and_then(|e| e.parent().map(|p| p.to_path_buf()).ok_or(std::io::Error::new(std::io::ErrorKind::Other, "no parent"))) {
+		if let Ok(mut dir) = std::env::current_exe().and_then(|e| {
+			e.parent()
+				.map(|p| p.to_path_buf())
+				.ok_or(std::io::Error::new(std::io::ErrorKind::Other, "no parent"))
+		}) {
 			// check this dir and up to 5 parents
 			for _ in 0..6 {
 				let candidate = dir.join("qml/main.qml");
-				if candidate.exists() { return Some(std::fs::canonicalize(candidate).unwrap_or_else(|_| dir.join("qml/main.qml"))); }
-				if let Some(p) = dir.parent() { dir = p.to_path_buf(); } else { break; }
+				if candidate.exists() {
+					return Some(
+						std::fs::canonicalize(candidate)
+							.unwrap_or_else(|_| dir.join("qml/main.qml")),
+					);
+				}
+				if let Some(p) = dir.parent() {
+					dir = p.to_path_buf();
+				} else {
+					break;
+				}
 			}
 		}
 
@@ -106,7 +122,9 @@ fn main() {
 			std::path::PathBuf::from("/usr/share/qml/hishell-qt/main.qml"),
 		];
 		for c in sys_candidates.iter() {
-			if c.exists() { return Some(std::fs::canonicalize(c).unwrap_or_else(|_| c.clone())); }
+			if c.exists() {
+				return Some(std::fs::canonicalize(c).unwrap_or_else(|_| c.clone()));
+			}
 		}
 
 		None

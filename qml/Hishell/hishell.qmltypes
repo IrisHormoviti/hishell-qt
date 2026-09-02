@@ -15,13 +15,30 @@ Module {
 			Property { name: "bottom_layout"; type: "string" }
 			Property { name: "header_layout"; type: "string" }
 			Property { name: "grid_size"; type: "int" }
+			Property { name: "show_labels"; type: "bool" }
+			Property { name: "view_mode"; type: "int" }
+			Property { name: "sort"; type: "int" }
+			Property { name: "sort_date_mode"; type: "int" }
+			Property { name: "sort_alpha_mode"; type: "int" }
+			Property { name: "stash_shown"; type: "bool" }
 			Property { name: "stash_dotfiles"; type: "bool" }
 			Property { name: "arbitrary_placement"; type: "bool" }
 			Property { name: "arbitrary_positions"; type: "string" }
 
+			Signal { name: "config_changed" }
+
 			Method {
 				name: "load"
 				Parameter { name: "path"; type: "string" }
+			}
+
+			Method {
+				name: "set"
+				Parameter { name: "path"; type: "string" }
+				Parameter { name: "section"; type: "string" }
+				Parameter { name: "key"; type: "string" }
+				Parameter { name: "value"; type: "string" }
+				Parameter { name: "local"; type: "bool" }
 			}
 	}
 
@@ -36,6 +53,9 @@ Module {
 			Property { name: "title"; type: "string"}
 			Property { name: "config"; type: "Config"}
 			Property { name: "icon"; type: "string"}
+
+			Signal { name: "config_changed" }
+			Signal { name: "path_changed" }
 
 			Method {
 				name: "load_directory"; type: "QStringList"
@@ -55,6 +75,18 @@ Module {
 			Method {
 				name: "refresh";
 			}
+
+			Method {
+				name: "poll_thumbnails";
+			}
+
+			Method {
+				name: "set_config";
+				Parameter { name: "section"; type: "string" }
+				Parameter { name: "key"; type: "string" }
+				Parameter { name: "value"; type: "string" }
+				Parameter { name: "local"; type: "bool" }
+			}
 	}
 
 	Component {
@@ -62,5 +94,80 @@ Module {
 		defaultProperty: "data"
 			prototype: "QObject"
 			exports: ["Hishell/FileManager 1.0"]
+
+			Method {
+				name: "copy_file";
+				Parameter { name: "source"; type: "string" }
+				Parameter { name: "dest"; type: "string" }
+			}
+
+			Method {
+				name: "duplicate_file";
+				Parameter { name: "source"; type: "string" }
+			}
+
+			Method {
+				name: "new_folder";
+				Parameter { name: "parent"; type: "string" }
+			}
+
+			Method {
+				name: "new_text_file";
+				Parameter { name: "parent"; type: "string" }
+			}
+
+			Method {
+				name: "create_link";
+				Parameter { name: "source"; type: "string" }
+				Parameter { name: "dest"; type: "string" }
+			}
+
+			Method {
+				name: "trash_file";
+				Parameter { name: "path"; type: "string" }
+			}
+
+			Method {
+				name: "delete_file";
+				Parameter { name: "path"; type: "string" }
+			}
+
+			Method {
+				name: "rename_file";
+				Parameter { name: "path"; type: "string" }
+				Parameter { name: "new_name"; type: "string" }
+			}
+
+			Method {
+				name: "copy_paths_to_clipboard";
+				Parameter { name: "paths_newline"; type: "string" }
+			}
+
+			Method {
+				name: "cut_paths_to_clipboard";
+				Parameter { name: "paths_newline"; type: "string" }
+			}
+
+			Method {
+				name: "paste_from_clipboard";
+				Parameter { name: "dest_dir"; type: "string" }
+			}
+
+			Method {
+				name: "get_mime_type";
+				Parameter { name: "path"; type: "string" }
+			}
+
+			Method {
+				name: "get_text_content";
+				Parameter { name: "path"; type: "string" }
+			}
+
+			Method {
+				name: "process_uris_action";
+				Parameter { name: "dest_dir"; type: "string" }
+				Parameter { name: "uris_newline"; type: "string" }
+				Parameter { name: "action"; type: "string" }
+			}
 	}
 }

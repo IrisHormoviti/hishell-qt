@@ -30,9 +30,9 @@ impl ConfigValue {
 			}
 			ConfigValue::Dictionary(dict) => {
 				let items: Vec<String> = dict
-				.iter()
-				.map(|(k, v)| format!("\"{}\":{}", k, v.to_json_string()))
-				.collect();
+					.iter()
+					.map(|(k, v)| format!("\"{}\":{}", k, v.to_json_string()))
+					.collect();
 				format!("{{{}}}", items.join(","))
 			}
 			ConfigValue::Vector2(x, y) => {
@@ -51,9 +51,9 @@ impl ConfigParser {
 		for path in paths {
 			for (section, items) in Self::parse_file(path) {
 				combined
-				.entry(section)
-				.or_insert_with(HashMap::new)
-				.extend(items);
+					.entry(section)
+					.or_insert_with(HashMap::new)
+					.extend(items);
 			}
 		}
 		combined

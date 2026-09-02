@@ -11,8 +11,14 @@
 
 - Rust backend (`src/`) + Qt6 QML frontend (`qml/`). Bridged via `qmetaobject`.
 - Main entry: `src/main.rs` registers `Config`, `Directory`, and `FileManager` types for Qt.
-- QML entry: `ql/main.qml` uses Kirigami application window; layouts are driven by `.cfg` config files.
+- QML entry: `qml/main.qml` uses Kirigami application window; layouts are driven by `.cfg` config files.
 - **Prefer Rust backend over JS inside QML for code implementation whenever possible.** Use qmetaobject to expose Rust types/functions to QML rather than writing inline JavaScript logic.
+
+## Rust-exposed QML Types
+
+- When adding or modifying types exposed from Rust to QML, ensure they are properly registered in `qml/Hishell/hishell.qmltypes`.
+- QML types are registered in `src/main.rs` via `qmetaobject::qml_register_type` calls.
+- The `qml/Hishell/hishell.qmltypes` file lists the types available to QML imports; keep it in sync with what is registered in Rust.
 
 ## Configuration
 

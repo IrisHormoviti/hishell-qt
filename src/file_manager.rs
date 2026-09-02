@@ -20,7 +20,10 @@ pub struct FileManager {
 			if path.is_dir() {
 				// duplicate directory
 				if let Some(parent) = path.parent() {
-					let base = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+					let base = path
+						.file_name()
+						.map(|n| n.to_string_lossy().to_string())
+						.unwrap_or_default();
 					let new_name = format!("{} (copy)", base);
 					let dest = parent.join(&new_name);
 					return copy_dir_recursive(path, &dest);
@@ -28,7 +31,10 @@ pub struct FileManager {
 				return false;
 			}
 			if let (Some(parent), Some(stem)) = (path.parent(), path.file_stem()) {
-				let ext = path.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+				let ext = path
+					.extension()
+					.map(|e| format!(".{}", e.to_string_lossy()))
+					.unwrap_or_default();
 				let new_name = format!("{} (copy){}", stem.to_string_lossy(), ext);
 				let dest = parent.join(new_name);
 				fs::copy(&p, &dest).is_ok()
@@ -177,7 +183,11 @@ pub struct FileManager {
 			}
 			let uris_str = uris.join("\n");
 			let action = if is_cut { "move" } else { "copy" };
-			self.process_uris_action(dest_dir, QString::from(uris_str.as_str()), QString::from(action))
+			self.process_uris_action(
+				dest_dir,
+				QString::from(uris_str.as_str()),
+				QString::from(action),
+			)
 		}
 	),
 
@@ -185,7 +195,10 @@ pub struct FileManager {
 	get_mime_type: qt_method!(
 		fn get_mime_type(&self, path: QString) -> QString {
 			let p = path.to_string();
-			let mime = mime_guess::from_path(&p).first_or_octet_stream().essence_str().to_string();
+			let mime = mime_guess::from_path(&p)
+				.first_or_octet_stream()
+				.essence_str()
+				.to_string();
 			QString::from(mime.as_str())
 		}
 	),
@@ -210,7 +223,12 @@ pub struct FileManager {
 
 	/// Process URIs list with specified action ("copy", "move", "link") into dest_dir.
 	process_uris_action: qt_method!(
-		fn process_uris_action(&self, dest_dir: QString, uris_newline: QString, action: QString) -> bool {
+		fn process_uris_action(
+			&self,
+			dest_dir: QString,
+			uris_newline: QString,
+			action: QString,
+		) -> bool {
 			let dest = dest_dir.to_string();
 			let dest_path = Path::new(&dest);
 			if !dest_path.is_dir() {
@@ -224,7 +242,11 @@ pub struct FileManager {
 			let action_str = action.to_string();
 			let mut any_ok = false;
 			for uri in &uris {
-				let raw = if uri.starts_with("file://") { &uri[7..] } else { uri.as_str() };
+				let raw = if uri.starts_with("file://") {
+					&uri[7..]
+				} else {
+					uri.as_str()
+				};
 				let src_str = percent_decode(raw);
 				let src = Path::new(&src_str);
 				if !src.exists() {
@@ -328,7 +350,11 @@ fn set_clipboard_uris(paths_newline: &str, cut: bool) -> bool {
 	}
 
 	// Nautilus/Dolphin compatible format
-	let nautilus_data = format!("x-special/nautilus-clipboard\n{}\n{}\n", action, uris.join("\n"));
+	let nautilus_data = format!(
+		"x-special/nautilus-clipboard\n{}\n{}\n",
+		action,
+		uris.join("\n")
+	);
 	// Plain URI list (text/uri-list)
 	let uri_list = uris.join("\n");
 
