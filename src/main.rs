@@ -70,6 +70,15 @@ fn main() {
 			let decoded = percent_decode(rest);
 			arg = decoded;
 		}
+		if arg == "~" || arg.starts_with("~/") {
+			if let Ok(home) = std::env::var("HOME") {
+				if arg == "~" {
+					arg = home;
+				} else {
+					arg = format!("{}{}", home, &arg[1..]);
+				}
+			}
+		}
 		let p = std::path::Path::new(&arg);
 		if p.is_absolute() {
 			arg
@@ -84,7 +93,7 @@ fn main() {
 			.unwrap_or_else(|_| ".".to_string())
 	};
 	println!("startup initial_path={}", initial_path);
-	
+
 	qmetaobject::qml_register_type::<Config>(IMPORT_NAME, 1, 0, CONFIG_STR);
 	qmetaobject::qml_register_type::<Directory>(IMPORT_NAME, 1, 0, DIRECTORY_STR);
 	qmetaobject::qml_register_type::<FileManager>(IMPORT_NAME, 1, 0, FILEMANAGER_STR);

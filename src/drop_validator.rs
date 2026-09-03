@@ -1,3 +1,4 @@
+use qmetaobject::QVariantList;
 use qmetaobject::prelude::*;
 
 #[derive(QObject, Default)]
@@ -6,11 +7,15 @@ pub struct DropValidator {
 	window: qt_property!(QVariant),
 
 	is_drop_valid: qt_method!(
-		fn is_drop_valid(&self, target_path: String, source_paths: String) -> bool {
+		fn is_drop_valid(&self, target_path: String, source_paths: QVariantList) -> bool {
 			if target_path.is_empty() || source_paths.is_empty() {
 				return false;
 			}
-			let source_list: Vec<&str> = source_paths.split('\n').collect();
+			let source_list: Vec<String> = source_paths
+				.into_iter()
+				.map(|v| v.to_qstring().to_string())
+				.collect();
+
 			if source_list.is_empty() {
 				return false;
 			}
@@ -21,7 +26,7 @@ pub struct DropValidator {
 				if src.is_empty() {
 					continue;
 				}
-				let src_norm = Self::normalize(src);
+				let src_norm = Self::normalize(&src);
 				let src_stripped = src_norm.strip_prefix("file://").unwrap_or(&src_norm);
 				let src_stripped = Self::normalize(src_stripped);
 

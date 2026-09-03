@@ -39,23 +39,23 @@ Item {
 		}
 	}
 
-	Connections {
-		target: folderView.directory
-		function onPathChanged() {
-			if (folderView.config && folderView.directory) {
-				folderView.config.load(folderView.directory.path);
-				folderView.directory.load_directory(folderView.directory.path, !folderView.config.stash_dotfiles);
-			}
-			// Clear selection when navigating
-			if (folderView.window.selectionManager) {
-				folderView.window.selectionManager.exit_selection_mode();
-			}
-		}
-		function onConfig_changed() {
-			console.log("we got em");
-			folderView.directory.load_directory(folderView.directory.path, !folderView.config.stash_dotfiles);
-		}
-	}
+    Connections {
+        target: folderView.directory
+        function onPathChanged() {
+            if (folderView.config && folderView.directory) {
+                folderView.config.load(folderView.directory.path);
+                folderView.directory.load_directory(folderView.directory.path, !folderView.config.stash_dotfiles);
+            }
+            // Clear selection when navigating
+            if (folderView.window && folderView.window.selectionManager) {
+                folderView.window.selectionManager.exit_selection_mode();
+            }
+        }
+        function onConfig_changed() {
+            console.log("we got em");
+            folderView.directory.load_directory(folderView.directory.path, !folderView.config.stash_dotfiles);
+        }
+    }
 
 	readonly property string folderName: {
 		let path = folderView.directory.path.toString();
@@ -116,15 +116,15 @@ Item {
 		}
 	}
 
-	// Background Drop Area for dropping files into current directory
-	DropArea {
-		id: bgDropArea
-		anchors.fill: parent
-		keys: ["text/uri-list", "text/plain"]
-		z: 0
+    // Background Drop Area for dropping files into current directory
+    DropArea {
+        id: bgDropArea
+        anchors.fill: parent
+        keys: ["text/uri-list", "text/plain"]
+        z: 0
 
-		property bool isHovered: false
-		property var dragHandler: folderView.window.dragDropHandler
+        property bool isHovered: false
+        property var dragHandler: folderView.window ? folderView.window.dragDropHandler : null
 
 		onEntered: drag => {
            checkDrop();
@@ -193,35 +193,35 @@ Item {
 		}
 	}
 
-	DragTooltip {
-		property var dragHandler: folderView.window.dragDropHandler
+    DragTooltip {
+        property var dragHandler: folderView.window ? folderView.window.dragDropHandler : null
 
-		active: dragHandler.tooltip_active
-		action: dragHandler.drag_action
-		cursorX: dragHandler.drag_cursor_x + 16
-		cursorY: dragHandler.drag_cursor_y + 16
-	}
+        active: dragHandler ? dragHandler.tooltip_active : false
+        action: dragHandler ? dragHandler.drag_action : "copy"
+        cursorX: dragHandler ? dragHandler.drag_cursor_x + 16 : 0
+        cursorY: dragHandler ? dragHandler.drag_cursor_y + 16 : 0
+    }
 
-	// ── Input stuff ---
-	Keys.onPressed: event => {
-		if (event.key === Qt.Key_Space && !(folderView.window.selectionManager && folderView.window.selectionManager.selection_active)) {
-			if (folderView.window.selectionManager) {
-				folderView.window.selectionManager.enter_selection_mode();
-			}
-			event.accepted = true;
-		} else if (event.key === Qt.Key_Escape && folderView.window.selectionManager && folderView.window.selectionManager.selection_active) {
-			folderView.window.selectionManager.exit_selection_mode();
-			event.accepted = true;
-		} else if (event.key === Qt.Key_A && (event.modifiers & Qt.ControlModifier)) {
-			if (folderView.window.selectionManager) {
-				if (!folderView.window.selectionManager.selection_active)
-					folderView.window.selectionManager.enter_selection_mode();
-				folderView.window.selectionManager.select_all();
-			}
-			event.accepted = true;
-		}
-	}
-	focus: true
+    // ── Input stuff ---
+    Keys.onPressed: event => {
+        if (event.key === Qt.Key_Space && !(folderView.window && folderView.window.selectionManager && folderView.window.selectionManager.selection_active)) {
+            if (folderView.window && folderView.window.selectionManager) {
+                folderView.window.selectionManager.enter_selection_mode();
+            }
+            event.accepted = true;
+        } else if (event.key === Qt.Key_Escape && folderView.window && folderView.window.selectionManager && folderView.window.selectionManager.selection_active) {
+            folderView.window.selectionManager.exit_selection_mode();
+            event.accepted = true;
+        } else if (event.key === Qt.Key_A && (event.modifiers & Qt.ControlModifier)) {
+            if (folderView.window && folderView.window.selectionManager) {
+                if (!folderView.window.selectionManager.selection_active)
+                    folderView.window.selectionManager.enter_selection_mode();
+                folderView.window.selectionManager.select_all();
+            }
+            event.accepted = true;
+        }
+    }
+    focus: true
 
 	// ── Grid ───
 
@@ -243,124 +243,124 @@ Item {
 			width: parent.width
 			spacing: Kirigami.Units.mediumSpacing
 
-			Repeater {
-				id: itemRepeater
-				model: folderView.directory
+            Repeater {
+                id: itemRepeater
+                model: folderView.directory
 
-				delegate: FileSlot {
-					property SelectionManager selectionManager: folderView.window.selectionManager
+                delegate: FileSlot {
+                    property SelectionManager selectionManager: folderView.window ? folderView.window.selectionManager : null
 
-					dragDropHandler: folderView.window.dragDropHandler
-					width: labelBesideIcon ? Kirigami.Units.gridUnit * 10 : gridSize + Kirigami.Units.gridUnit * 3
-					height: labelBesideIcon ? Kirigami.Units.gridUnit * 2 : gridSize + Kirigami.Units.gridUnit * 3
+                    dragDropHandler: folderView.window ? folderView.window.dragDropHandler : null
+                    width: labelBesideIcon ? Kirigami.Units.gridUnit * 10 : gridSize + Kirigami.Units.gridUnit * 3
+                    height: labelBesideIcon ? Kirigami.Units.gridUnit * 2 : gridSize + Kirigami.Units.gridUnit * 3
 
-					gridSize: folderView.config.grid_size
-					selectionActive: selectionManager ? selectionManager.selection_active : false
-					isSelected: selectionManager ? !!selectionManager.selected_paths[path] : false
+                    gridSize: folderView.config.grid_size
+                    selectionActive: selectionManager ? selectionManager.selection_active : false
+                    isSelected: selectionManager ? !!selectionManager.selected_paths[path] : false
 
-					onNavigate: targetPath => {
-						(folderView.window.directory || folderView.directory).open_path(targetPath);
-					}
+                    onNavigate: targetPath => {
+                        ((folderView.window && folderView.window.directory) || folderView.directory).open_path(targetPath);
+                    }
 
-					onSelectionToggled: (p, idx) => {
-						if (selectionManager) {
-							selectionManager.toggle_selection(p, idx);
-						}
-					}
+                    onSelectionToggled: (p, idx) => {
+                        if (selectionManager) {
+                            selectionManager.toggle_selection(p, idx);
+                        }
+                    }
 
-					onShiftSelected: idx => {
-						if (selectionManager) {
-							if (!selectionManager.selection_active)
-								selectionManager.enter_selection_mode();
+                    onShiftSelected: idx => {
+                        if (selectionManager) {
+                            if (!selectionManager.selection_active)
+                                selectionManager.enter_selection_mode();
                             const from = selectionManager.last_selected_index >= 0 ? selectionManager.last_selected_index : idx;
                             selectionManager.range_select(from, idx);
-						}
-					}
+                        }
+                    }
 
-					onPressHeld: (p, idx) => {
-						if (selectionManager) {
-							selectionManager.toggle_selection(p, idx);
-						}
-					}
-				}
-			}
+                    onPressHeld: (p, idx) => {
+                        if (selectionManager) {
+                            selectionManager.toggle_selection(p, idx);
+                        }
+                    }
+                }
+            }
 		}
 	}
 
-	// ── Selection Toolbar ───
+    // ── Selection Toolbar ───
 
-	Rectangle {
-		id: selectionBar
-		z: 2
+    Rectangle {
+        id: selectionBar
+        z: 2
 
-		anchors.left: parent.left
-		anchors.right: parent.right
-		anchors.bottom: parent.bottom
-		anchors.margins: 4
-		anchors.bottomMargin: 4
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.margins: 4
+        anchors.bottomMargin: 4
 
-		height: (folderView.window.selectionManager && folderView.window.selectionManager.selection_active) ? 48 : 0
-		visible: folderView.window.selectionManager && folderView.window.selectionManager.selection_active
-		radius: 6
+        height: (folderView.window && folderView.window.selectionManager && folderView.window.selectionManager.selection_active) ? 48 : 0
+        visible: folderView.window && folderView.window.selectionManager && folderView.window.selectionManager.selection_active
+        radius: 6
 
-		Kirigami.Theme.colorSet: Kirigami.Theme.Header
-		color: Kirigami.Theme.backgroundColor
+        Kirigami.Theme.colorSet: Kirigami.Theme.Header
+        color: Kirigami.Theme.backgroundColor
 
-		Kirigami.Separator {
-			anchors.top: parent.top
-			anchors.left: parent.left
-			anchors.right: parent.right
-		}
+        Kirigami.Separator {
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.right: parent.right
+        }
 
-		Behavior on height {
-			NumberAnimation {
-				duration: 180
-				easing.type: Easing.OutCubic
-			}
-		}
+        Behavior on height {
+            NumberAnimation {
+                duration: 180
+                easing.type: Easing.OutCubic
+            }
+        }
 
-		RowLayout {
-			anchors.fill: parent
-			anchors.leftMargin: Kirigami.Units.largeSpacing
-			anchors.rightMargin: Kirigami.Units.smallSpacing
-			spacing: Kirigami.Units.smallSpacing
+        RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: Kirigami.Units.largeSpacing
+            anchors.rightMargin: Kirigami.Units.smallSpacing
+            spacing: Kirigami.Units.smallSpacing
 
-			Kirigami.Icon {
-				source: "checkmark"
-				Layout.preferredWidth: Kirigami.Units.iconSizes.small
-				Layout.preferredHeight: Kirigami.Units.iconSizes.small
-			}
+            Kirigami.Icon {
+                source: "checkmark"
+                Layout.preferredWidth: Kirigami.Units.iconSizes.small
+                Layout.preferredHeight: Kirigami.Units.iconSizes.small
+            }
 
-			Label {
-				text: {
-                    const n = folderView.window.selectionManager ? folderView.window.selectionManager.selected_count : 0;
+            Label {
+                text: {
+                    const n = (folderView.window && folderView.window.selectionManager) ? folderView.window.selectionManager.selected_count : 0;
                     return n === 1 ? qsTr("1 item selected") : qsTr("%1 items selected").arg(n);
-				}
-				font.weight: Font.Medium
-				Layout.fillWidth: true
-			}
+                }
+                font.weight: Font.Medium
+                Layout.fillWidth: true
+            }
 
-			ToolButton {
-				text: qsTr("Select All")
-				icon.name: "edit-select-all"
-				// display: AbstractButton.IconOnly
-				ToolTip.text: qsTr("Select All")
-				ToolTip.visible: hovered
-				flat: true
-				onClicked: if (folderView.window.selectionManager)
-					folderView.window.selectionManager.select_all()
-			}
+            ToolButton {
+                text: qsTr("Select All")
+                icon.name: "edit-select-all"
+                // display: AbstractButton.IconOnly
+                ToolTip.text: qsTr("Select All")
+                ToolTip.visible: hovered
+                flat: true
+                onClicked: if (folderView.window && folderView.window.selectionManager)
+                    folderView.window.selectionManager.select_all()
+            }
 
-			ToolButton {
-				text: qsTr("Deselect All")
-				icon.name: "edit-select-none"
-				// display: AbstractButton.IconOnly
-				ToolTip.text: qsTr("Deselect All")
-				ToolTip.visible: hovered
-				flat: true
-				onClicked: if (folderView.window.selectionManager)
-					folderView.window.selectionManager.deselect_all()
-			}
-		}
-	}
+            ToolButton {
+                text: qsTr("Deselect All")
+                icon.name: "edit-select-none"
+                // display: AbstractButton.IconOnly
+                ToolTip.text: qsTr("Deselect All")
+                ToolTip.visible: hovered
+                flat: true
+                onClicked: if (folderView.window && folderView.window.selectionManager)
+                    folderView.window.selectionManager.deselect_all()
+            }
+        }
+    }
 }

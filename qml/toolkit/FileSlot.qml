@@ -40,7 +40,7 @@ Item {
 	// --- Slot ---
 	implicitWidth: contentLayout.implicitWidth + (fileSlot.labelBesideIcon && fileSlot.showIcon ? Kirigami.Units.largeSpacing * 2 : Kirigami.Units.smallSpacing * 2)
 	implicitHeight: contentLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
-	opacity: !(fileSlot.dragDropHandler && fileSlot.dragDropHandler.Drag.active && fileSlot.dragDropHandler.active_dragged_paths.indexOf(fileSlot.path) !== -1)
+    opacity: !(localDragTarget.Drag.active && fileSlot.dragDropHandler && fileSlot.dragDropHandler.active_dragged_paths.indexOf(fileSlot.path) !== -1)
 
 	// ── Layout ──
 
@@ -227,14 +227,12 @@ Item {
 				return false;
 			}
 
-			slotDropArea.isHovered = true;
-			if (typeof dragDropHandler !== 'undefined') {
-				dragDropHandler.tooltip_active = true;
-                const pt = slotDropArea.mapToItem(null, drag.x, drag.y);
-                dragDropHandler.track_mouse_shake(pt.x, pt.y);
-			}
-			drag.accept();
-			return true;
+            slotDropArea.isHovered = true;
+            if (typeof dragDropHandler !== 'undefined') {
+                dragDropHandler.tooltip_active = true;
+            }
+            drag.accept();
+            return true;
 		}
 
 		onEntered: drag => {
@@ -306,10 +304,20 @@ Item {
 
 	// ── Mouse & Drag Handling ───
 
-	Item {
-		id: localDragTarget
-		visible: false
-	}
+    Item {
+        id: localDragTarget
+        width: fileSlot.width > 0 ? fileSlot.width : fileSlot.implicitWidth
+        height: fileSlot.height > 0 ? fileSlot.height : fileSlot.implicitHeight
+        Drag.keys: ["text/uri-list", "text/plain"]
+        Drag.mimeData: {
+            "text/uri-list": dragDropHandler ? dragDropHandler.drag_uris.join("\n") : ""
+        }
+        Drag.supportedActions: Qt.CopyAction | Qt.MoveAction
+        Drag.proposedAction: Qt.MoveAction
+        Drag.dragType: Drag.Automatic
+        Drag.active: false
+        Drag.hotSpot: Qt.point(Math.round(width / 2), Math.round(height / 2))
+    }
 
 	MouseArea {
 		id: mouseArea
@@ -329,15 +337,17 @@ Item {
 		property int startY: 0
 		property bool dragInitiated: false
 
-		Component.onDestruction: {
-			if (typeof dragDropHandler !== 'undefined' && mouseArea.dragStarted) {
-				dragDropHandler.Drag.active = false;
-				dragDropHandler.tooltip_active = false;
-			}
-		}
+        Component.onDestruction: {
+            if (typeof dragDropHandler !== 'undefined' && mouseArea.dragStarted) {
+                localDragTarget.Drag.active = false;
+                dragDropHandler.tooltip_active = false;
+                dragDropHandler.end_drag();
+            }
+        }
 
-		// Reusable function to assemble metadata only when a true drag is confirmed
-        function initiateDragPayload() {
+        // Reusable function to assemble metadata only when a true drag is confirmed
+        // Reusable function to assemble metadata only when a true drag is confirmed
+        function initiateDragPayload(mouse) {
             if (dragInitiated)
                 return;
             dragInitiated = true;
@@ -372,6 +382,7 @@ Item {
             if (typeof dragDropHandler !== 'undefined') {
                 dragDropHandler.set_drag_data(mainPath, uris, rawPaths, uris.length, fileSlot.title, fileSlot.icon);
             }
+
             fileSlot.grabToImage(function (result) {
                 if (mouseArea.isPressAndHoldActive) {
                     if (typeof dragDropHandler !== 'undefined')
@@ -380,29 +391,37 @@ Item {
                 }
 
                 localDragTarget.Drag.imageSource = result.url;
+                localDragTarget.Drag.hotSpot = Qt.point(Math.round(fileSlot.width / 2), Math.round(fileSlot.height / 2));
+
+                if (typeof dragDropHandler !== 'undefined') {
+                    const pt = mouseArea.mapToItem(null, mouse.x, mouse.y);
+                    dragDropHandler.track_mouse_shake(pt.x, pt.y);
+                    dragDropHandler.begin_drag(result.url.toString(), fileSlot.width, fileSlot.height);
+                }
+
                 mouseArea.dragStarted = true;
                 localDragTarget.Drag.active = true;
             });
         }
 
-		onPositionChanged: mouse => {
-			if (typeof dragDropHandler !== 'undefined') {
-				if (!mouseArea.dragStarted && !mouseArea.isPressAndHoldActive && mouseArea.drag.active) {
+        onPositionChanged: mouse => {
+            if (typeof dragDropHandler !== 'undefined') {
+                if (!mouseArea.dragStarted && !mouseArea.isPressAndHoldActive && mouseArea.drag.active) {
                     const deltaX = mouse.x - mouseArea.startX;
                     const deltaY = mouse.y - mouseArea.startY;
                     const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
 
                     if (distance > 10) {
-						mouseArea.initiateDragPayload();
-					}
-				}
+                        mouseArea.initiateDragPayload(mouse);
+                    }
+                }
 
-				if (mouseArea.dragStarted) {
+                if (mouseArea.dragStarted) {
                     const pt = mouseArea.mapToItem(null, mouse.x, mouse.y);
                     dragDropHandler.track_mouse_shake(pt.x, pt.y);
-				}
-			}
-		}
+                }
+            }
+        }
 
 		onPressed: mouse => {
 			if (mouse.button === Qt.LeftButton && typeof dragDropHandler !== 'undefined') {
@@ -414,17 +433,18 @@ Item {
 			}
 		}
 
-		onReleased: mouse => {
-			mouseArea.isPressAndHoldActive = false;
-			mouseArea.dragInitiated = false;
+        onReleased: mouse => {
+            mouseArea.isPressAndHoldActive = false;
+            mouseArea.dragInitiated = false;
 
-			if (typeof dragDropHandler !== 'undefined') {
-				dragDropHandler.Drag.active = false;
-				dragDropHandler.Drag.imageSource = "";
-				dragDropHandler.tooltip_active = false;
-			}
-			mouseArea.dragStarted = false;
-		}
+            if (typeof dragDropHandler !== 'undefined') {
+                dragDropHandler.tooltip_active = false;
+                dragDropHandler.end_drag();
+            }
+            localDragTarget.Drag.active = false;
+            localDragTarget.Drag.imageSource = "";
+            mouseArea.dragStarted = false;
+        }
 
 		onPressAndHold: {
 			mouseArea.isPressAndHoldActive = true;
