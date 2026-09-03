@@ -1,4 +1,4 @@
-use qmetaobject::{QStringList, prelude::*};
+use qmetaobject::{QVariantList, prelude::*};
 use serde_json;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -48,11 +48,11 @@ pub struct DragDropHandler {
 	drag_cursor_x: qt_property!(f64; NOTIFY drag_cursor_changed),
 	drag_cursor_y: qt_property!(f64; NOTIFY drag_cursor_changed),
 	tooltip_active: qt_property!(bool; NOTIFY tooltip_active_changed),
-	active_dragged_paths: qt_property!(QStringList; NOTIFY active_dragged_paths_changed),
+	active_dragged_paths: qt_property!(QVariantList; NOTIFY active_dragged_paths_changed),
 	drag_icon_width: qt_property!(f64),
 	drag_icon_height: qt_property!(f64),
-	drag_uris: qt_property!(QStringList),
-	drag_source_paths: qt_property!(QStringList),
+	drag_uris: qt_property!(QVariantList),
+	drag_source_paths: qt_property!(QVariantList),
 	item_count: qt_property!(i32),
 	file_title: qt_property!(String),
 	file_icon: qt_property!(String),
@@ -125,7 +125,7 @@ pub struct DragDropHandler {
 
 	reset: qt_method!(
 		fn reset(&mut self) {
-			self.active_dragged_paths = QStringList::new();
+			self.active_dragged_paths = Default::default();
 			self.active_dragged_paths_changed();
 			self.tooltip_active = false;
 			self.tooltip_active_changed();
@@ -137,8 +137,8 @@ pub struct DragDropHandler {
 		fn set_drag_data(
 			&mut self,
 			_main_path: String,
-			uris: QStringList,
-			source_paths: QStringList,
+			uris: QVariantList,
+			source_paths: QVariantList,
 			item_count: i32,
 			file_title: String,
 			file_icon: String,
@@ -166,7 +166,7 @@ pub struct DragDropHandler {
 
 	end_drag: qt_method!(
 		fn end_drag(&mut self) {
-			self.active_dragged_paths = QStringList::new();
+			self.active_dragged_paths = Default::default();
 			self.active_dragged_paths_changed();
 			self.tooltip_active = false;
 			self.tooltip_active_changed();

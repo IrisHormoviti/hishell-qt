@@ -13,16 +13,17 @@ RowLayout {
 
 	property ShellWindow window
 	property Directory directory
-	property var pathUtils: window.pathUtils
-	property string currentPath: pathBar.directory ? pathBar.directory.path : ""
+	property string currentPath: directory.path
 
-	property var segments: {
-		return pathUtils ? pathUtils.get_segments(currentPath) : ["/"];
-	}
+	property var segments: pathUtils.get_segments(currentPath)
 
 	function pathForIndex(idx) {
-		return pathUtils ? pathUtils.path_for_index(currentPath, idx) : currentPath;
+		return pathUtils.path_for_index(currentPath, idx);
 	}
+
+    PathUtils: {
+        id: pathUtils
+    }
 
 	Repeater {
 		model: pathBar.segments

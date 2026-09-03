@@ -127,58 +127,39 @@ Item {
 		property var dragHandler: folderView.window.dragDropHandler
 
 		onEntered: drag => {
-			var sourcePaths = [];
-			if (typeof dragHandler !== 'undefined' && dragHandler.drag_source_paths && dragHandler.drag_source_paths.length > 0) {
-				sourcePaths = dragHandler.drag_source_paths;
-			} else if (drag.source) {
-				sourcePaths = drag.source.dragSourcePaths || (drag.source.mainPath ? [drag.source.mainPath] : []);
-			} else if (drag.hasUrls) {
-				sourcePaths = drag.urls;
-			}
-
-			if (!folderView.isDropValid(folderView.directory.path, sourcePaths)) {
-				bgDropArea.isHovered = false;
-				if (typeof dragHandler !== 'undefined')
-					dragHandler.tooltip_active = false;
-				drag.accepted = false;
-				return;
-			}
-
-			bgDropArea.isHovered = true;
-			if (typeof dragHandler !== 'undefined') {
-				dragHandler.tooltip_active = true;
-				var pt = bgDropArea.mapToItem(null, drag.x, drag.y);
-				dragHandler.track_mouse_shake(pt.x, pt.y);
-			}
-			drag.accept();
+           checkDrop();
 		}
 
 		onPositionChanged: drag => {
-			var sourcePaths = [];
-			if (typeof dragHandler !== 'undefined' && dragHandler.drag_source_paths && dragHandler.drag_source_paths.length > 0) {
-				sourcePaths = dragHandler.drag_source_paths;
-			} else if (drag.source) {
-				sourcePaths = drag.source.dragSourcePaths || (drag.source.mainPath ? [drag.source.mainPath] : []);
-			} else if (drag.hasUrls) {
-				sourcePaths = drag.urls;
-			}
-
-			if (!folderView.isDropValid(folderView.directory.path, sourcePaths)) {
-				bgDropArea.isHovered = false;
-				if (typeof dragHandler !== 'undefined')
-					dragHandler.tooltip_active = false;
-				drag.accepted = false;
-				return;
-			}
-
-			bgDropArea.isHovered = true;
-			if (typeof dragHandler !== 'undefined') {
-				dragHandler.tooltip_active = true;
-				var pt = bgDropArea.mapToItem(null, drag.x, drag.y);
-				dragHandler.track_mouse_shake(pt.x, pt.y);
-			}
-			drag.accept();
+            checkDrop();
 		}
+
+        function checkDrop() {
+            let sourcePaths = [];
+            if (typeof dragHandler !== 'undefined' && dragHandler.drag_source_paths && dragHandler.drag_source_paths.length > 0) {
+                sourcePaths = dragHandler.drag_source_paths;
+            } else if (drag.source) {
+                sourcePaths = drag.source.dragSourcePaths || (drag.source.mainPath ? [drag.source.mainPath] : []);
+            } else if (drag.hasUrls) {
+                sourcePaths = drag.urls;
+            }
+
+            if (!folderView.isDropValid(folderView.directory.path, sourcePaths)) {
+                bgDropArea.isHovered = false;
+                if (typeof dragHandler !== 'undefined')
+                    dragHandler.tooltip_active = false;
+                drag.accepted = false;
+                return;
+            }
+
+            bgDropArea.isHovered = true;
+            if (typeof dragHandler !== 'undefined') {
+                dragHandler.tooltip_active = true;
+                const pt = bgDropArea.mapToItem(null, drag.x, drag.y);
+                dragHandler.track_mouse_shake(pt.x, pt.y);
+            }
+            drag.accept();
+        }
 
 		onExited: {
 			bgDropArea.isHovered = false;
@@ -191,8 +172,8 @@ Item {
 			if (typeof dragHandler !== 'undefined')
 				dragHandler.tooltip_active = false;
 
-			var uris = "";
-			if (typeof dragHandler !== 'undefined' && dragHandler.drag_uris && dragHandler.drag_uris.length > 0) {
+            let uris = "";
+            if (typeof dragHandler !== 'undefined' && dragHandler.drag_uris && dragHandler.drag_uris.length > 0) {
 				uris = dragHandler.drag_uris.join("\n");
 			} else if (drop.source && drop.source.dragUris) {
 				uris = drop.source.dragUris.join("\n");
@@ -203,8 +184,8 @@ Item {
 			}
 
 			if (uris.length > 0 && typeof fileManager !== 'undefined' && fileManager) {
-				var action = (typeof dragHandler !== 'undefined' && dragHandler.drag_action) ? dragHandler.drag_action : "copy";
-				if (fileManager.process_uris_action(folderView.directory.path, uris, action)) {
+                const action = (typeof dragHandler !== 'undefined' && dragHandler.drag_action) ? dragHandler.drag_action : "copy";
+                if (fileManager.process_uris_action(folderView.directory.path, uris, action)) {
 					folderView.directory.refresh();
 				}
 				drop.accept();
@@ -291,8 +272,8 @@ Item {
 						if (selectionManager) {
 							if (!selectionManager.selection_active)
 								selectionManager.enter_selection_mode();
-							var from = selectionManager.last_selected_index >= 0 ? selectionManager.last_selected_index : idx;
-							selectionManager.range_select(from, idx);
+                            const from = selectionManager.last_selected_index >= 0 ? selectionManager.last_selected_index : idx;
+                            selectionManager.range_select(from, idx);
 						}
 					}
 
@@ -352,8 +333,8 @@ Item {
 
 			Label {
 				text: {
-					var n = folderView.window.selectionManager ? folderView.window.selectionManager.selected_count : 0;
-					return n === 1 ? qsTr("1 item selected") : qsTr("%1 items selected").arg(n);
+                    const n = folderView.window.selectionManager ? folderView.window.selectionManager.selected_count : 0;
+                    return n === 1 ? qsTr("1 item selected") : qsTr("%1 items selected").arg(n);
 				}
 				font.weight: Font.Medium
 				Layout.fillWidth: true

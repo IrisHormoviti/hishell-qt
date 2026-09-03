@@ -55,7 +55,7 @@ MenuBar {
 		onTriggered: {
 			if (!menuBar.fileManager)
 				return;
-			var paths = menuBar.selectedPathList.join("\n");
+			const paths = menuBar.selectedPathList.join("\n");
 			menuBar.fileManager.copy_paths_to_clipboard(paths);
 		}
 	}
@@ -68,7 +68,7 @@ MenuBar {
 		onTriggered: {
 			if (!menuBar.fileManager)
 				return;
-			var paths = menuBar.selectedPathList.join("\n");
+			const paths = menuBar.selectedPathList.join("\n");
 			menuBar.fileManager.cut_paths_to_clipboard(paths);
 		}
 	}
@@ -81,9 +81,9 @@ MenuBar {
 		onTriggered: {
 			if (!menuBar.fileManager)
 				return;
-			var paths = menuBar.selectedPathList;
-			var ok = true;
-			for (var i = 0; i < paths.length; i++) {
+			const paths = menuBar.selectedPathList;
+			const ok = true;
+			for (const i = 0; i < paths.length; i++) {
 				if (!menuBar.fileManager.duplicate_file(paths[i]))
 					ok = false;
 			}
@@ -100,13 +100,13 @@ MenuBar {
 		onTriggered: {
 			if (!menuBar.fileManager)
 				return;
-			var paths = menuBar.selectedPathList;
-			var ok = true;
-			for (var i = 0; i < paths.length; i++) {
-				var p = paths[i];
-				var name = p.substring(p.lastIndexOf("/") + 1);
-				var parent = p.substring(0, p.lastIndexOf("/"));
-				var dest = parent + "/" + name + " (link)";
+            const paths = menuBar.selectedPathList;
+            let ok = true;
+            for (let i = 0; i < paths.length; i++) {
+                const p = paths[i];
+                const name = p.substring(p.lastIndexOf("/") + 1);
+                const parent = p.substring(0, p.lastIndexOf("/"));
+                const dest = parent + "/" + name + " (link)";
 				if (!menuBar.fileManager.create_link(p, dest))
 					ok = false;
 			}
@@ -124,8 +124,8 @@ MenuBar {
 			if (menuBar.selectedCount !== 1)
 				return;
 			renameDialog.filePath = menuBar.selectedPathList[0];
-			var name = renameDialog.filePath.substring(renameDialog.filePath.lastIndexOf("/") + 1);
-			renameDialog.originalName = name;
+            const name = renameDialog.filePath.substring(renameDialog.filePath.lastIndexOf("/") + 1);
+            renameDialog.originalName = name;
 			renameDialog.newName = name;
 			renameDialog.open();
 		}
@@ -139,9 +139,9 @@ MenuBar {
 		onTriggered: {
 			if (!menuBar.fileManager)
 				return;
-			var paths = menuBar.selectedPathList;
-			var ok = true;
-			for (var i = 0; i < paths.length; i++) {
+            const paths = menuBar.selectedPathList;
+            let ok = true;
+            for (let i = 0; i < paths.length; i++) {
 				if (!menuBar.fileManager.trash_file(paths[i]))
 					ok = false;
 			}

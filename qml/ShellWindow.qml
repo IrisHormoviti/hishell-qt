@@ -32,10 +32,6 @@ Kirigami.ApplicationWindow {
 		id: dropValidator
 	}
 
-	PathUtils {
-		id: pathUtils
-	}
-
 	SelectionManager {
 		id: selectionManager
 	}
@@ -79,6 +75,7 @@ Kirigami.ApplicationWindow {
 				Layout.preferredHeight: 44
 				Kirigami.Theme.colorSet: Kirigami.Theme.Header
 				Kirigami.Theme.inherit: false
+                z: 1
 
 				Rectangle {
 					anchors.fill: parent
