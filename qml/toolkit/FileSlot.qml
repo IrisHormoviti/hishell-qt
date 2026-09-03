@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import "../Hishell"
 
 Item {
 	id: fileSlot
@@ -11,10 +12,11 @@ Item {
 	required property string path
 	required property string icon
 	required property string title
-	required property int    index
-	required property bool   is_dir
+	required property int index
+	required property bool is_dir
+	required property DragDropHandler dragDropHandler
 
-	property int  gridSize: 64
+	property int gridSize: 64
 	property bool labelBesideIcon: gridSize < 32
 	property bool fixedWidth: true
 	property bool showIcon: icon != ""
@@ -38,7 +40,7 @@ Item {
 	// --- Slot ---
 	implicitWidth: contentLayout.implicitWidth + (fileSlot.labelBesideIcon && fileSlot.showIcon ? Kirigami.Units.largeSpacing * 2 : Kirigami.Units.smallSpacing * 2)
 	implicitHeight: contentLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
-	opacity: !(dragHandler.isSystemDragging && dragHandler.activeDraggedPaths.indexOf(fileSlot.path) !== -1)
+	opacity: !(fileSlot.dragDropHandler && fileSlot.dragDropHandler.Drag.active && fileSlot.dragDropHandler.active_dragged_paths.indexOf(fileSlot.path) !== -1)
 
 	// ── Layout ──
 
@@ -104,9 +106,7 @@ Item {
 			wrapMode: Text.Wrap
 			maximumLineCount: 2
 			elide: fileSlot.labelBesideIcon ? Text.ElideMiddle : Text.ElideMiddle
-			Layout.maximumWidth: fileSlot.labelBesideIcon
-			? (fileSlot.fixedWidth ? fileSlot.width - fileSlot.gridSize - Kirigami.Units.gridUnit * 2 : 250)
-			: fileSlot.gridSize + Kirigami.Units.gridUnit * 2
+			Layout.maximumWidth: fileSlot.labelBesideIcon ? (fileSlot.fixedWidth ? fileSlot.width - fileSlot.gridSize - Kirigami.Units.gridUnit * 2 : 250) : fileSlot.gridSize + Kirigami.Units.gridUnit * 2
 			horizontalAlignment: fileSlot.labelBesideIcon ? Text.AlignLeft : Text.AlignHCenter
 		}
 	}
@@ -120,7 +120,11 @@ Item {
 		radius: Kirigami.Units.cornerRadius
 		color: Kirigami.Theme.highlightColor
 		opacity: fileSlot.isSelected ? 0.25 : 0.0
-		Behavior on opacity { NumberAnimation { duration: 120 } }
+		Behavior on opacity {
+			NumberAnimation {
+				duration: 120
+			}
+		}
 	}
 
 	// Border
@@ -132,7 +136,11 @@ Item {
 		border.color: Kirigami.Theme.highlightColor
 		border.width: 2
 		opacity: fileSlot.isSelected ? 1.0 : 0.0
-		Behavior on opacity { NumberAnimation { duration: 120 } }
+		Behavior on opacity {
+			NumberAnimation {
+				duration: 120
+			}
+		}
 	}
 
 	// Checkmark
@@ -145,14 +153,22 @@ Item {
 		radius: width / 2
 		color: fileSlot.isSelected ? Kirigami.Theme.highlightColor : "transparent"
 		visible: fileSlot.selectionActive
-		Behavior on color { ColorAnimation { duration: 120 } }
+		Behavior on color {
+			ColorAnimation {
+				duration: 120
+			}
+		}
 
 		Kirigami.Icon {
 			anchors.fill: parent
 			anchors.margins: 2
 			source: "emblem-ok-symbolic"
 			opacity: fileSlot.isSelected ? 1.0 : 0.4
-			Behavior on opacity { NumberAnimation { duration: 120 } }
+			Behavior on opacity {
+				NumberAnimation {
+					duration: 120
+				}
+			}
 		}
 	}
 
@@ -166,7 +182,11 @@ Item {
 		opacity: slotDropArea.isHovered ? 0.35 : 0.0
 		border.color: Kirigami.Theme.highlightColor
 		border.width: 2
-		Behavior on opacity { NumberAnimation { duration: 120 } }
+		Behavior on opacity {
+			NumberAnimation {
+				duration: 120
+			}
+		}
 	}
 
 	DropArea {
@@ -176,13 +196,12 @@ Item {
 		keys: ["text/uri-list", "text/plain"]
 
 		property bool isHovered: false
+		property DragDropHandler dragDropHandler: fileSlot.dragDropHandler ? fileSlot.dragDropHandler : null
 
 		function checkValid(drag) {
 			var sourcePaths = [];
-			if (
-				typeof dragHandler !== 'undefined' && dragHandler.dragSourcePaths && dragHandler.dragSourcePaths.length > 0
-			) {
-				sourcePaths = dragHandler.dragSourcePaths;
+			if (typeof dragDropHandler !== 'undefined' && dragDropHandler.drag_source_paths && dragDropHandler.drag_source_paths.length > 0) {
+				sourcePaths = dragDropHandler.drag_source_paths;
 			} else if (drag.source) {
 				sourcePaths = drag.source.dragSourcePaths || (drag.source.mainPath ? [drag.source.mainPath] : []);
 			} else if (drag.hasUrls) {
@@ -201,46 +220,49 @@ Item {
 
 			if (fView && !fView.isDropValid(fileSlot.path, sourcePaths)) {
 				slotDropArea.isHovered = false;
-				if (typeof dragHandler !== 'undefined') dragHandler.tooltipActive = false;
+				if (typeof dragDropHandler !== 'undefined')
+					dragDropHandler.tooltip_active = false;
 				drag.accepted = false;
 				hoverNavTimer.stop();
 				return false;
 			}
 
 			slotDropArea.isHovered = true;
-			if (typeof dragHandler !== 'undefined') {
-				dragHandler.tooltipActive = true;
+			if (typeof dragDropHandler !== 'undefined') {
+				dragDropHandler.tooltip_active = true;
 				var pt = slotDropArea.mapToItem(null, drag.x, drag.y);
-				dragHandler.trackMouseShake(pt.x, pt.y);
+				dragDropHandler.track_mouse_shake(pt.x, pt.y);
 			}
 			drag.accept();
 			return true;
 		}
 
-		onEntered: (drag) => {
+		onEntered: drag => {
 			if (checkValid(drag)) {
 				hoverNavTimer.restart();
 			}
 		}
 
-		onPositionChanged: (drag) => {
+		onPositionChanged: drag => {
 			checkValid(drag);
 		}
 
 		onExited: {
 			slotDropArea.isHovered = false;
 			hoverNavTimer.stop();
-			if (typeof dragHandler !== 'undefined') dragHandler.tooltipActive = false;
+			if (typeof dragDropHandler !== 'undefined')
+				dragDropHandler.tooltip_active = false;
 		}
 
-		onDropped: (drop) => {
+		onDropped: drop => {
 			slotDropArea.isHovered = false;
 			hoverNavTimer.stop();
-			if (typeof dragHandler !== 'undefined') dragHandler.tooltipActive = false;
+			if (typeof dragDropHandler !== 'undefined')
+				dragDropHandler.tooltip_active = false;
 
 			var uris = "";
-			if (typeof dragHandler !== 'undefined' && dragHandler.dragUris && dragHandler.dragUris.length > 0) {
-				uris = dragHandler.dragUris.join("\n");
+			if (typeof dragDropHandler !== 'undefined' && dragDropHandler.drag_uris && dragDropHandler.drag_uris.length > 0) {
+				uris = dragDropHandler.drag_uris.join("\n");
 			} else if (drop.source && drop.source.dragUris) {
 				uris = drop.source.dragUris.join("\n");
 			} else if (drop.hasUrls) {
@@ -250,7 +272,7 @@ Item {
 			}
 
 			if (uris.length > 0 && typeof fileManager !== 'undefined' && fileManager) {
-				var action = (typeof dragHandler !== 'undefined' && dragHandler.dragAction) ? dragHandler.dragAction : "copy";
+				var action = (typeof dragDropHandler !== 'undefined' && dragDropHandler.drag_action) ? dragDropHandler.drag_action : "copy";
 				if (fileManager.process_uris_action(fileSlot.path, uris, action)) {
 					var p = fileSlot.parent;
 					while (p) {
@@ -273,8 +295,9 @@ Item {
 		onTriggered: {
 			if (slotDropArea.isHovered && fileSlot.is_dir) {
 				var targetPath = fileSlot.path;
-				if (typeof dragHandler !== 'undefined') dragHandler.tooltipActive = false;
-				Qt.callLater(function() {
+				if (typeof fileSlot.dragDropHandler !== 'undefined')
+					fileSlot.dragDropHandler.tooltip_active = false;
+				Qt.callLater(function () {
 					fileSlot.navigate(targetPath);
 				});
 			}
@@ -297,6 +320,7 @@ Item {
 		drag.target: localDragTarget
 		drag.axis: Drag.XAndYAxis
 
+		property DragDropHandler dragDropHandler: fileSlot.dragDropHandler ? fileSlot.dragDropHandler : null
 		property bool dragStarted: false
 		property bool isPressAndHoldActive: false
 
@@ -306,15 +330,16 @@ Item {
 		property bool dragInitiated: false
 
 		Component.onDestruction: {
-			if (typeof dragHandler !== 'undefined' && mouseArea.dragStarted) {
-				dragHandler.Drag.active = false;
-				dragHandler.tooltipActive = false;
+			if (typeof dragDropHandler !== 'undefined' && mouseArea.dragStarted) {
+				dragDropHandler.Drag.active = false;
+				dragDropHandler.tooltip_active = false;
 			}
 		}
 
 		// Reusable function to assemble metadata only when a true drag is confirmed
 		function initiateDragPayload() {
-			if (dragInitiated) return;
+			if (dragInitiated)
+				return;
 			dragInitiated = true;
 
 			var uris = [];
@@ -344,92 +369,59 @@ Item {
 				uris.push(mainUri);
 			}
 
-			dragHandler.mainPath = mainPath;
-			dragHandler.dragUris = uris;
-			dragHandler.dragSourcePaths = rawPaths;
-			dragHandler.itemCount = uris.length;
-			dragHandler.fileTitle = fileSlot.title;
-			dragHandler.fileIcon = fileSlot.icon;
-
-			var urisStr = uris.join("\n");
-			var mimeData = {
-				"text/uri-list": urisStr,
-				"text/plain": urisStr
-			};
-
-			if (uris.length === 1 && !fileSlot.is_dir && typeof fileManager !== 'undefined' && fileManager) {
-				var mimeType = fileManager.get_mime_type(mainPath);
-				if (mimeType && mimeType !== "") {
-					mimeData[mimeType] = mainUri;
-					if (mimeType.startsWith("text/")) {
-						var textContent = fileManager.get_text_content(mainPath);
-						if (textContent && textContent !== "") {
-							mimeData["text/plain"] = textContent;
-						}
-					}
-				}
+			if (typeof dragDropHandler !== 'undefined') {
+				dragDropHandler.set_drag_data(mainPath, uris, rawPaths, uris.length, fileSlot.title, fileSlot.icon);
 			}
-
-			dragHandler.Drag.mimeData = mimeData;
-			dragHandler.Drag.keys = Object.keys(mimeData);
-			dragHandler.dragIconWidth = fileSlot.width;
-			dragHandler.dragIconHeight = fileSlot.height;
-			dragHandler.activeDraggedPaths = rawPaths;
-
-			fileSlot.grabToImage(function(result) {
-				// Guard against selection overrides during the async render window
+			fileSlot.grabToImage(function (result) {
 				if (mouseArea.isPressAndHoldActive) {
-					dragHandler.activeDraggedPaths = [];
+					if (typeof dragDropHandler !== 'undefined')
+						dragDropHandler.active_dragged_paths = [];
 					return;
 				}
 
-				dragHandler.Drag.imageSource = result.url;
+				dragDropHandler.Drag.imageSource = result.url;
 				mouseArea.dragStarted = true;
-				dragHandler.Drag.active = true;
+				dragDropHandler.Drag.active = true;
 			});
 		}
 
-		onPositionChanged: (mouse) => {
-			if (typeof dragHandler !== 'undefined') {
-				// If a drag hasn't officially started yet, check if mouse crossed the threshold
+		onPositionChanged: mouse => {
+			if (typeof dragDropHandler !== 'undefined') {
 				if (!mouseArea.dragStarted && !mouseArea.isPressAndHoldActive && mouseArea.drag.active) {
 					var deltaX = mouse.x - mouseArea.startX;
 					var deltaY = mouse.y - mouseArea.startY;
 					var distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
 
-					// 10 pixels is standard for desktop dragging thresholds
 					if (distance > 10) {
 						mouseArea.initiateDragPayload();
 					}
 				}
 
-				// Keep updating tooltip shake positions if the system drag loop is active
 				if (mouseArea.dragStarted) {
 					var pt = mouseArea.mapToItem(null, mouse.x, mouse.y);
-					dragHandler.trackMouseShake(pt.x, pt.y);
+					dragDropHandler.track_mouse_shake(pt.x, pt.y);
 				}
 			}
 		}
 
-		onPressed: (mouse) => {
-			if (mouse.button === Qt.LeftButton && typeof dragHandler !== 'undefined') {
+		onPressed: mouse => {
+			if (mouse.button === Qt.LeftButton && typeof dragDropHandler !== 'undefined') {
 				mouseArea.isPressAndHoldActive = false;
 				mouseArea.dragInitiated = false;
 
-				// Store original click centerpoint to calculate mouse travel distance
 				mouseArea.startX = mouse.x;
 				mouseArea.startY = mouse.y;
 			}
 		}
 
-		onReleased: (mouse) => {
+		onReleased: mouse => {
 			mouseArea.isPressAndHoldActive = false;
 			mouseArea.dragInitiated = false;
 
-			if (typeof dragHandler !== 'undefined') {
-				dragHandler.Drag.active = false;
-				dragHandler.Drag.imageSource = "";
-				dragHandler.tooltipActive = false;
+			if (typeof dragDropHandler !== 'undefined') {
+				dragDropHandler.Drag.active = false;
+				dragDropHandler.Drag.imageSource = "";
+				dragDropHandler.tooltip_active = false;
 			}
 			mouseArea.dragStarted = false;
 		}
@@ -439,9 +431,11 @@ Item {
 			fileSlot.pressHeld(fileSlot.path, fileSlot.index);
 		}
 
-		onClicked: (mouse) => {
-			if (mouse.button === Qt.RightButton) return;
-			if (mouse.button === Qt.MiddleButton) return;
+		onClicked: mouse => {
+			if (mouse.button === Qt.RightButton)
+				return;
+			if (mouse.button === Qt.MiddleButton)
+				return;
 
 			if (fileSlot.selectionActive) {
 				if (mouse.modifiers & Qt.ShiftModifier) {
@@ -456,5 +450,4 @@ Item {
 			}
 		}
 	}
-
 }

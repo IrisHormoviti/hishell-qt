@@ -4,38 +4,20 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import "../"
 
 MenuBar {
 	id: menuBar
 
+	property ShellWindow window
 	property var directory
 	property var config: directory.config
 	property bool isLocal: directory.has_meta
 	property var fileManager
+	property var selectionManager: window.selectionManager
 
-	// Shared selection state injected by LayoutEngine
-	property var selectionState: null
-
-	readonly property int selectedCount: menuBar.selectionState ? menuBar.selectionState.selectedCount : 0
-	readonly property var selectedPaths: menuBar.selectionState ? menuBar.selectionState.selectedPaths : ({})
-
-	// Collect the list of selected path strings
-	readonly property var selectedPathList: {
-		var sel = menuBar.selectedPaths;
-		if (!sel) return [];
-		return Object.keys(sel);
-	}
-
-	// ── Helper: run an operation on all selected paths ────────────────────
-
-	function forEachSelected(fn) {
-		var paths = menuBar.selectedPathList;
-		var ok = true;
-		for (var i = 0; i < paths.length; i++) {
-			if (!fn(paths[i])) ok = false;
-		}
-		return ok;
-	}
+	readonly property int selectedCount: menuBar.selectionManager ? menuBar.selectionManager.selected_count : 0
+	readonly property var selectedPathList: menuBar.selectionManager ? menuBar.selectionManager.get_selected_path_list() : []
 
 	// ── Actions ───────────────────────────────────────────────────────────
 
@@ -71,7 +53,8 @@ MenuBar {
 		shortcut: "Ctrl+C"
 		enabled: menuBar.selectedCount > 0
 		onTriggered: {
-			if (!menuBar.fileManager) return;
+			if (!menuBar.fileManager)
+				return;
 			var paths = menuBar.selectedPathList.join("\n");
 			menuBar.fileManager.copy_paths_to_clipboard(paths);
 		}
@@ -83,7 +66,8 @@ MenuBar {
 		shortcut: Qt.CTRL | Qt.Key_X
 		enabled: menuBar.selectedCount > 0
 		onTriggered: {
-			if (!menuBar.fileManager) return;
+			if (!menuBar.fileManager)
+				return;
 			var paths = menuBar.selectedPathList.join("\n");
 			menuBar.fileManager.cut_paths_to_clipboard(paths);
 		}
@@ -95,11 +79,16 @@ MenuBar {
 		shortcut: "Ctrl+D"
 		enabled: menuBar.selectedCount > 0
 		onTriggered: {
-			if (!menuBar.fileManager) return;
-			menuBar.forEachSelected(function(p) {
-				return menuBar.fileManager.duplicate_file(p);
-			});
-			menuBar.directory.refresh();
+			if (!menuBar.fileManager)
+				return;
+			var paths = menuBar.selectedPathList;
+			var ok = true;
+			for (var i = 0; i < paths.length; i++) {
+				if (!menuBar.fileManager.duplicate_file(paths[i]))
+					ok = false;
+			}
+			if (ok)
+				menuBar.directory.refresh();
 		}
 	}
 
@@ -109,15 +98,20 @@ MenuBar {
 		shortcut: "Ctrl+Shift+L"
 		enabled: menuBar.selectedCount > 0
 		onTriggered: {
-			if (!menuBar.fileManager) return;
-			menuBar.forEachSelected(function(p) {
-				// Create link next to source with " (link)" suffix
+			if (!menuBar.fileManager)
+				return;
+			var paths = menuBar.selectedPathList;
+			var ok = true;
+			for (var i = 0; i < paths.length; i++) {
+				var p = paths[i];
 				var name = p.substring(p.lastIndexOf("/") + 1);
 				var parent = p.substring(0, p.lastIndexOf("/"));
 				var dest = parent + "/" + name + " (link)";
-				return menuBar.fileManager.create_link(p, dest);
-			});
-			menuBar.directory.refresh();
+				if (!menuBar.fileManager.create_link(p, dest))
+					ok = false;
+			}
+			if (ok)
+				menuBar.directory.refresh();
 		}
 	}
 
@@ -125,10 +119,10 @@ MenuBar {
 		id: renameAction
 		text: qsTr("Rename")
 		shortcut: "F2"
-		// Rename only when exactly one item is selected
 		enabled: menuBar.selectedCount === 1
 		onTriggered: {
-			if (menuBar.selectedCount !== 1) return;
+			if (menuBar.selectedCount !== 1)
+				return;
 			renameDialog.filePath = menuBar.selectedPathList[0];
 			var name = renameDialog.filePath.substring(renameDialog.filePath.lastIndexOf("/") + 1);
 			renameDialog.originalName = name;
@@ -143,17 +137,19 @@ MenuBar {
 		shortcut: "Delete"
 		enabled: menuBar.selectedCount > 0
 		onTriggered: {
-			if (!menuBar.fileManager) return;
-			menuBar.forEachSelected(function(p) {
-				return menuBar.fileManager.trash_file(p);
-			});
-			// Clear selection and refresh
-			if (menuBar.selectionState) {
-				menuBar.selectionState.selectionActive = false;
-				menuBar.selectionState.selectedPaths = ({});
-				menuBar.selectionState.selectedCount = 0;
+			if (!menuBar.fileManager)
+				return;
+			var paths = menuBar.selectedPathList;
+			var ok = true;
+			for (var i = 0; i < paths.length; i++) {
+				if (!menuBar.fileManager.trash_file(paths[i]))
+					ok = false;
 			}
-			menuBar.directory.refresh();
+			if (menuBar.selectionManager) {
+				menuBar.selectionManager.clear();
+			}
+			if (ok)
+				menuBar.directory.refresh();
 		}
 	}
 
@@ -161,7 +157,6 @@ MenuBar {
 		id: pasteAction
 		text: qsTr("Paste")
 		shortcut: "Ctrl+V"
-		// Paste is always active — works without selection mode
 		enabled: true
 		onTriggered: {
 			if (menuBar.fileManager && menuBar.directory) {
@@ -177,7 +172,7 @@ MenuBar {
 		text: qsTr("Increase Size")
 		shortcut: "Ctrl+="
 		onTriggered: {
-			gridSizeSlider.value = Math.min(gridSizeSlider.value + 4, gridSizeSlider.to)
+			gridSizeSlider.value = Math.min(gridSizeSlider.value + 4, gridSizeSlider.to);
 		}
 	}
 
@@ -186,7 +181,7 @@ MenuBar {
 		text: qsTr("Decrease Size")
 		shortcut: "Ctrl+-"
 		onTriggered: {
-			gridSizeSlider.value = Math.max(gridSizeSlider.value - 4, 0)
+			gridSizeSlider.value = Math.max(gridSizeSlider.value - 4, 0);
 		}
 	}
 
@@ -255,16 +250,19 @@ MenuBar {
 				text: renameDialog.newName
 				onTextChanged: renameDialog.newName = text
 				Keys.onReturnPressed: renameDialog.accept()
-				Keys.onEnterPressed:  renameDialog.accept()
+				Keys.onEnterPressed: renameDialog.accept()
 				Keys.onEscapePressed: renameDialog.reject()
 
 				Component.onCompleted: {
-					// Select the filename stem, not the extension
 					var dot = text.lastIndexOf(".");
 					if (dot > 0) {
-						Qt.callLater(function() { renameField.select(0, dot); });
+						Qt.callLater(function () {
+							renameField.select(0, dot);
+						});
 					} else {
-						Qt.callLater(function() { renameField.selectAll(); });
+						Qt.callLater(function () {
+							renameField.selectAll();
+						});
 					}
 				}
 			}
@@ -279,7 +277,6 @@ MenuBar {
 	// ── Menu declarations ─────────────────────────────────────────────────
 
 	Instantiator {
-		// Only create and insert the menu if items are selected
 		active: menuBar.selectedCount > 0
 
 		onObjectAdded: (index, object) => menuBar.insertMenu(0, object)
@@ -331,7 +328,6 @@ MenuBar {
 			}
 		}
 	}
-
 
 	Menu {
 		title: qsTr("New")
@@ -388,7 +384,7 @@ MenuBar {
 					stepSize: 4
 					onMoved: {
 						menuBar.directory.set_config("VIEW", "GridSize", value.toString(), menuBar.isLocal);
-						menuBar.directory.refresh()
+						menuBar.directory.refresh();
 					}
 				}
 
@@ -487,7 +483,7 @@ MenuBar {
 				}
 			}
 
-			MenuSeparator { }
+			MenuSeparator {}
 
 			MenuItem {
 				text: qsTr("Alphabetical")

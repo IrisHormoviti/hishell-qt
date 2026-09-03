@@ -5,43 +5,23 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import "../Hishell"
+import "../"
 
 RowLayout {
 	id: pathBar
 	spacing: Kirigami.Units.smallSpacing
 
+	property ShellWindow window
 	property Directory directory
+	property var pathUtils: window.pathUtils
 	property string currentPath: pathBar.directory ? pathBar.directory.path : ""
 
 	property var segments: {
-		var p = pathBar.currentPath;
-		if (p === "" || p === ".")
-			return ["/"];
-		if (p.endsWith("/") && p.length > 1)
-			p = p.substring(0, p.length - 1);
-		var parts = p.split("/");
-		var result = [];
-		for (var i = 0; i < parts.length; i++) {
-			if (parts[i] !== "") {
-				result.push(parts[i]);
-			}
-		}
-		if (result.length === 0)
-			result.push("/");
-		return result;
+		return pathUtils ? pathUtils.get_segments(currentPath) : ["/"];
 	}
 
 	function pathForIndex(idx) {
-		var p = pathBar.currentPath;
-		if (p === "" || p === ".")
-			return "/";
-		if (p.endsWith("/") && p.length > 1)
-			p = p.substring(0, p.length - 1);
-		var parts = p.split("/").filter(function (s) {
-			return s !== "";
-		});
-		var result = "/" + parts.slice(0, idx + 1).join("/");
-		return result;
+		return pathUtils ? pathUtils.path_for_index(currentPath, idx) : currentPath;
 	}
 
 	Repeater {
@@ -67,6 +47,7 @@ RowLayout {
 				path: pathBar.pathForIndex(delegateRoot.index)
 				title: delegateRoot.modelData === "/" ? "/" : delegateRoot.modelData
 				icon: delegateRoot.index === pathBar.segments.length - 1 && pathBar.directory ? String(pathBar.directory.icon) : ""
+				dragDropHandler: pathBar.window.dragDropHandler
 
 				is_dir: true
 				index: delegateRoot.index
@@ -78,7 +59,7 @@ RowLayout {
 				Layout.preferredWidth: implicitWidth
 				Layout.preferredHeight: implicitHeight
 
-				onNavigate: (targetPath) => {
+				onNavigate: targetPath => {
 					pathBar.directory.path = targetPath;
 				}
 			}

@@ -3,14 +3,14 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import "Hishell"
+import "."
 
 RowLayout {
 	id: layoutEngine
 	property string layoutString: "[]"
 
 	required property Directory directory
-	property var fileManager: root.fileManager
-	property var selectionState: null
+	required property ShellWindow window
 
 	property var layoutItems: {
 		try {
@@ -37,59 +37,52 @@ RowLayout {
 
 		for (var j = 0; j < layoutEngine.layoutItems.length; j++) {
 			(function (itemSpec) {
-				var isPath = itemSpec.startsWith("/") || itemSpec.startsWith(".") || itemSpec.startsWith("~");
-				var componentFile = isPath ? "FolderView.qml" : itemSpec + ".qml";
+					var isPath = itemSpec.startsWith("/") || itemSpec.startsWith(".") || itemSpec.startsWith("~");
+					var componentFile = isPath ? "FolderView.qml" : itemSpec + ".qml";
 
-				var component = Qt.createComponent(componentFile);
-				if (component.status === Component.Ready) {
-					var obj = component.createObject(layoutEngine);
-					if (obj) {
-						if ("windowDirectory" in obj) {
-							obj.windowDirectory = Qt.binding(function () {
-								return layoutEngine.directory;
-							});
-						}
-
-						// Inject shared selection state into any component that accepts it
-						if ("selectionState" in obj) {
-							obj.selectionState = Qt.binding(function () {
-								return layoutEngine.selectionState;
-							});
-						}
-
-						if (isPath) {
-							var customDir = Qt.createQmlObject('import "Hishell"; Directory {}', obj);
-							if (customDir) {
-								customDir.path = Qt.binding(function () {
-									var base = layoutEngine.directory ? layoutEngine.directory.path : "";
-									if (itemSpec.startsWith("/")) {
-										return itemSpec;
-									}
-									if (!base)
-										return itemSpec;
-									return base + "/" + itemSpec;
+					var component = Qt.createComponent(componentFile);
+					if (component.status === Component.Ready) {
+						var obj = component.createObject(layoutEngine);
+						if (obj) {
+							if ("window" in obj) {
+								obj.window = Qt.binding(function () {
+									return layoutEngine.window;
 								});
-								obj.directory = customDir;
-								layoutEngine._createdItems.push(customDir);
 							}
-						} else {
 							if ("directory" in obj) {
 								obj.directory = Qt.binding(function () {
 									return layoutEngine.directory;
 								});
 							}
-							if ("fileManager" in obj) {
-								obj.fileManager = Qt.binding(function () {
-									return layoutEngine.fileManager;
-								});
+
+							if (isPath) {
+								var customDir = Qt.createQmlObject('import "Hishell"; Directory {}', obj);
+								if (customDir) {
+									customDir.path = Qt.binding(function () {
+										var base = layoutEngine.directory ? layoutEngine.directory.path : "";
+										if (itemSpec.startsWith("/")) {
+											return itemSpec;
+										}
+										if (!base)
+											return itemSpec;
+										return base + "/" + itemSpec;
+									});
+									obj.directory = customDir;
+									layoutEngine._createdItems.push(customDir);
+								}
+							} else {
+								if ("directory" in obj) {
+									obj.directory = Qt.binding(function () {
+										return layoutEngine.directory;
+									});
+								}
 							}
+							layoutEngine._createdItems.push(obj);
 						}
-						layoutEngine._createdItems.push(obj);
+					} else if (component.status === Component.Error) {
+						console.error(component.errorString());
 					}
-				} else if (component.status === Component.Error) {
-					console.error(component.errorString());
-				}
-			})(layoutEngine.layoutItems[j]);
+				})(layoutEngine.layoutItems[j]);
 		}
 	}
 }

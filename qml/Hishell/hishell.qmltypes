@@ -170,4 +170,162 @@ Module {
 				Parameter { name: "action"; type: "string" }
 			}
 	}
+
+	Component {
+		name: "DragDropHandler"
+		defaultProperty: "data"
+			prototype: "QObject"
+			exports: ["Hishell/DragDropHandler 1.0"]
+
+			Property { name: "drag_action"; type: "string" }
+			Property { name: "drag_cursor_x"; type: "double" }
+			Property { name: "drag_cursor_y"; type: "double" }
+			Property { name: "tooltip_active"; type: "bool" }
+			Property { name: "active_dragged_paths"; type: "variant" }
+			Property { name: "drag_icon_width"; type: "double" }
+			Property { name: "drag_icon_height"; type: "double" }
+			Property { name: "drag_uris"; type: "variant" }
+			Property { name: "drag_source_paths"; type: "variant" }
+			Property { name: "item_count"; type: "int" }
+			Property { name: "file_title"; type: "string" }
+			Property { name: "file_icon"; type: "string" }
+			Property { name: "dragged_slot"; type: "variant" }
+
+			Signal { name: "drag_action_changed" }
+			Signal { name: "drag_cursor_changed" }
+			Signal { name: "tooltip_active_changed" }
+			Signal { name: "active_dragged_paths_changed" }
+
+			Method {
+				name: "track_mouse_shake";
+				Parameter { name: "x"; type: "double" }
+				Parameter { name: "y"; type: "double" }
+			}
+
+			Method {
+				name: "cycle_drag_action";
+			}
+
+			Method {
+				name: "reset";
+			}
+
+			Method {
+				name: "set_drag_data";
+				Parameter { name: "main_path"; type: "string" }
+				Parameter { name: "uris"; type: "variant" }
+				Parameter { name: "source_paths"; type: "variant" }
+				Parameter { name: "item_count"; type: "int" }
+				Parameter { name: "file_title"; type: "string" }
+				Parameter { name: "file_icon"; type: "string" }
+			}
+
+			Method {
+				name: "begin_drag";
+				Parameter { name: "image_url"; type: "string" }
+				Parameter { name: "width"; type: "double" }
+				Parameter { name: "height"; type: "double" }
+			}
+
+			Method {
+				name: "end_drag";
+			}
+	}
+
+	Component {
+		name: "DropValidator"
+		defaultProperty: "data"
+			prototype: "QObject"
+			exports: ["Hishell/DropValidator 1.0"]
+
+			Method {
+				name: "is_drop_valid";
+				Parameter { name: "target_path"; type: "string" }
+				Parameter { name: "source_paths"; type: "variant" }
+			}
+	}
+
+	Component {
+		name: "PathUtils"
+		defaultProperty: "data"
+			prototype: "QObject"
+			exports: ["Hishell/PathUtils 1.0"]
+
+			Method {
+				name: "get_segments";
+				Parameter { name: "path"; type: "string" }
+			}
+
+			Method {
+				name: "path_for_index";
+				Parameter { name: "current_path"; type: "string" }
+				Parameter { name: "idx"; type: "int" }
+			}
+
+			Method {
+				name: "folder_name";
+				Parameter { name: "path"; type: "string" }
+			}
+
+			Method {
+				name: "normalize_path";
+				Parameter { name: "path"; type: "string" }
+			}
+
+			Method {
+				name: "parent_path";
+				Parameter { name: "path"; type: "string" }
+			}
+	}
+
+	Component {
+		name: "SelectionManager"
+		defaultProperty: "data"
+			prototype: "QObject"
+			exports: ["Hishell/SelectionManager 1.0"]
+
+			Property { name: "selection_active"; type: "bool" }
+			Property { name: "selected_paths"; type: "variant" }
+			Property { name: "selected_count"; type: "int" }
+			Property { name: "last_selected_index"; type: "int" }
+			Property { name: "window"; type: "variant" }
+
+			Signal { name: "selection_changed" }
+
+			Method {
+				name: "enter_selection_mode";
+			}
+
+			Method {
+				name: "exit_selection_mode";
+			}
+
+			Method {
+				name: "toggle_selection";
+				Parameter { name: "path"; type: "string" }
+				Parameter { name: "idx"; type: "int" }
+			}
+
+			Method {
+				name: "range_select";
+				Parameter { name: "from_idx"; type: "int" }
+				Parameter { name: "to_idx"; type: "int" }
+			}
+
+			Method {
+				name: "select_all";
+			}
+
+			Method {
+				name: "deselect_all";
+			}
+
+			Method {
+				name: "get_selected_path_list";
+			}
+
+			Method {
+				name: "clear";
+			}
+	}
 }
