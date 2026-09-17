@@ -98,12 +98,12 @@ pub struct SelectionManager {
 	),
 
 	get_selected_path_list: qt_method!(
-		fn get_selected_path_list(&self) -> String {
-			self.get_selected_paths()
-				.keys()
-				.cloned()
-				.collect::<Vec<_>>()
-				.join("\n")
+		fn get_selected_path_list(&self) -> QVariantList {
+			let mut list = QVariantList::default();
+			for key in self.get_selected_paths().keys() {
+				list.push(QString::from(key.as_str()).into());
+			}
+			list
 		}
 	),
 

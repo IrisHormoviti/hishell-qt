@@ -145,6 +145,10 @@ Module {
         }
 
         Method {
+            name: "get_all_paths";
+        }
+
+        Method {
             name: "poll_thumbnails";
         }
 
@@ -520,6 +524,9 @@ Module {
 
         Method {
             name: "select_all";
+            Parameter {
+                name: "paths"; type: "variant"
+            }
         }
 
         Method {

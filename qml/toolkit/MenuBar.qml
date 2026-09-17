@@ -18,7 +18,7 @@ MenuBar {
 	property var fileManager: window.fileManager
 	property var selectionManager: window.selectionManager
 	readonly property int selectedCount: menuBar.selectionManager ? menuBar.selectionManager.selected_count : 0
-	readonly property var selectedPathList: menuBar.selectionManager ? Array.from(menuBar.selectionManager.get_selected_path_list()) : []
+	readonly property var selectedPathList: (menuBar.selectedCount > 0 && menuBar.selectionManager.selection_status) ? menuBar.selectionManager.get_selected_path_list() : []
 
 	Action {
 		id: newFolderAction
@@ -60,7 +60,7 @@ MenuBar {
 		id: cutAction
 
 		text: qsTr("Cut")
-		shortcut: Qt.CTRL | Qt.Key_X
+		shortcut: "Ctrl+X"
 		enabled: menuBar.selectedCount > 0
 		onTriggered: {
 			const paths = menuBar.selectedPathList.join("\n");
@@ -76,13 +76,13 @@ MenuBar {
 		enabled: menuBar.selectedCount > 0
 		onTriggered: {
 			const paths = menuBar.selectedPathList;
-			let ok = true;
+			let anyOk = false;
 			for (let i = 0; i < paths.length; i++) {
-				if (!menuBar.fileManager.duplicate_file(paths[i]))
-					ok = false;
+				if (menuBar.fileManager.duplicate_file(paths[i]))
+					anyOk = true;
 
 			}
-			if (ok)
+			if (anyOk)
 				menuBar.directory.reload();
 
 		}
@@ -96,17 +96,17 @@ MenuBar {
 		enabled: menuBar.selectedCount > 0
 		onTriggered: {
 			const paths = menuBar.selectedPathList;
-			let ok = true;
+			let anyOk = false;
 			for (let i = 0; i < paths.length; i++) {
 				const p = paths[i];
 				const name = p.substring(p.lastIndexOf("/") + 1);
 				const parent = p.substring(0, p.lastIndexOf("/"));
 				const dest = parent + "/" + name + " (link)";
-				if (!menuBar.fileManager.create_link(p, dest))
-					ok = false;
+				if (menuBar.fileManager.create_link(p, dest))
+					anyOk = true;
 
 			}
-			if (ok)
+			if (anyOk)
 				menuBar.directory.reload();
 
 		}
@@ -119,7 +119,7 @@ MenuBar {
 		shortcut: "F2"
 		enabled: menuBar.selectedCount === 1
 		onTriggered: {
-			if (menuBar.selectedCount !== 1)
+			if (menuBar.selectedCount !== 1 || menuBar.selectedPathList.length === 0)
 				return;
 
 			renameDialog.filePath = menuBar.selectedPathList[0];
@@ -138,16 +138,16 @@ MenuBar {
 		enabled: menuBar.selectedCount > 0
 		onTriggered: {
 			const paths = menuBar.selectedPathList;
-			let ok = true;
+			let anyOk = false;
 			for (let i = 0; i < paths.length; i++) {
-				if (!menuBar.fileManager.trash_file(paths[i]))
-					ok = false;
+				if (menuBar.fileManager.trash_file(paths[i]))
+					anyOk = true;
 
 			}
 			if (menuBar.selectionManager)
 				menuBar.selectionManager.clear();
 
-			if (ok)
+			if (anyOk)
 				menuBar.directory.reload();
 
 		}
@@ -234,10 +234,9 @@ MenuBar {
 		onAccepted: {
 			var trimmed = renameDialog.newName.trim();
 			if (trimmed.length > 0 && trimmed !== renameDialog.originalName) {
-				if (menuBar.fileManager) {
-					menuBar.fileManager.rename_file(renameDialog.filePath, trimmed);
-					menuBar.directory.reload();
-				}
+				menuBar.fileManager.rename_file(renameDialog.filePath, trimmed);
+				menuBar.selectionManager.clear();
+				menuBar.directory.reload();
 			}
 		}
 		onOpened: {
@@ -279,79 +278,6 @@ MenuBar {
 
 	}
 
-	Instantiator {
-		active: menuBar.selectedCount > 0
-		onObjectAdded: (index, object) => {
-			return menuBar.insertMenu(0, object);
-		}
-		onObjectRemoved: (index, object) => {
-			return menuBar.removeMenu(object);
-		}
-
-		Menu {
-			id: editMenu
-
-			title: qsTr("Edit")
-			popupType: Popup.Window
-
-			MenuItem {
-				text: qsTr("Paste")
-				icon.name: "edit-paste"
-				action: pasteAction
-			}
-
-			MenuSeparator {
-			}
-
-			MenuItem {
-				text: qsTr("Copy")
-				icon.name: "edit-copy"
-				action: copyAction
-			}
-
-			MenuItem {
-				text: qsTr("Cut")
-				icon.name: "edit-cut"
-				action: cutAction
-			}
-
-			MenuSeparator {
-			}
-
-			MenuItem {
-				text: qsTr("Duplicate")
-				icon.name: "edit-copy"
-				action: duplicateAction
-			}
-
-			MenuItem {
-				text: qsTr("Create Link")
-				icon.name: "edit-link"
-				action: linkAction
-			}
-
-			MenuSeparator {
-			}
-
-			MenuItem {
-				text: qsTr("Rename")
-				icon.name: "edit-rename"
-				action: renameAction
-			}
-
-			MenuSeparator {
-			}
-
-			MenuItem {
-				text: qsTr("Move to Trash")
-				icon.name: "user-trash"
-				action: trashAction
-			}
-
-		}
-
-	}
-
 	Menu {
 		title: qsTr("New")
 		popupType: Popup.Window
@@ -366,6 +292,68 @@ MenuBar {
 			text: qsTr("Text File")
 			icon.name: "text-plain"
 			action: newTextFileAction
+		}
+
+	}
+
+	Menu {
+		id: editMenu
+
+		title: qsTr("Edit")
+		popupType: Popup.Window
+
+		MenuItem {
+			text: qsTr("Paste")
+			icon.name: "edit-paste"
+			action: pasteAction
+		}
+
+		MenuSeparator {
+		}
+
+		MenuItem {
+			text: qsTr("Copy")
+			icon.name: "edit-copy"
+			action: copyAction
+		}
+
+		MenuItem {
+			text: qsTr("Cut")
+			icon.name: "edit-cut"
+			action: cutAction
+		}
+
+		MenuSeparator {
+		}
+
+		MenuItem {
+			text: qsTr("Duplicate")
+			icon.name: "edit-copy"
+			action: duplicateAction
+		}
+
+		MenuItem {
+			text: qsTr("Create Link")
+			icon.name: "edit-link"
+			action: linkAction
+		}
+
+		MenuSeparator {
+		}
+
+		MenuItem {
+			text: qsTr("Rename")
+			icon.name: "edit-rename"
+			action: renameAction
+		}
+
+		MenuSeparator {
+		}
+
+		MenuItem {
+			text: qsTr("Move to Trash")
+			icon.name: "user-trash"
+			action: trashAction
 		}
 
 	}

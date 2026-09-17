@@ -1,11 +1,49 @@
+use once_cell::sync::Lazy;
 use qmetaobject::prelude::*;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Mutex;
+
+static INTERNAL_CLIPBOARD: Lazy<Mutex<Option<(Vec<String>, bool)>>> =
+	Lazy::new(|| Mutex::new(None));
 
 fn clean_path(s: &str) -> String {
-	let raw = if s.starts_with("file://") { &s[7..] } else { s };
-	percent_decode(raw)
+	let trimmed = s.trim();
+	let raw = trimmed.strip_prefix("file://").unwrap_or(trimmed);
+	let raw = raw.strip_prefix("localhost").unwrap_or(raw);
+	let decoded = percent_decode(raw);
+	if decoded.len() > 1 && decoded.ends_with('/') {
+		decoded.trim_end_matches('/').to_string()
+	} else {
+		decoded
+	}
+}
+
+fn unique_path(parent: &Path, base_name: &str, suffix: &str) -> PathBuf {
+	let path = Path::new(base_name);
+	let stem = path
+		.file_stem()
+		.and_then(|s| s.to_str())
+		.unwrap_or(base_name);
+	let ext = path
+		.extension()
+		.and_then(|e| e.to_str())
+		.map(|e| format!(".{}", e))
+		.unwrap_or_default();
+
+	let candidate = parent.join(format!("{}{}{}", stem, suffix, ext));
+	if !candidate.exists() {
+		return candidate;
+	}
+
+	for idx in 2..1000 {
+		let candidate = parent.join(format!("{}{} {}{}", stem, suffix, idx, ext));
+		if !candidate.exists() {
+			return candidate;
+		}
+	}
+	parent.join(format!("{}{}_{}{}", stem, suffix, std::process::id(), ext))
 }
 
 #[derive(QObject, Default)]
@@ -24,29 +62,22 @@ pub struct FileManager {
 		fn duplicate_file(&self, source: QString) -> bool {
 			let p = clean_path(&source.to_string());
 			let path = Path::new(&p);
-			if path.is_dir() {
-				// duplicate directory
-				if let Some(parent) = path.parent() {
-					let base = path
-						.file_name()
-						.map(|n| n.to_string_lossy().to_string())
-						.unwrap_or_default();
-					let new_name = format!("{} (copy)", base);
-					let dest = parent.join(&new_name);
-					return copy_dir_recursive(path, &dest);
-				}
+			if !path.exists() {
 				return false;
 			}
-			if let (Some(parent), Some(stem)) = (path.parent(), path.file_stem()) {
-				let ext = path
-					.extension()
-					.map(|e| format!(".{}", e.to_string_lossy()))
-					.unwrap_or_default();
-				let new_name = format!("{} (copy){}", stem.to_string_lossy(), ext);
-				let dest = parent.join(new_name);
-				fs::copy(&p, &dest).is_ok()
+			let parent = match path.parent() {
+				Some(parent) => parent,
+				None => return false,
+			};
+			let fname = match path.file_name() {
+				Some(name) => name.to_string_lossy().to_string(),
+				None => return false,
+			};
+			let dest = unique_path(parent, &fname, " (copy)");
+			if path.is_dir() {
+				copy_dir_recursive(path, &dest)
 			} else {
-				false
+				fs::copy(path, &dest).is_ok()
 			}
 		}
 	),
@@ -112,10 +143,34 @@ pub struct FileManager {
 	create_link: qt_method!(
 		fn create_link(&self, source: QString, dest: QString) -> bool {
 			let src = clean_path(&source.to_string());
-			let dst = clean_path(&dest.to_string());
+			let src_path = Path::new(&src);
+			if !src_path.exists() {
+				return false;
+			}
+			let dst_str = clean_path(&dest.to_string());
+			let dst = if dst_str.is_empty() {
+				match (src_path.parent(), src_path.file_name()) {
+					(Some(parent), Some(name)) => {
+						unique_path(parent, &name.to_string_lossy(), " (link)")
+					}
+					_ => return false,
+				}
+			} else {
+				let dst_path = Path::new(&dst_str);
+				if dst_path.exists() {
+					match (dst_path.parent(), dst_path.file_name()) {
+						(Some(parent), Some(name)) => {
+							unique_path(parent, &name.to_string_lossy(), " (link)")
+						}
+						_ => dst_path.to_path_buf(),
+					}
+				} else {
+					dst_path.to_path_buf()
+				}
+			};
 			#[cfg(unix)]
 			{
-				std::os::unix::fs::symlink(src, dst).is_ok()
+				std::os::unix::fs::symlink(src_path, dst).is_ok()
 			}
 			#[cfg(not(unix))]
 			{
@@ -166,6 +221,17 @@ pub struct FileManager {
 	copy_paths_to_clipboard: qt_method!(
 		fn copy_paths_to_clipboard(&self, paths_newline: QString) -> bool {
 			let paths = paths_newline.to_string();
+			let uris: Vec<String> = paths
+				.lines()
+				.filter(|l| !l.trim().is_empty())
+				.map(|p| clean_path(p))
+				.filter(|p| !p.is_empty())
+				.collect();
+			if !uris.is_empty() {
+				if let Ok(mut guard) = INTERNAL_CLIPBOARD.lock() {
+					*guard = Some((uris, false));
+				}
+			}
 			set_clipboard_uris(&paths, false)
 		}
 	),
@@ -174,6 +240,17 @@ pub struct FileManager {
 	cut_paths_to_clipboard: qt_method!(
 		fn cut_paths_to_clipboard(&self, paths_newline: QString) -> bool {
 			let paths = paths_newline.to_string();
+			let uris: Vec<String> = paths
+				.lines()
+				.filter(|l| !l.trim().is_empty())
+				.map(|p| clean_path(p))
+				.filter(|p| !p.is_empty())
+				.collect();
+			if !uris.is_empty() {
+				if let Ok(mut guard) = INTERNAL_CLIPBOARD.lock() {
+					*guard = Some((uris, true));
+				}
+			}
 			set_clipboard_uris(&paths, true)
 		}
 	),
@@ -193,11 +270,17 @@ pub struct FileManager {
 			}
 			let uris_str = uris.join("\n");
 			let action = if is_cut { "move" } else { "copy" };
-			self.process_uris_action(
+			let ok = self.process_uris_action(
 				QString::from(dest.as_str()),
 				QString::from(uris_str.as_str()),
 				QString::from(action),
-			)
+			);
+			if ok && is_cut {
+				if let Ok(mut guard) = INTERNAL_CLIPBOARD.lock() {
+					*guard = None;
+				}
+			}
+			ok
 		}
 	),
 
@@ -257,13 +340,14 @@ pub struct FileManager {
 				if !src.exists() {
 					continue;
 				}
-				if let Some(fname) = src.file_name() {
-					let dst = dest_path.join(fname);
-					if src == dst {
-						continue;
-					}
+				if let Some(fname_os) = src.file_name() {
+					let fname = fname_os.to_string_lossy().to_string();
+					let mut dst = dest_path.join(&fname);
 					match action_str.as_str() {
 						"move" => {
+							if src == dst {
+								continue;
+							}
 							if move_item(src, &dst) {
 								any_ok = true;
 							}
@@ -271,12 +355,18 @@ pub struct FileManager {
 						"link" => {
 							#[cfg(unix)]
 							{
+								if dst.exists() {
+									dst = unique_path(dest_path, &fname, " (link)");
+								}
 								if std::os::unix::fs::symlink(src, &dst).is_ok() {
 									any_ok = true;
 								}
 							}
 						}
 						_ => {
+							if src == dst || dst.exists() {
+								dst = unique_path(dest_path, &fname, " (copy)");
+							}
 							if src.is_dir() {
 								if copy_dir_recursive(src, &dst) {
 									any_ok = true;
@@ -332,11 +422,7 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> bool {
 	true
 }
 
-/// Write a freedesktop clipboard URI list.
-/// Format expected by GTK/Qt file managers:
-///   x-special/nautilus-clipboard\ncopy\nfile:///path\nfile:///path2
 fn set_clipboard_uris(paths_newline: &str, cut: bool) -> bool {
-	// Build URI list
 	let action = if cut { "cut" } else { "copy" };
 	let uris: Vec<String> = paths_newline
 		.lines()
@@ -351,29 +437,24 @@ fn set_clipboard_uris(paths_newline: &str, cut: bool) -> bool {
 		return false;
 	}
 
-	// Nautilus/Dolphin compatible format
-	let nautilus_data = format!(
-		"x-special/nautilus-clipboard\n{}\n{}\n",
-		action,
-		uris.join("\n")
-	);
-	// Plain URI list (text/uri-list)
+	let nautilus_data = format!("{}\n{}\n", action, uris.join("\n"));
 	let uri_list = uris.join("\n");
 
-	// Try wl-clipboard (Wayland)
+	let mut any_ok = false;
 	if try_wl_copy(&nautilus_data, "x-special/nautilus-clipboard") {
-		return true;
+		any_ok = true;
 	}
-	// Try xclip (X11)
 	if try_xclip(&nautilus_data, "x-special/nautilus-clipboard") {
-		return true;
+		any_ok = true;
 	}
-	// Try xsel as last resort with plain URI list
-	if try_xsel(&uri_list) {
-		return true;
+	if !any_ok && try_xclip(&uri_list, "text/uri-list") {
+		any_ok = true;
+	}
+	if !any_ok && try_xsel(&uri_list) {
+		any_ok = true;
 	}
 
-	false
+	any_ok
 }
 
 fn try_wl_copy(data: &str, mime: &str) -> bool {
@@ -422,27 +503,61 @@ fn try_xsel(data: &str) -> bool {
 		.unwrap_or(false)
 }
 
-/// Read file URIs from the system clipboard and return (uris, is_cut).
+fn parse_nautilus_clipboard(text: &str) -> (Vec<String>, bool) {
+	let mut is_cut = false;
+	let mut uris = Vec::new();
+	for line in text.lines() {
+		let trimmed = line.trim();
+		if trimmed.is_empty()
+			|| trimmed.starts_with('#')
+			|| trimmed == "x-special/nautilus-clipboard"
+		{
+			continue;
+		}
+		if trimmed.eq_ignore_ascii_case("cut") {
+			is_cut = true;
+		} else if trimmed.eq_ignore_ascii_case("copy") {
+			is_cut = false;
+		} else {
+			uris.push(trimmed.to_string());
+		}
+	}
+	(uris, is_cut)
+}
+
 fn read_clipboard_uris_and_action() -> (Vec<String>, bool) {
-	// First try nautilus-clipboard format for cut detection
 	if let Ok(out) = Command::new("wl-paste")
 		.args(["--type", "x-special/nautilus-clipboard", "--no-newline"])
 		.output()
 	{
 		if out.status.success() {
 			let text = String::from_utf8_lossy(&out.stdout);
-			let lines: Vec<&str> = text.lines().collect();
-			if lines.len() >= 2 {
-				let is_cut = lines[0].trim() == "cut" || lines[1].trim() == "cut";
-				let uris = parse_uri_list(&text);
-				if !uris.is_empty() {
-					return (uris, is_cut);
-				}
+			let (uris, is_cut) = parse_nautilus_clipboard(&text);
+			if !uris.is_empty() {
+				return (uris, is_cut);
 			}
 		}
 	}
 
-	// Wayland standard uri-list
+	if let Ok(out) = Command::new("xclip")
+		.args([
+			"-selection",
+			"clipboard",
+			"-t",
+			"x-special/nautilus-clipboard",
+			"-o",
+		])
+		.output()
+	{
+		if out.status.success() {
+			let text = String::from_utf8_lossy(&out.stdout);
+			let (uris, is_cut) = parse_nautilus_clipboard(&text);
+			if !uris.is_empty() {
+				return (uris, is_cut);
+			}
+		}
+	}
+
 	if let Ok(out) = Command::new("wl-paste")
 		.args(["--type", "text/uri-list", "--no-newline"])
 		.output()
@@ -456,7 +571,6 @@ fn read_clipboard_uris_and_action() -> (Vec<String>, bool) {
 		}
 	}
 
-	// X11 standard uri-list
 	if let Ok(out) = Command::new("xclip")
 		.args(["-selection", "clipboard", "-t", "text/uri-list", "-o"])
 		.output()
@@ -470,13 +584,27 @@ fn read_clipboard_uris_and_action() -> (Vec<String>, bool) {
 		}
 	}
 
+	if let Ok(guard) = INTERNAL_CLIPBOARD.lock() {
+		if let Some((uris, is_cut)) = &*guard {
+			if !uris.is_empty() {
+				return (uris.clone(), *is_cut);
+			}
+		}
+	}
+
 	(vec![], false)
 }
 
 fn parse_uri_list(text: &str) -> Vec<String> {
 	text.lines()
 		.map(|l| l.trim())
-		.filter(|l| !l.is_empty() && !l.starts_with('#'))
+		.filter(|l| {
+			!l.is_empty()
+				&& !l.starts_with('#')
+				&& *l != "x-special/nautilus-clipboard"
+				&& *l != "copy"
+				&& *l != "cut"
+		})
 		.map(|l| l.to_string())
 		.collect()
 }

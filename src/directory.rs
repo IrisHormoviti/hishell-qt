@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 use mime_guess::from_path;
 use once_cell::sync::Lazy;
-use qmetaobject::QObjectBox;
 use qmetaobject::prelude::*;
+use qmetaobject::{QObjectBox, QVariantList};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -131,8 +131,19 @@ pub struct Directory {
 	reload: qt_method!(
 		pub fn reload(&mut self) {
 			let path = self.path_str.clone();
-			self.load_directory(path, false);
+			let include_hidden = !self.config.pinned().borrow().stash_dotfiles;
+			self.load_directory(path, include_hidden);
 			self.path_changed();
+		}
+	),
+
+	get_all_paths: qt_method!(
+		pub fn get_all_paths(&self) -> QVariantList {
+			let mut list = QVariantList::default();
+			for item in &self.items {
+				list.push(QString::from(item.path.as_str()).into());
+			}
+			list
 		}
 	),
 
