@@ -3,19 +3,26 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
+fn clean_path(s: &str) -> String {
+	let raw = if s.starts_with("file://") { &s[7..] } else { s };
+	percent_decode(raw)
+}
+
 #[derive(QObject, Default)]
 pub struct FileManager {
 	base: qt_base_class!(trait QObject),
 
 	copy_file: qt_method!(
 		fn copy_file(&self, source: QString, dest: QString) -> bool {
-			fs::copy(source.to_string(), dest.to_string()).is_ok()
+			let src = clean_path(&source.to_string());
+			let dst = clean_path(&dest.to_string());
+			fs::copy(src, dst).is_ok()
 		}
 	),
 
 	duplicate_file: qt_method!(
 		fn duplicate_file(&self, source: QString) -> bool {
-			let p = source.to_string();
+			let p = clean_path(&source.to_string());
 			let path = Path::new(&p);
 			if path.is_dir() {
 				// duplicate directory
@@ -46,7 +53,7 @@ pub struct FileManager {
 
 	new_folder: qt_method!(
 		fn new_folder(&self, parent: QString) -> bool {
-			let parent_string = parent.to_string();
+			let parent_string = clean_path(&parent.to_string());
 			let parent_path = Path::new(&parent_string);
 			if !parent_path.is_dir() {
 				return false;
@@ -75,7 +82,7 @@ pub struct FileManager {
 
 	new_text_file: qt_method!(
 		fn new_text_file(&self, parent: QString) -> bool {
-			let parent_string = parent.to_string();
+			let parent_string = clean_path(&parent.to_string());
 			let parent_path = Path::new(&parent_string);
 			if !parent_path.is_dir() {
 				return false;
@@ -104,9 +111,11 @@ pub struct FileManager {
 
 	create_link: qt_method!(
 		fn create_link(&self, source: QString, dest: QString) -> bool {
+			let src = clean_path(&source.to_string());
+			let dst = clean_path(&dest.to_string());
 			#[cfg(unix)]
 			{
-				std::os::unix::fs::symlink(source.to_string(), dest.to_string()).is_ok()
+				std::os::unix::fs::symlink(src, dst).is_ok()
 			}
 			#[cfg(not(unix))]
 			{
@@ -118,14 +127,15 @@ pub struct FileManager {
 	/// Move a file/directory to the system trash.
 	trash_file: qt_method!(
 		fn trash_file(&self, path: QString) -> bool {
-			trash::delete(path.to_string()).is_ok()
+			let p = clean_path(&path.to_string());
+			trash::delete(p).is_ok()
 		}
 	),
 
 	/// Permanently delete a file or directory (no trash).
 	delete_file: qt_method!(
 		fn delete_file(&self, path: QString) -> bool {
-			let p = path.to_string();
+			let p = clean_path(&path.to_string());
 			let p = Path::new(&p);
 			if p.is_dir() {
 				fs::remove_dir_all(p).is_ok()
@@ -138,7 +148,7 @@ pub struct FileManager {
 	/// Rename (move) a file or directory to a new name within the same parent.
 	rename_file: qt_method!(
 		fn rename_file(&self, path: QString, new_name: QString) -> bool {
-			let p = path.to_string();
+			let p = clean_path(&path.to_string());
 			let n = new_name.to_string();
 			let src = Path::new(&p);
 			let parent = match src.parent() {
@@ -172,7 +182,7 @@ pub struct FileManager {
 	/// Returns true if at least one file was copied successfully.
 	paste_from_clipboard: qt_method!(
 		fn paste_from_clipboard(&self, dest_dir: QString) -> bool {
-			let dest = dest_dir.to_string();
+			let dest = clean_path(&dest_dir.to_string());
 			let dest_path = Path::new(&dest);
 			if !dest_path.is_dir() {
 				return false;
@@ -184,7 +194,7 @@ pub struct FileManager {
 			let uris_str = uris.join("\n");
 			let action = if is_cut { "move" } else { "copy" };
 			self.process_uris_action(
-				dest_dir,
+				QString::from(dest.as_str()),
 				QString::from(uris_str.as_str()),
 				QString::from(action),
 			)
@@ -194,7 +204,7 @@ pub struct FileManager {
 	/// Return MIME type string for a file path (guessed via mime_guess).
 	get_mime_type: qt_method!(
 		fn get_mime_type(&self, path: QString) -> QString {
-			let p = path.to_string();
+			let p = clean_path(&path.to_string());
 			let mime = mime_guess::from_path(&p)
 				.first_or_octet_stream()
 				.essence_str()
@@ -206,7 +216,7 @@ pub struct FileManager {
 	/// Return text file content (capped at 64KB) for text/plain drag payload.
 	get_text_content: qt_method!(
 		fn get_text_content(&self, path: QString) -> QString {
-			let p = path.to_string();
+			let p = clean_path(&path.to_string());
 			let path_buf = Path::new(&p);
 			if path_buf.is_file() {
 				if let Ok(meta) = fs::metadata(path_buf) {
@@ -229,7 +239,7 @@ pub struct FileManager {
 			uris_newline: QString,
 			action: QString,
 		) -> bool {
-			let dest = dest_dir.to_string();
+			let dest = clean_path(&dest_dir.to_string());
 			let dest_path = Path::new(&dest);
 			if !dest_path.is_dir() {
 				return false;
@@ -242,12 +252,7 @@ pub struct FileManager {
 			let action_str = action.to_string();
 			let mut any_ok = false;
 			for uri in &uris {
-				let raw = if uri.starts_with("file://") {
-					&uri[7..]
-				} else {
-					uri.as_str()
-				};
-				let src_str = percent_decode(raw);
+				let src_str = clean_path(uri);
 				let src = Path::new(&src_str);
 				if !src.exists() {
 					continue;
@@ -337,11 +342,8 @@ fn set_clipboard_uris(paths_newline: &str, cut: bool) -> bool {
 		.lines()
 		.filter(|l| !l.trim().is_empty())
 		.map(|p| {
-			if p.starts_with("file://") {
-				p.to_string()
-			} else {
-				format!("file://{}", p)
-			}
+			let clean = clean_path(p);
+			format!("file://{}", clean)
 		})
 		.collect();
 

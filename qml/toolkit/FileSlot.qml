@@ -26,6 +26,21 @@ Item {
 	property bool selectionActive: false
 	property bool isSelected: false
 
+	property int currentDragCount: 1
+
+	property bool isDraggingThisSlot: localDragTarget.Drag.active
+	onIsDraggingThisSlotChanged: {
+		if (!isDraggingThisSlot && mouseArea.dragStarted) {
+			mouseArea.dragStarted = false;
+			mouseArea.dragInitiated = false;
+			if (typeof fileSlot.dragDropHandler !== 'undefined' && fileSlot.dragDropHandler) {
+				fileSlot.dragDropHandler.active_dragged_paths = [];
+				fileSlot.dragDropHandler.tooltip_active = false;
+				fileSlot.dragDropHandler.end_drag();
+			}
+		}
+	}
+
 	// Emitted on navigation
 	signal navigate(string targetPath)
 
@@ -41,7 +56,44 @@ Item {
 	// --- Slot ---
 	implicitWidth: contentLayout.implicitWidth + (fileSlot.labelBesideIcon && fileSlot.showIcon ? Kirigami.Units.largeSpacing * 2 : Kirigami.Units.smallSpacing * 2)
 	implicitHeight: contentLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
-	opacity: !(localDragTarget.Drag.active && fileSlot.dragDropHandler && fileSlot.dragDropHandler.active_dragged_paths.indexOf(fileSlot.path) !== -1)
+	opacity: (fileSlot.dragDropHandler && fileSlot.dragDropHandler.active_dragged_paths && fileSlot.dragDropHandler.active_dragged_paths.indexOf(fileSlot.path) !== -1) ? 0.2 : 1.0
+
+	Behavior on opacity {
+		NumberAnimation {
+			duration: 100
+		}
+	}
+
+	// ── Offscreen Visual Container for Multi-Drag Stack ──
+	Item {
+		id: stackPreviewContainer
+		width: fileSlot.width + 12
+		height: fileSlot.height + 12
+		visible: false
+
+		Repeater {
+			model: Math.min(3, fileSlot.currentDragCount)
+			delegate: Rectangle {
+				required property int index
+				x: (2 - index) * 5
+				y: (2 - index) * 5
+				width: fileSlot.width
+				height: fileSlot.height
+				radius: Kirigami.Units.cornerRadius
+				color: Kirigami.Theme.backgroundColor
+				border.color: Kirigami.Theme.highlightColor
+				border.width: 1
+				opacity: 1.0 - (index * 0.15)
+
+				Kirigami.Icon {
+					anchors.centerIn: parent
+					width: fileSlot.gridSize
+					height: fileSlot.gridSize
+					source: fileSlot.icon
+				}
+			}
+		}
+	}
 
 	// ── Layout ──
 
@@ -341,6 +393,7 @@ Item {
 		Component.onDestruction: {
 			if (typeof dragDropHandler !== 'undefined' && mouseArea.dragStarted) {
 				localDragTarget.Drag.active = false;
+				dragDropHandler.active_dragged_paths = [];
 				dragDropHandler.tooltip_active = false;
 				dragDropHandler.end_drag();
 			}
@@ -357,12 +410,25 @@ Item {
 			const mainPath = fileSlot.path;
 			const mainUri = mainPath.startsWith("file://") ? mainPath : ("file://" + mainPath);
 
-			const mgr = fileSlot.selectionManager;
+			let mgr = null;
+			let p = fileSlot.parent;
+			while (p) {
+				if (p.selectionManager) {
+					mgr = p.selectionManager;
+					break;
+				}
+				if (p.rootWindow && p.rootWindow.selectionManager) {
+					mgr = p.rootWindow.selectionManager;
+					break;
+				}
+				p = p.parent;
+			}
 
 			let selectedMap = {};
 			try {
 				selectedMap = JSON.parse(mgr ? mgr.selected_paths : "{}");
-			} catch (e) {}
+			} catch (e) {
+			}
 
 			if (mgr && mgr.selected_count > 1 && selectedMap[mainPath]) {
 				const keys = Object.keys(selectedMap);
@@ -378,24 +444,29 @@ Item {
 				uris.push(mainUri);
 			}
 
-			if (typeof dragDropHandler !== 'undefined') {
+			fileSlot.currentDragCount = rawPaths.length;
+
+			if (typeof dragDropHandler !== 'undefined' && dragDropHandler) {
+				dragDropHandler.active_dragged_paths = rawPaths;
 				dragDropHandler.set_drag_data(mainPath, uris, rawPaths, uris.length, fileSlot.title, fileSlot.icon);
 			}
 
-			fileSlot.grabToImage(function (result) {
+			const targetToGrab = (rawPaths.length > 1) ? stackPreviewContainer : fileSlot;
+
+			targetToGrab.grabToImage(function (result) {
 				if (mouseArea.isPressAndHoldActive) {
-					if (typeof dragDropHandler !== 'undefined')
+					if (typeof dragDropHandler !== 'undefined' && dragDropHandler)
 						dragDropHandler.active_dragged_paths = [];
 					return;
 				}
 
 				localDragTarget.Drag.imageSource = result.url;
-				localDragTarget.Drag.hotSpot = Qt.point(Math.round(fileSlot.width / 2), Math.round(fileSlot.height / 2));
+				localDragTarget.Drag.hotSpot = Qt.point(Math.round(targetToGrab.width / 2), Math.round(targetToGrab.height / 2));
 
-				if (typeof dragDropHandler !== 'undefined') {
+				if (typeof dragDropHandler !== 'undefined' && dragDropHandler) {
 					const pt = mouseArea.mapToItem(null, mouse.x, mouse.y);
 					dragDropHandler.track_mouse_shake(pt.x, pt.y);
-					dragDropHandler.begin_drag(result.url.toString(), fileSlot.width, fileSlot.height);
+					dragDropHandler.begin_drag(result.url.toString(), targetToGrab.width, targetToGrab.height);
 				}
 
 				mouseArea.dragStarted = true;
@@ -436,7 +507,8 @@ Item {
 			mouseArea.isPressAndHoldActive = false;
 			mouseArea.dragInitiated = false;
 
-			if (typeof dragDropHandler !== 'undefined') {
+			if (typeof dragDropHandler !== 'undefined' && dragDropHandler) {
+				dragDropHandler.active_dragged_paths = [];
 				dragDropHandler.tooltip_active = false;
 				dragDropHandler.end_drag();
 			}

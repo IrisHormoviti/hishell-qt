@@ -5,6 +5,10 @@ import org.kde.kirigami as Kirigami
 import "../"
 
 MenuBar {
+	// Actions
+	// Rename dialog
+	// Menu declarations
+
 	id: menuBar
 
 	property ShellWindow window
@@ -13,42 +17,40 @@ MenuBar {
 	property bool isLocal: directory.has_meta
 	property var fileManager: window.fileManager
 	property var selectionManager: window.selectionManager
-
 	readonly property int selectedCount: menuBar.selectionManager ? menuBar.selectionManager.selected_count : 0
-	readonly property var selectedPathList: menuBar.selectionManager ? menuBar.selectionManager.get_selected_path_list() : []
-
-	// Actions
+	readonly property var selectedPathList: menuBar.selectionManager ? Array.from(menuBar.selectionManager.get_selected_path_list()) : []
 
 	Action {
 		id: newFolderAction
+
 		text: qsTr("New Folder")
 		shortcut: "Ctrl+Shift+N"
 		onTriggered: {
-			if (menuBar.fileManager.new_folder(menuBar.directory.path)) {
+			if (menuBar.fileManager.new_folder(menuBar.directory.path))
 				menuBar.directory.reload();
-			}
+
 		}
 	}
 
 	Action {
 		id: newTextFileAction
+
 		text: qsTr("New Text File")
 		shortcut: "Alt+Shift+N"
 		onTriggered: {
-			if (menuBar.fileManager.new_text_file(menuBar.directory.path)) {
+			if (menuBar.fileManager.new_text_file(menuBar.directory.path))
 				menuBar.directory.reload();
-			}
+
 		}
 	}
 
 	Action {
 		id: copyAction
+
 		text: qsTr("Copy")
 		shortcut: "Ctrl+C"
 		enabled: menuBar.selectedCount > 0
 		onTriggered: {
-			if (!menuBar.fileManager)
-				return;
 			const paths = menuBar.selectedPathList.join("\n");
 			menuBar.fileManager.copy_paths_to_clipboard(paths);
 		}
@@ -56,12 +58,11 @@ MenuBar {
 
 	Action {
 		id: cutAction
+
 		text: qsTr("Cut")
 		shortcut: Qt.CTRL | Qt.Key_X
 		enabled: menuBar.selectedCount > 0
 		onTriggered: {
-			if (!menuBar.fileManager)
-				return;
 			const paths = menuBar.selectedPathList.join("\n");
 			menuBar.fileManager.cut_paths_to_clipboard(paths);
 		}
@@ -69,31 +70,31 @@ MenuBar {
 
 	Action {
 		id: duplicateAction
+
 		text: qsTr("Duplicate")
 		shortcut: "Ctrl+D"
 		enabled: menuBar.selectedCount > 0
 		onTriggered: {
-			if (!menuBar.fileManager)
-				return;
 			const paths = menuBar.selectedPathList;
 			let ok = true;
 			for (let i = 0; i < paths.length; i++) {
 				if (!menuBar.fileManager.duplicate_file(paths[i]))
 					ok = false;
+
 			}
 			if (ok)
 				menuBar.directory.reload();
+
 		}
 	}
 
 	Action {
 		id: linkAction
+
 		text: qsTr("Create Link")
 		shortcut: "Ctrl+Shift+L"
 		enabled: menuBar.selectedCount > 0
 		onTriggered: {
-			if (!menuBar.fileManager)
-				return;
 			const paths = menuBar.selectedPathList;
 			let ok = true;
 			for (let i = 0; i < paths.length; i++) {
@@ -103,20 +104,24 @@ MenuBar {
 				const dest = parent + "/" + name + " (link)";
 				if (!menuBar.fileManager.create_link(p, dest))
 					ok = false;
+
 			}
 			if (ok)
 				menuBar.directory.reload();
+
 		}
 	}
 
 	Action {
 		id: renameAction
+
 		text: qsTr("Rename")
 		shortcut: "F2"
 		enabled: menuBar.selectedCount === 1
 		onTriggered: {
 			if (menuBar.selectedCount !== 1)
 				return;
+
 			renameDialog.filePath = menuBar.selectedPathList[0];
 			const name = renameDialog.filePath.substring(renameDialog.filePath.lastIndexOf("/") + 1);
 			renameDialog.originalName = name;
@@ -127,42 +132,45 @@ MenuBar {
 
 	Action {
 		id: trashAction
+
 		text: qsTr("Move to Trash")
 		shortcut: "Delete"
 		enabled: menuBar.selectedCount > 0
 		onTriggered: {
-			if (!menuBar.fileManager)
-				return;
 			const paths = menuBar.selectedPathList;
 			let ok = true;
 			for (let i = 0; i < paths.length; i++) {
 				if (!menuBar.fileManager.trash_file(paths[i]))
 					ok = false;
+
 			}
-			if (menuBar.selectionManager) {
+			if (menuBar.selectionManager)
 				menuBar.selectionManager.clear();
-			}
+
 			if (ok)
 				menuBar.directory.reload();
+
 		}
 	}
 
 	Action {
 		id: pasteAction
+
 		text: qsTr("Paste")
 		shortcut: "Ctrl+V"
 		enabled: true
 		onTriggered: {
 			if (menuBar.fileManager && menuBar.directory) {
-				if (menuBar.fileManager.paste_from_clipboard(menuBar.directory.path)) {
+				if (menuBar.fileManager.paste_from_clipboard(menuBar.directory.path))
 					menuBar.directory.reload();
-				}
+
 			}
 		}
 	}
 
 	Action {
 		id: increaseSizeAction
+
 		text: qsTr("Increase Size")
 		shortcut: "Ctrl+="
 		onTriggered: {
@@ -172,6 +180,7 @@ MenuBar {
 
 	Action {
 		id: decreaseSizeAction
+
 		text: qsTr("Decrease Size")
 		shortcut: "Ctrl+-"
 		onTriggered: {
@@ -181,45 +190,47 @@ MenuBar {
 
 	ButtonGroup {
 		id: viewModeGroup
-		onClicked: button => {
+
+		onClicked: (button) => {
 			menuBar.directory.set_config("VIEW", "ViewMode", button.objectName, menuBar.isLocal);
 		}
 	}
 
 	ButtonGroup {
 		id: sortGroup
-		onClicked: button => {
+
+		onClicked: (button) => {
 			menuBar.directory.set_config("VIEW", "Sort", button.objectName, menuBar.isLocal);
 		}
 	}
 
 	ButtonGroup {
 		id: sortDateMode
-		onClicked: button => {
+
+		onClicked: (button) => {
 			menuBar.directory.set_config("VIEW", "SortDateMode", button.objectName, menuBar.isLocal);
 		}
 	}
 
 	ButtonGroup {
 		id: sortAlphaMode
-		onClicked: button => {
+
+		onClicked: (button) => {
 			menuBar.directory.set_config("VIEW", "SortAlphaMode", button.objectName, menuBar.isLocal);
 		}
 	}
 
-	// Rename dialog
-
 	Dialog {
 		id: renameDialog
-		title: qsTr("Rename")
-		standardButtons: Dialog.Ok | Dialog.Cancel
-		modal: true
-		anchors.centerIn: parent
 
 		property string filePath: ""
 		property string originalName: ""
 		property string newName: ""
 
+		title: qsTr("Rename")
+		standardButtons: Dialog.Ok | Dialog.Cancel
+		modal: true
+		anchors.centerIn: parent
 		onAccepted: {
 			var trimmed = renameDialog.newName.trim();
 			if (trimmed.length > 0 && trimmed !== renameDialog.originalName) {
@@ -228,6 +239,10 @@ MenuBar {
 					menuBar.directory.reload();
 				}
 			}
+		}
+		onOpened: {
+			renameField.text = renameDialog.originalName;
+			renameField.forceActiveFocus();
 		}
 
 		ColumnLayout {
@@ -240,44 +255,42 @@ MenuBar {
 
 			TextField {
 				id: renameField
+
 				Layout.fillWidth: true
 				text: renameDialog.newName
 				onTextChanged: renameDialog.newName = text
 				Keys.onReturnPressed: renameDialog.accept()
 				Keys.onEnterPressed: renameDialog.accept()
 				Keys.onEscapePressed: renameDialog.reject()
-
 				Component.onCompleted: {
 					var dot = text.lastIndexOf(".");
-					if (dot > 0) {
+					if (dot > 0)
 						Qt.callLater(function () {
 							renameField.select(0, dot);
 						});
-					} else {
+					else
 						Qt.callLater(function () {
 							renameField.selectAll();
 						});
-					}
 				}
 			}
+
 		}
 
-		onOpened: {
-			renameField.text = renameDialog.originalName;
-			renameField.forceActiveFocus();
-		}
 	}
-
-	// Menu declarations
 
 	Instantiator {
 		active: menuBar.selectedCount > 0
-
-		onObjectAdded: (index, object) => menuBar.insertMenu(0, object)
-		onObjectRemoved: (index, object) => menuBar.removeMenu(object)
+		onObjectAdded: (index, object) => {
+			return menuBar.insertMenu(0, object);
+		}
+		onObjectRemoved: (index, object) => {
+			return menuBar.removeMenu(object);
+		}
 
 		Menu {
 			id: editMenu
+
 			title: qsTr("Edit")
 			popupType: Popup.Window
 
@@ -286,45 +299,57 @@ MenuBar {
 				icon.name: "edit-paste"
 				action: pasteAction
 			}
+
 			MenuSeparator {
 			}
+
 			MenuItem {
 				text: qsTr("Copy")
 				icon.name: "edit-copy"
 				action: copyAction
 			}
+
 			MenuItem {
 				text: qsTr("Cut")
 				icon.name: "edit-cut"
 				action: cutAction
 			}
+
 			MenuSeparator {
 			}
+
 			MenuItem {
 				text: qsTr("Duplicate")
 				icon.name: "edit-copy"
 				action: duplicateAction
 			}
+
 			MenuItem {
 				text: qsTr("Create Link")
 				icon.name: "edit-link"
 				action: linkAction
 			}
+
 			MenuSeparator {
 			}
+
 			MenuItem {
 				text: qsTr("Rename")
 				icon.name: "edit-rename"
 				action: renameAction
 			}
+
 			MenuSeparator {
 			}
+
 			MenuItem {
 				text: qsTr("Move to Trash")
 				icon.name: "user-trash"
 				action: trashAction
 			}
+
 		}
+
 	}
 
 	Menu {
@@ -336,23 +361,25 @@ MenuBar {
 			icon.name: "folder-add"
 			action: newFolderAction
 		}
+
 		MenuItem {
 			text: qsTr("Text File")
 			icon.name: "text-plain"
 			action: newTextFileAction
 		}
+
 	}
 
 	Menu {
 		title: qsTr("View")
 		popupType: Popup.Window
-
 		onClosed: {
 			menuBar.directory.reload();
 		}
 
 		TabBar {
 			id: viewTabBar
+
 			Layout.fillWidth: true
 			currentIndex: menuBar.isLocal ? 1 : 0
 
@@ -360,16 +387,19 @@ MenuBar {
 				text: qsTr("General")
 				onClicked: menuBar.isLocal = false
 			}
+
 			TabButton {
 				text: qsTr("Here")
 				onClicked: menuBar.isLocal = true
 			}
+
 		}
 
 		MenuSeparator {
 		}
 
 		MenuItem {
+
 			contentItem: RowLayout {
 				Label {
 					text: "Icon Size"
@@ -377,6 +407,7 @@ MenuBar {
 
 				Slider {
 					id: gridSizeSlider
+
 					value: menuBar.config.grid_size
 					from: 16
 					to: 256
@@ -389,6 +420,7 @@ MenuBar {
 
 				TextMetrics {
 					id: charMetrics
+
 					text: "000"
 				}
 
@@ -397,13 +429,16 @@ MenuBar {
 					Layout.preferredWidth: charMetrics.width
 					horizontalAlignment: Text.AlignHCenter
 				}
+
 			}
+
 		}
 
 		MenuSeparator {
 		}
 
 		MenuItem {
+
 			contentItem: RowLayout {
 				spacing: 4
 
@@ -432,7 +467,9 @@ MenuBar {
 					ToolTip.visible: hovered
 					objectName: "LIST"
 				}
+
 			}
+
 		}
 
 		MenuSeparator {
@@ -450,6 +487,7 @@ MenuBar {
 				checked: menuBar.config.sort === 0
 				objectName: "NEWEST"
 			}
+
 			MenuItem {
 				text: qsTr("Oldest")
 				checkable: true
@@ -457,6 +495,7 @@ MenuBar {
 				checked: menuBar.config.sort === 1
 				objectName: "OLDEST"
 			}
+
 			Menu {
 				title: qsTr("Which date...")
 				popupType: Popup.Window
@@ -468,6 +507,7 @@ MenuBar {
 					checked: menuBar.config.sort_date_mode === 0
 					objectName: "MODIFIED"
 				}
+
 				MenuItem {
 					text: qsTr("Created")
 					checkable: true
@@ -475,6 +515,7 @@ MenuBar {
 					checked: menuBar.config.sort_date_mode === 1
 					objectName: "CREATED"
 				}
+
 				MenuItem {
 					text: qsTr("Accessed")
 					checkable: true
@@ -482,6 +523,7 @@ MenuBar {
 					checked: menuBar.config.sort_date_mode === 2
 					objectName: "ACCESSED"
 				}
+
 			}
 
 			MenuSeparator {
@@ -506,6 +548,7 @@ MenuBar {
 					checked: menuBar.config.sort_alpha_mode === 0
 					objectName: "TITLES"
 				}
+
 				MenuItem {
 					text: qsTr("File Name")
 					checkable: true
@@ -513,7 +556,9 @@ MenuBar {
 					checked: menuBar.config.sort_alpha_mode === 1
 					objectName: "FILENAMES"
 				}
+
 			}
+
 		}
 
 		MenuSeparator {
@@ -532,6 +577,7 @@ MenuBar {
 					menuBar.config.set(menuBar.directory.path, "VIEW", "StashShown", String(checked), menuBar.isLocal);
 				}
 			}
+
 			MenuItem {
 				text: qsTr("Stash Dotfiles")
 				checkable: true
@@ -540,6 +586,9 @@ MenuBar {
 					menuBar.config.set(menuBar.directory.path, "VIEW", "StashDotFiles", String(checked), menuBar.isLocal);
 				}
 			}
+
 		}
+
 	}
+
 }
