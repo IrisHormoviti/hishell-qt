@@ -115,7 +115,15 @@ Item {
 	MouseArea {
 		anchors.fill: parent
 		z: -1
-		onClicked: folderView.forceActiveFocus()
+		acceptedButtons: Qt.LeftButton | Qt.RightButton
+		onClicked: mouse => {
+			folderView.forceActiveFocus();
+			if (folderView.rootWindow && folderView.rootWindow.selectionManager)
+				folderView.rootWindow.selectionManager.clear();
+			if (mouse.button === Qt.RightButton) {
+				folderContextMenu.popup(this, mouse.x, mouse.y);
+			}
+		}
 	}
 
 	function isDropValid(targetPath, sourcePaths) {
@@ -255,10 +263,27 @@ Item {
 		}
 		anchors.margins: Kirigami.Units.mediumSpacing
 		contentWidth: width
-		contentHeight: flowLayout.height
+		contentHeight: Math.max(height, flowLayout.height)
+
+		MouseArea {
+			id: flickableBgMouseArea
+			width: flickable.contentWidth
+			height: flickable.contentHeight
+			z: 0
+			acceptedButtons: Qt.LeftButton | Qt.RightButton
+			onClicked: mouse => {
+				folderView.forceActiveFocus();
+				if (folderView.rootWindow && folderView.rootWindow.selectionManager)
+					folderView.rootWindow.selectionManager.clear();
+				if (mouse.button === Qt.RightButton) {
+					folderContextMenu.popup(flickableBgMouseArea, mouse.x, mouse.y);
+				}
+			}
+		}
 
 		Flow {
 			id: flowLayout
+			z: 1
 			width: parent.width
 			spacing: Kirigami.Units.mediumSpacing
 
@@ -309,6 +334,22 @@ Item {
 						if (selectionManager) {
 							selectionManager.toggle_selection(p, idx);
 						}
+					}
+
+					onContextMenuRequested: (slotPath, isDir, mx, my, mouseAreaItem) => {
+						folderView.forceActiveFocus();
+						if (selectionManager) {
+							let isAlreadySelected = false;
+							try {
+								isAlreadySelected = !!JSON.parse(selectionManager.selected_paths)[slotPath];
+							} catch (e) {}
+							if (!isAlreadySelected) {
+								selectionManager.clear();
+								selectionManager.toggle_selection(slotPath, index);
+							}
+						}
+						const isImg = (folderView.rootWindow && folderView.rootWindow.fileManager) ? folderView.rootWindow.fileManager.is_image_file(slotPath) : false;
+						itemContextMenu.openForSlot(slotPath, isDir, isImg, mx, my, mouseAreaItem);
 					}
 				}
 			}
@@ -386,6 +427,131 @@ Item {
 				onClicked: if (folderView.rootWindow && folderView.rootWindow.selectionManager)
 					folderView.rootWindow.selectionManager.deselect_all()
 			}
+		}
+	}
+
+	Menu {
+		id: folderContextMenu
+		popupType: Popup.Window
+
+		MenuItem {
+			text: folderView.folderName === "/" ? qsTr("Paste") : qsTr("Paste into %1").arg(folderView.folderName)
+			icon.name: "edit-paste"
+			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.pasteAction : null
+		}
+
+		MenuSeparator {
+		}
+
+		Menu {
+			title: qsTr("New")
+			icon.name: "document-new"
+			popupType: Popup.Window
+
+			MenuItem {
+				text: qsTr("Folder")
+				icon.name: "folder-add"
+				action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.newFolderAction : null
+			}
+
+			MenuItem {
+				text: qsTr("Text File")
+				icon.name: "text-plain"
+				action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.newTextFileAction : null
+			}
+		}
+	}
+
+	Menu {
+		id: itemContextMenu
+		popupType: Popup.Window
+
+		property string targetSlotPath: ""
+		property bool targetSlotIsDir: false
+		property bool targetSlotIsImage: false
+
+		function openForSlot(slotPath, isDir, isImg, mx, my, mouseAreaItem) {
+			targetSlotPath = slotPath;
+			targetSlotIsDir = isDir;
+			targetSlotIsImage = isImg;
+			popup(mouseAreaItem, mx, my);
+		}
+
+		MenuItem {
+			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.openAction : null
+		}
+
+		MenuItem {
+			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.openWithAction : null
+			visible: !itemContextMenu.targetSlotIsDir
+		}
+
+		MenuSeparator {
+			visible: itemContextMenu.targetSlotIsDir
+		}
+
+		MenuItem {
+			visible: itemContextMenu.targetSlotIsDir
+			text: {
+				const name = itemContextMenu.targetSlotPath.substring(itemContextMenu.targetSlotPath.lastIndexOf("/") + 1);
+				return name.length > 0 ? qsTr("Paste into %1").arg(name) : qsTr("Paste");
+			}
+			icon.name: "edit-paste"
+			onTriggered: {
+				if (folderView.rootWindow && folderView.rootWindow.actionManager) {
+					folderView.rootWindow.actionManager.pasteInto(itemContextMenu.targetSlotPath);
+				}
+			}
+		}
+
+		MenuSeparator {
+			visible: itemContextMenu.targetSlotIsImage
+		}
+
+		MenuItem {
+			visible: itemContextMenu.targetSlotIsImage
+			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.rotateClockwiseAction : null
+		}
+
+		MenuItem {
+			visible: itemContextMenu.targetSlotIsImage
+			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.rotateCounterClockwiseAction : null
+		}
+
+		MenuSeparator {
+		}
+
+		MenuItem {
+			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.copyAction : null
+		}
+
+		MenuItem {
+			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.cutAction : null
+		}
+
+		MenuSeparator {
+		}
+
+		MenuItem {
+			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.duplicateAction : null
+		}
+
+		MenuItem {
+			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.linkAction : null
+		}
+
+		MenuSeparator {
+		}
+
+		MenuItem {
+			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.renameAction : null
+		}
+
+		MenuSeparator {
+		}
+
+		MenuItem {
+			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.trashAction : null
 		}
 	}
 }

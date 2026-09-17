@@ -381,6 +381,42 @@ pub struct FileManager {
 			any_ok
 		}
 	),
+
+	open_file: qt_method!(
+		fn open_file(&self, path: QString) -> bool {
+			let p = clean_path(&path.to_string());
+			crate::directory::open_file(p);
+			true
+		}
+	),
+
+	open_file_with_dialog: qt_method!(
+		fn open_file_with_dialog(&self, path: QString) -> bool {
+			let p = clean_path(&path.to_string());
+			crate::portal::open_file_with_portal(Path::new(&p))
+		}
+	),
+
+	rotate_image: qt_method!(
+		fn rotate_image(&self, path: QString, degrees: i32) -> bool {
+			let p = clean_path(&path.to_string());
+			crate::image_utils::rotate_image(Path::new(&p), degrees)
+		}
+	),
+
+	is_image_file: qt_method!(
+		fn is_image_file(&self, path: QString) -> bool {
+			let p = clean_path(&path.to_string());
+			crate::image_utils::is_image_file(Path::new(&p))
+		}
+	),
+
+	is_directory: qt_method!(
+		fn is_directory(&self, path: QString) -> bool {
+			let p = clean_path(&path.to_string());
+			Path::new(&p).is_dir()
+		}
+	),
 }
 
 fn move_item(src: &Path, dst: &Path) -> bool {

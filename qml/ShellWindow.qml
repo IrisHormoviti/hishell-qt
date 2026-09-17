@@ -14,6 +14,7 @@ Kirigami.ApplicationWindow {
 	property alias dragDropHandler: dragDropHandler
 	property alias fileManager: fileManager
 	property alias directory: directory
+	property alias actionManager: actionManager
 
 	WindowOverlay {
 	}
@@ -36,6 +37,14 @@ Kirigami.ApplicationWindow {
 
 	SelectionManager {
 		id: selectionManager
+	}
+
+	ActionManager {
+		id: actionManager
+		window: root
+		directory: directory
+		selectionManager: selectionManager
+		fileManager: fileManager
 	}
 
 	// Drag Tooltip

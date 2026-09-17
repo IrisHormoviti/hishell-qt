@@ -287,6 +287,44 @@ Module {
                 name: "action"; type: "string"
             }
         }
+
+        Method {
+            name: "open_file";
+            Parameter {
+                name: "path"; type: "string"
+            }
+        }
+
+        Method {
+            name: "open_file_with_dialog";
+            Parameter {
+                name: "path"; type: "string"
+            }
+        }
+
+        Method {
+            name: "rotate_image";
+            Parameter {
+                name: "path"; type: "string"
+            }
+            Parameter {
+                name: "degrees"; type: "int"
+            }
+        }
+
+        Method {
+            name: "is_image_file";
+            Parameter {
+                name: "path"; type: "string"
+            }
+        }
+
+        Method {
+            name: "is_directory";
+            Parameter {
+                name: "path"; type: "string"
+            }
+        }
     }
 
     Component {

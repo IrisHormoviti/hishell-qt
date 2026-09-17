@@ -753,3 +753,12 @@ pub fn thumbnail_uri_if_exists(src: &Path, size: u32) -> Option<String> {
 		None
 	}
 }
+
+pub fn invalidate(src: &Path) {
+	for size in [64, 128, 256, 512] {
+		let p = cache_path_for(src, size);
+		if p.exists() {
+			let _ = fs::remove_file(&p);
+		}
+	}
+}

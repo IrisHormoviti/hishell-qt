@@ -15,156 +15,19 @@ MenuBar {
 	property var directory
 	property var config: directory.config
 	property bool isLocal: directory.has_meta
-	property var fileManager: window.fileManager
-	property var selectionManager: window.selectionManager
-	readonly property int selectedCount: menuBar.selectionManager ? menuBar.selectionManager.selected_count : 0
-	readonly property var selectedPathList: (menuBar.selectedCount > 0 && menuBar.selectionManager.selection_status) ? menuBar.selectionManager.get_selected_path_list() : []
+	readonly property ActionManager actionManager: window ? window.actionManager : null
+	onActionManagerChanged: Qt.callLater(menuBar.updateDynamicMenus)
 
-	Action {
-		id: newFolderAction
-
-		text: qsTr("New Folder")
-		shortcut: "Ctrl+Shift+N"
-		onTriggered: {
-			if (menuBar.fileManager.new_folder(menuBar.directory.path))
-				menuBar.directory.reload();
-
-		}
-	}
-
-	Action {
-		id: newTextFileAction
-
-		text: qsTr("New Text File")
-		shortcut: "Alt+Shift+N"
-		onTriggered: {
-			if (menuBar.fileManager.new_text_file(menuBar.directory.path))
-				menuBar.directory.reload();
-
-		}
-	}
-
-	Action {
-		id: copyAction
-
-		text: qsTr("Copy")
-		shortcut: "Ctrl+C"
-		enabled: menuBar.selectedCount > 0
-		onTriggered: {
-			const paths = menuBar.selectedPathList.join("\n");
-			menuBar.fileManager.copy_paths_to_clipboard(paths);
-		}
-	}
-
-	Action {
-		id: cutAction
-
-		text: qsTr("Cut")
-		shortcut: "Ctrl+X"
-		enabled: menuBar.selectedCount > 0
-		onTriggered: {
-			const paths = menuBar.selectedPathList.join("\n");
-			menuBar.fileManager.cut_paths_to_clipboard(paths);
-		}
-	}
-
-	Action {
-		id: duplicateAction
-
-		text: qsTr("Duplicate")
-		shortcut: "Ctrl+D"
-		enabled: menuBar.selectedCount > 0
-		onTriggered: {
-			const paths = menuBar.selectedPathList;
-			let anyOk = false;
-			for (let i = 0; i < paths.length; i++) {
-				if (menuBar.fileManager.duplicate_file(paths[i]))
-					anyOk = true;
-
-			}
-			if (anyOk)
-				menuBar.directory.reload();
-
-		}
-	}
-
-	Action {
-		id: linkAction
-
-		text: qsTr("Create Link")
-		shortcut: "Ctrl+Shift+L"
-		enabled: menuBar.selectedCount > 0
-		onTriggered: {
-			const paths = menuBar.selectedPathList;
-			let anyOk = false;
-			for (let i = 0; i < paths.length; i++) {
-				const p = paths[i];
-				const name = p.substring(p.lastIndexOf("/") + 1);
-				const parent = p.substring(0, p.lastIndexOf("/"));
-				const dest = parent + "/" + name + " (link)";
-				if (menuBar.fileManager.create_link(p, dest))
-					anyOk = true;
-
-			}
-			if (anyOk)
-				menuBar.directory.reload();
-
-		}
-	}
-
-	Action {
-		id: renameAction
-
-		text: qsTr("Rename")
-		shortcut: "F2"
-		enabled: menuBar.selectedCount === 1
-		onTriggered: {
-			if (menuBar.selectedCount !== 1 || menuBar.selectedPathList.length === 0)
-				return;
-
-			renameDialog.filePath = menuBar.selectedPathList[0];
-			const name = renameDialog.filePath.substring(renameDialog.filePath.lastIndexOf("/") + 1);
-			renameDialog.originalName = name;
-			renameDialog.newName = name;
-			renameDialog.open();
-		}
-	}
-
-	Action {
-		id: trashAction
-
-		text: qsTr("Move to Trash")
-		shortcut: "Delete"
-		enabled: menuBar.selectedCount > 0
-		onTriggered: {
-			const paths = menuBar.selectedPathList;
-			let anyOk = false;
-			for (let i = 0; i < paths.length; i++) {
-				if (menuBar.fileManager.trash_file(paths[i]))
-					anyOk = true;
-
-			}
-			if (menuBar.selectionManager)
-				menuBar.selectionManager.clear();
-
-			if (anyOk)
-				menuBar.directory.reload();
-
-		}
-	}
-
-	Action {
-		id: pasteAction
-
-		text: qsTr("Paste")
-		shortcut: "Ctrl+V"
-		enabled: true
-		onTriggered: {
-			if (menuBar.fileManager && menuBar.directory) {
-				if (menuBar.fileManager.paste_from_clipboard(menuBar.directory.path))
-					menuBar.directory.reload();
-
-			}
+	delegate: MenuBarItem {
+		id: mbi
+		visible: {
+			if (!mbi.menu)
+				return true;
+			if (mbi.menu === menuBar.openMenu || mbi.menu === menuBar.editMenu)
+				return menuBar.actionManager ? menuBar.actionManager.hasSelection : false;
+			if (mbi.menu === menuBar.imageMenu)
+				return menuBar.actionManager ? menuBar.actionManager.isImageSelected : false;
+			return true;
 		}
 	}
 
@@ -220,145 +83,167 @@ MenuBar {
 		}
 	}
 
-	Dialog {
-		id: renameDialog
+	Connections {
+		target: menuBar.actionManager
 
-		property string filePath: ""
-		property string originalName: ""
-		property string newName: ""
-
-		title: qsTr("Rename")
-		standardButtons: Dialog.Ok | Dialog.Cancel
-		modal: true
-		anchors.centerIn: parent
-		onAccepted: {
-			var trimmed = renameDialog.newName.trim();
-			if (trimmed.length > 0 && trimmed !== renameDialog.originalName) {
-				menuBar.fileManager.rename_file(renameDialog.filePath, trimmed);
-				menuBar.selectionManager.clear();
-				menuBar.directory.reload();
-			}
-		}
-		onOpened: {
-			renameField.text = renameDialog.originalName;
-			renameField.forceActiveFocus();
+		function onHasSelectionChanged() {
+			menuBar.updateDynamicMenus();
 		}
 
-		ColumnLayout {
-			spacing: Kirigami.Units.smallSpacing
-			width: 320
+		function onIsImageSelectedChanged() {
+			menuBar.updateDynamicMenus();
+		}
+	}
 
-			Label {
-				text: qsTr("New name:")
-			}
+	Component.onCompleted: {
+		Qt.callLater(menuBar.updateDynamicMenus);
+	}
 
-			TextField {
-				id: renameField
+	function updateDynamicMenus() {
+		if (!menuBar.actionManager)
+			return;
 
-				Layout.fillWidth: true
-				text: renameDialog.newName
-				onTextChanged: renameDialog.newName = text
-				Keys.onReturnPressed: renameDialog.accept()
-				Keys.onEnterPressed: renameDialog.accept()
-				Keys.onEscapePressed: renameDialog.reject()
-				Component.onCompleted: {
-					var dot = text.lastIndexOf(".");
-					if (dot > 0)
-						Qt.callLater(function () {
-							renameField.select(0, dot);
-						});
-					else
-						Qt.callLater(function () {
-							renameField.selectAll();
-						});
-				}
-			}
+		const showSelection = menuBar.actionManager.hasSelection;
+		const showImage = menuBar.actionManager.isImageSelected;
 
+		let openIdx = -1;
+		let editIdx = -1;
+		let imageIdx = -1;
+		let viewIdx = -1;
+
+		for (let i = 0; i < menuBar.count; i++) {
+			let m = menuBar.menuAt(i);
+			if (m === openMenu) openIdx = i;
+			else if (m === editMenu) editIdx = i;
+			else if (m === imageMenu) imageIdx = i;
+			else if (m === viewMenu) viewIdx = i;
 		}
 
+		if (showSelection) {
+			if (openIdx === -1) {
+				let target = (viewIdx !== -1) ? viewIdx : menuBar.count;
+				menuBar.insertMenu(target, openMenu);
+			}
+			for (let i = 0; i < menuBar.count; i++) {
+				if (menuBar.menuAt(i) === viewMenu) viewIdx = i;
+				if (menuBar.menuAt(i) === editMenu) editIdx = i;
+			}
+			if (editIdx === -1) {
+				let target = (viewIdx !== -1) ? viewIdx : menuBar.count;
+				menuBar.insertMenu(target, editMenu);
+			}
+		} else {
+			if (openIdx !== -1) menuBar.removeMenu(openMenu);
+			if (editIdx !== -1) menuBar.removeMenu(editMenu);
+		}
+
+		for (let i = 0; i < menuBar.count; i++) {
+			if (menuBar.menuAt(i) === viewMenu) viewIdx = i;
+			if (menuBar.menuAt(i) === imageMenu) imageIdx = i;
+		}
+
+		if (showImage) {
+			if (imageIdx === -1) {
+				let target = (viewIdx !== -1) ? viewIdx : menuBar.count;
+				menuBar.insertMenu(target, imageMenu);
+			}
+		} else {
+			if (imageIdx !== -1) menuBar.removeMenu(imageMenu);
+		}
 	}
 
 	Menu {
+		id: newMenu
+
 		title: qsTr("New")
 		popupType: Popup.Window
 
 		MenuItem {
 			text: qsTr("Folder")
 			icon.name: "folder-add"
-			action: newFolderAction
+			action: menuBar.actionManager ? menuBar.actionManager.newFolderAction : null
 		}
 
 		MenuItem {
 			text: qsTr("Text File")
 			icon.name: "text-plain"
-			action: newTextFileAction
+			action: menuBar.actionManager ? menuBar.actionManager.newTextFileAction : null
 		}
-
 	}
 
-	Menu {
+	property Menu openMenu: Menu {
+		id: openMenu
+
+		title: qsTr("Open")
+		popupType: Popup.Window
+
+		MenuItem {
+			action: menuBar.actionManager ? menuBar.actionManager.openAction : null
+		}
+
+		MenuItem {
+			action: menuBar.actionManager ? menuBar.actionManager.openWithAction : null
+			visible: menuBar.actionManager ? (!menuBar.actionManager.isFirstSelectedDir && menuBar.actionManager.isSingleSelection) : false
+		}
+	}
+
+	property Menu editMenu: Menu {
 		id: editMenu
 
 		title: qsTr("Edit")
 		popupType: Popup.Window
 
 		MenuItem {
-			text: qsTr("Paste")
-			icon.name: "edit-paste"
-			action: pasteAction
+			action: menuBar.actionManager ? menuBar.actionManager.copyAction : null
+		}
+
+		MenuItem {
+			action: menuBar.actionManager ? menuBar.actionManager.cutAction : null
 		}
 
 		MenuSeparator {
 		}
 
 		MenuItem {
-			text: qsTr("Copy")
-			icon.name: "edit-copy"
-			action: copyAction
+			action: menuBar.actionManager ? menuBar.actionManager.duplicateAction : null
 		}
 
 		MenuItem {
-			text: qsTr("Cut")
-			icon.name: "edit-cut"
-			action: cutAction
+			action: menuBar.actionManager ? menuBar.actionManager.linkAction : null
 		}
 
 		MenuSeparator {
 		}
 
 		MenuItem {
-			text: qsTr("Duplicate")
-			icon.name: "edit-copy"
-			action: duplicateAction
-		}
-
-		MenuItem {
-			text: qsTr("Create Link")
-			icon.name: "edit-link"
-			action: linkAction
+			action: menuBar.actionManager ? menuBar.actionManager.renameAction : null
 		}
 
 		MenuSeparator {
 		}
 
 		MenuItem {
-			text: qsTr("Rename")
-			icon.name: "edit-rename"
-			action: renameAction
+			action: menuBar.actionManager ? menuBar.actionManager.trashAction : null
 		}
+	}
 
-		MenuSeparator {
+	property Menu imageMenu: Menu {
+		id: imageMenu
+
+		title: qsTr("Image")
+		popupType: Popup.Window
+
+		MenuItem {
+			action: menuBar.actionManager ? menuBar.actionManager.rotateClockwiseAction : null
 		}
 
 		MenuItem {
-			text: qsTr("Move to Trash")
-			icon.name: "user-trash"
-			action: trashAction
+			action: menuBar.actionManager ? menuBar.actionManager.rotateCounterClockwiseAction : null
 		}
-
 	}
 
 	Menu {
+		id: viewMenu
 		title: qsTr("View")
 		popupType: Popup.Window
 		onClosed: {

@@ -5,7 +5,9 @@ mod directory;
 mod dragdrop_handler;
 mod drop_validator;
 mod file_manager;
+mod image_utils;
 mod path_utils;
+mod portal;
 mod selection_manager;
 mod thumbnailer;
 

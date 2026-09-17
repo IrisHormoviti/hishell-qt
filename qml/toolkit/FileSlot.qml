@@ -53,6 +53,9 @@ Item {
 	// Emitted on press and hold
 	signal pressHeld(string path, int idx)
 
+	// Emitted on right click context menu request
+	signal contextMenuRequested(string path, bool isDir, int mouseX, int mouseY, var mouseAreaItem)
+
 	// --- Slot ---
 	implicitWidth: contentLayout.implicitWidth + (fileSlot.labelBesideIcon && fileSlot.showIcon ? Kirigami.Units.largeSpacing * 2 : Kirigami.Units.smallSpacing * 2)
 	implicitHeight: contentLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
@@ -523,8 +526,10 @@ Item {
 		}
 
 		onClicked: mouse => {
-			if (mouse.button === Qt.RightButton)
+			if (mouse.button === Qt.RightButton) {
+				fileSlot.contextMenuRequested(fileSlot.path, fileSlot.is_dir, mouse.x, mouse.y, mouseArea);
 				return;
+			}
 			if (mouse.button === Qt.MiddleButton)
 				return;
 
