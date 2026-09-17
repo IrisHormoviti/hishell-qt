@@ -1,4 +1,5 @@
-pragma ComponentBehavior: Bound
+pragma
+ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
@@ -20,7 +21,9 @@ Item {
 	y: cursorY + 16
 
 	Behavior on opacity {
-		NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
+		NumberAnimation {
+			duration: 120; easing.type: Easing.OutCubic
+		}
 	}
 
 	Rectangle {
@@ -42,9 +45,12 @@ Item {
 			Kirigami.Icon {
 				source: {
 					switch (tooltipRoot.action) {
-						case "move": return "edit-cut";
-						case "link": return "link-symbolic";
-						default:     return "edit-copy";
+						case "move":
+							return "edit-cut";
+						case "link":
+							return "link-symbolic";
+						default:
+							return "edit-copy";
 					}
 				}
 				Layout.preferredWidth: Kirigami.Units.iconSizes.small
@@ -54,9 +60,12 @@ Item {
 			Label {
 				text: {
 					switch (tooltipRoot.action) {
-						case "move": return qsTr("Move");
-						case "link": return qsTr("Link");
-						default:     return qsTr("Copy");
+						case "move":
+							return qsTr("Move");
+						case "link":
+							return qsTr("Link");
+						default:
+							return qsTr("Copy");
 					}
 				}
 				font.weight: Font.DemiBold

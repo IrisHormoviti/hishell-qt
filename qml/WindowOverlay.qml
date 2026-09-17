@@ -13,7 +13,7 @@ Item {
 		hoverEnabled: true
 
 		function getEdges(x, y) {
-			var e = 0;
+			let e = 0;
 			if (x <= root.margin)
 				e |= Qt.LeftEdge;
 			if (x >= width - root.margin)
@@ -22,11 +22,11 @@ Item {
 				e |= Qt.TopEdge;
 			if (y >= height - root.margin)
 				e |= Qt.BottomEdge;
-			return e;
+			return e
 		}
 
 		cursorShape: {
-			var e = getEdges(mouseX, mouseY);
+			const e = getEdges(mouseX, mouseY);
 			if (e === (Qt.TopEdge | Qt.LeftEdge) || e === (Qt.BottomEdge | Qt.RightEdge))
 				return Qt.SizeFDiagCursor;
 			if (e === (Qt.TopEdge | Qt.RightEdge) || e === (Qt.BottomEdge | Qt.LeftEdge))
@@ -39,7 +39,7 @@ Item {
 		}
 
 		onPressed: mouse => {
-			var e = getEdges(mouse.x, mouse.y);
+			const e = getEdges(mouse.x, mouse.y);
 			if (e !== 0 && root.targetWindow) {
 				root.targetWindow.startSystemResize(e);
 			} else {

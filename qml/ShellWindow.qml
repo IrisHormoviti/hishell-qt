@@ -12,9 +12,11 @@ Kirigami.ApplicationWindow {
 
 	property alias selectionManager: selectionManager
 	property alias dragDropHandler: dragDropHandler
+	property alias fileManager: fileManager
 	property alias directory: directory
 
-	WindowOverlay {}
+	WindowOverlay {
+	}
 
 	Directory {
 		id: directory
@@ -55,7 +57,8 @@ Kirigami.ApplicationWindow {
 		bottomLayoutEngine.layoutString = String(directory.config.bottom_layout);
 	}
 
-	pageStack.initialPage: Kirigami.Page {
+	pageStack.initialPage: Kirigami.Page
+	{
 		padding: 0
 		topPadding: 0
 		leftPadding: 0
@@ -75,7 +78,7 @@ Kirigami.ApplicationWindow {
 				Layout.preferredHeight: 44
 				Kirigami.Theme.colorSet: Kirigami.Theme.Header
 				Kirigami.Theme.inherit: false
-                z: 1
+				z: 1
 
 				Rectangle {
 					anchors.fill: parent

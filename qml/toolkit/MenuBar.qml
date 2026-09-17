@@ -1,5 +1,3 @@
-pragma ComponentBehavior: Bound
-
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -13,23 +11,21 @@ MenuBar {
 	property var directory
 	property var config: directory.config
 	property bool isLocal: directory.has_meta
-	property var fileManager
+	property var fileManager: window.fileManager
 	property var selectionManager: window.selectionManager
 
 	readonly property int selectedCount: menuBar.selectionManager ? menuBar.selectionManager.selected_count : 0
 	readonly property var selectedPathList: menuBar.selectionManager ? menuBar.selectionManager.get_selected_path_list() : []
 
-	// ── Actions ───────────────────────────────────────────────────────────
+	// Actions
 
 	Action {
 		id: newFolderAction
 		text: qsTr("New Folder")
 		shortcut: "Ctrl+Shift+N"
 		onTriggered: {
-			if (menuBar.fileManager && menuBar.directory) {
-				if (menuBar.fileManager.new_folder(menuBar.directory.path)) {
-					menuBar.directory.refresh();
-				}
+			if (menuBar.fileManager.new_folder(menuBar.directory.path)) {
+				menuBar.directory.reload();
 			}
 		}
 	}
@@ -39,10 +35,8 @@ MenuBar {
 		text: qsTr("New Text File")
 		shortcut: "Alt+Shift+N"
 		onTriggered: {
-			if (menuBar.fileManager && menuBar.directory) {
-				if (menuBar.fileManager.new_text_file(menuBar.directory.path)) {
-					menuBar.directory.refresh();
-				}
+			if (menuBar.fileManager.new_text_file(menuBar.directory.path)) {
+				menuBar.directory.reload();
 			}
 		}
 	}
@@ -82,13 +76,13 @@ MenuBar {
 			if (!menuBar.fileManager)
 				return;
 			const paths = menuBar.selectedPathList;
-			const ok = true;
-			for (const i = 0; i < paths.length; i++) {
+			let ok = true;
+			for (let i = 0; i < paths.length; i++) {
 				if (!menuBar.fileManager.duplicate_file(paths[i]))
 					ok = false;
 			}
 			if (ok)
-				menuBar.directory.refresh();
+				menuBar.directory.reload();
 		}
 	}
 
@@ -100,18 +94,18 @@ MenuBar {
 		onTriggered: {
 			if (!menuBar.fileManager)
 				return;
-            const paths = menuBar.selectedPathList;
-            let ok = true;
-            for (let i = 0; i < paths.length; i++) {
-                const p = paths[i];
-                const name = p.substring(p.lastIndexOf("/") + 1);
-                const parent = p.substring(0, p.lastIndexOf("/"));
-                const dest = parent + "/" + name + " (link)";
+			const paths = menuBar.selectedPathList;
+			let ok = true;
+			for (let i = 0; i < paths.length; i++) {
+				const p = paths[i];
+				const name = p.substring(p.lastIndexOf("/") + 1);
+				const parent = p.substring(0, p.lastIndexOf("/"));
+				const dest = parent + "/" + name + " (link)";
 				if (!menuBar.fileManager.create_link(p, dest))
 					ok = false;
 			}
 			if (ok)
-				menuBar.directory.refresh();
+				menuBar.directory.reload();
 		}
 	}
 
@@ -124,8 +118,8 @@ MenuBar {
 			if (menuBar.selectedCount !== 1)
 				return;
 			renameDialog.filePath = menuBar.selectedPathList[0];
-            const name = renameDialog.filePath.substring(renameDialog.filePath.lastIndexOf("/") + 1);
-            renameDialog.originalName = name;
+			const name = renameDialog.filePath.substring(renameDialog.filePath.lastIndexOf("/") + 1);
+			renameDialog.originalName = name;
 			renameDialog.newName = name;
 			renameDialog.open();
 		}
@@ -139,9 +133,9 @@ MenuBar {
 		onTriggered: {
 			if (!menuBar.fileManager)
 				return;
-            const paths = menuBar.selectedPathList;
-            let ok = true;
-            for (let i = 0; i < paths.length; i++) {
+			const paths = menuBar.selectedPathList;
+			let ok = true;
+			for (let i = 0; i < paths.length; i++) {
 				if (!menuBar.fileManager.trash_file(paths[i]))
 					ok = false;
 			}
@@ -149,7 +143,7 @@ MenuBar {
 				menuBar.selectionManager.clear();
 			}
 			if (ok)
-				menuBar.directory.refresh();
+				menuBar.directory.reload();
 		}
 	}
 
@@ -161,7 +155,7 @@ MenuBar {
 		onTriggered: {
 			if (menuBar.fileManager && menuBar.directory) {
 				if (menuBar.fileManager.paste_from_clipboard(menuBar.directory.path)) {
-					menuBar.directory.refresh();
+					menuBar.directory.reload();
 				}
 			}
 		}
@@ -213,7 +207,7 @@ MenuBar {
 		}
 	}
 
-	// ── Rename dialog ─────────────────────────────────────────────────────
+	// Rename dialog
 
 	Dialog {
 		id: renameDialog
@@ -231,7 +225,7 @@ MenuBar {
 			if (trimmed.length > 0 && trimmed !== renameDialog.originalName) {
 				if (menuBar.fileManager) {
 					menuBar.fileManager.rename_file(renameDialog.filePath, trimmed);
-					menuBar.directory.refresh();
+					menuBar.directory.reload();
 				}
 			}
 		}
@@ -274,7 +268,7 @@ MenuBar {
 		}
 	}
 
-	// ── Menu declarations ─────────────────────────────────────────────────
+	// Menu declarations
 
 	Instantiator {
 		active: menuBar.selectedCount > 0
@@ -292,7 +286,8 @@ MenuBar {
 				icon.name: "edit-paste"
 				action: pasteAction
 			}
-			MenuSeparator {}
+			MenuSeparator {
+			}
 			MenuItem {
 				text: qsTr("Copy")
 				icon.name: "edit-copy"
@@ -303,7 +298,8 @@ MenuBar {
 				icon.name: "edit-cut"
 				action: cutAction
 			}
-			MenuSeparator {}
+			MenuSeparator {
+			}
 			MenuItem {
 				text: qsTr("Duplicate")
 				icon.name: "edit-copy"
@@ -314,13 +310,15 @@ MenuBar {
 				icon.name: "edit-link"
 				action: linkAction
 			}
-			MenuSeparator {}
+			MenuSeparator {
+			}
 			MenuItem {
 				text: qsTr("Rename")
 				icon.name: "edit-rename"
 				action: renameAction
 			}
-			MenuSeparator {}
+			MenuSeparator {
+			}
 			MenuItem {
 				text: qsTr("Move to Trash")
 				icon.name: "user-trash"
@@ -350,7 +348,7 @@ MenuBar {
 		popupType: Popup.Window
 
 		onClosed: {
-			menuBar.directory.refresh();
+			menuBar.directory.reload();
 		}
 
 		TabBar {
@@ -368,7 +366,8 @@ MenuBar {
 			}
 		}
 
-		MenuSeparator {}
+		MenuSeparator {
+		}
 
 		MenuItem {
 			contentItem: RowLayout {
@@ -384,7 +383,7 @@ MenuBar {
 					stepSize: 4
 					onMoved: {
 						menuBar.directory.set_config("VIEW", "GridSize", value.toString(), menuBar.isLocal);
-						menuBar.directory.refresh();
+						menuBar.directory.reload();
 					}
 				}
 
@@ -401,7 +400,8 @@ MenuBar {
 			}
 		}
 
-		MenuSeparator {}
+		MenuSeparator {
+		}
 
 		MenuItem {
 			contentItem: RowLayout {
@@ -435,7 +435,8 @@ MenuBar {
 			}
 		}
 
-		MenuSeparator {}
+		MenuSeparator {
+		}
 
 		Menu {
 			title: qsTr("Sort By...")
@@ -483,7 +484,8 @@ MenuBar {
 				}
 			}
 
-			MenuSeparator {}
+			MenuSeparator {
+			}
 
 			MenuItem {
 				text: qsTr("Alphabetical")
@@ -514,7 +516,8 @@ MenuBar {
 			}
 		}
 
-		MenuSeparator {}
+		MenuSeparator {
+		}
 
 		Menu {
 			title: qsTr("Stash")

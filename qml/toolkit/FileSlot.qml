@@ -1,4 +1,5 @@
-pragma ComponentBehavior: Bound
+pragma
+ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
@@ -40,7 +41,7 @@ Item {
 	// --- Slot ---
 	implicitWidth: contentLayout.implicitWidth + (fileSlot.labelBesideIcon && fileSlot.showIcon ? Kirigami.Units.largeSpacing * 2 : Kirigami.Units.smallSpacing * 2)
 	implicitHeight: contentLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
-    opacity: !(localDragTarget.Drag.active && fileSlot.dragDropHandler && fileSlot.dragDropHandler.active_dragged_paths.indexOf(fileSlot.path) !== -1)
+	opacity: !(localDragTarget.Drag.active && fileSlot.dragDropHandler && fileSlot.dragDropHandler.active_dragged_paths.indexOf(fileSlot.path) !== -1)
 
 	// ── Layout ──
 
@@ -199,8 +200,8 @@ Item {
 		property DragDropHandler dragDropHandler: fileSlot.dragDropHandler ? fileSlot.dragDropHandler : null
 
 		function checkValid(drag) {
-            let sourcePaths = [];
-            if (typeof dragDropHandler !== 'undefined' && dragDropHandler.drag_source_paths && dragDropHandler.drag_source_paths.length > 0) {
+			let sourcePaths = [];
+			if (typeof dragDropHandler !== 'undefined' && dragDropHandler.drag_source_paths && dragDropHandler.drag_source_paths.length > 0) {
 				sourcePaths = dragDropHandler.drag_source_paths;
 			} else if (drag.source) {
 				sourcePaths = drag.source.dragSourcePaths || (drag.source.mainPath ? [drag.source.mainPath] : []);
@@ -208,9 +209,9 @@ Item {
 				sourcePaths = drag.urls;
 			}
 
-            let fView = null;
-            let p = fileSlot.parent;
-            while (p) {
+			let fView = null;
+			let p = fileSlot.parent;
+			while (p) {
 				if (typeof p.isDropValid === 'function') {
 					fView = p;
 					break;
@@ -227,12 +228,12 @@ Item {
 				return false;
 			}
 
-            slotDropArea.isHovered = true;
-            if (typeof dragDropHandler !== 'undefined') {
-                dragDropHandler.tooltip_active = true;
-            }
-            drag.accept();
-            return true;
+			slotDropArea.isHovered = true;
+			if (typeof dragDropHandler !== 'undefined') {
+				dragDropHandler.tooltip_active = true;
+			}
+			drag.accept();
+			return true;
 		}
 
 		onEntered: drag => {
@@ -258,8 +259,8 @@ Item {
 			if (typeof dragDropHandler !== 'undefined')
 				dragDropHandler.tooltip_active = false;
 
-            let uris = "";
-            if (typeof dragDropHandler !== 'undefined' && dragDropHandler.drag_uris && dragDropHandler.drag_uris.length > 0) {
+			let uris = "";
+			if (typeof dragDropHandler !== 'undefined' && dragDropHandler.drag_uris && dragDropHandler.drag_uris.length > 0) {
 				uris = dragDropHandler.drag_uris.join("\n");
 			} else if (drop.source && drop.source.dragUris) {
 				uris = drop.source.dragUris.join("\n");
@@ -270,12 +271,12 @@ Item {
 			}
 
 			if (uris.length > 0 && typeof fileManager !== 'undefined' && fileManager) {
-                const action = (typeof dragDropHandler !== 'undefined' && dragDropHandler.drag_action) ? dragDropHandler.drag_action : "copy";
-                if (fileManager.process_uris_action(fileSlot.path, uris, action)) {
-                    let p = fileSlot.parent;
-                    while (p) {
+				const action = (typeof dragDropHandler !== 'undefined' && dragDropHandler.drag_action) ? dragDropHandler.drag_action : "copy";
+				if (fileManager.process_uris_action(fileSlot.path, uris, action)) {
+					let p = fileSlot.parent;
+					while (p) {
 						if (p.directory) {
-							p.directory.refresh();
+							p.directory.reload();
 							break;
 						}
 						p = p.parent;
@@ -292,8 +293,8 @@ Item {
 		repeat: false
 		onTriggered: {
 			if (slotDropArea.isHovered && fileSlot.is_dir) {
-                const targetPath = fileSlot.path;
-                if (typeof fileSlot.dragDropHandler !== 'undefined')
+				const targetPath = fileSlot.path;
+				if (typeof fileSlot.dragDropHandler !== 'undefined')
 					fileSlot.dragDropHandler.tooltip_active = false;
 				Qt.callLater(function () {
 					fileSlot.navigate(targetPath);
@@ -304,20 +305,20 @@ Item {
 
 	// ── Mouse & Drag Handling ───
 
-    Item {
-        id: localDragTarget
-        width: fileSlot.width > 0 ? fileSlot.width : fileSlot.implicitWidth
-        height: fileSlot.height > 0 ? fileSlot.height : fileSlot.implicitHeight
-        Drag.keys: ["text/uri-list", "text/plain"]
-        Drag.mimeData: {
-            "text/uri-list": dragDropHandler ? dragDropHandler.drag_uris.join("\n") : ""
-        }
-        Drag.supportedActions: Qt.CopyAction | Qt.MoveAction
-        Drag.proposedAction: Qt.MoveAction
-        Drag.dragType: Drag.Automatic
-        Drag.active: false
-        Drag.hotSpot: Qt.point(Math.round(width / 2), Math.round(height / 2))
-    }
+	Item {
+		id: localDragTarget
+		width: fileSlot.width > 0 ? fileSlot.width : fileSlot.implicitWidth
+		height: fileSlot.height > 0 ? fileSlot.height : fileSlot.implicitHeight
+		Drag.keys: ["text/uri-list", "text/plain"]
+		Drag.mimeData: {
+			"text/uri-list": dragDropHandler ? dragDropHandler.drag_uris.join("\n") : ""
+		}
+		Drag.supportedActions: Qt.CopyAction | Qt.MoveAction
+		Drag.proposedAction: Qt.MoveAction
+		Drag.dragType: Drag.Automatic
+		Drag.active: false
+		Drag.hotSpot: Qt.point(Math.round(width / 2), Math.round(height / 2))
+	}
 
 	MouseArea {
 		id: mouseArea
@@ -337,91 +338,89 @@ Item {
 		property int startY: 0
 		property bool dragInitiated: false
 
-        Component.onDestruction: {
-            if (typeof dragDropHandler !== 'undefined' && mouseArea.dragStarted) {
-                localDragTarget.Drag.active = false;
-                dragDropHandler.tooltip_active = false;
-                dragDropHandler.end_drag();
-            }
-        }
+		Component.onDestruction: {
+			if (typeof dragDropHandler !== 'undefined' && mouseArea.dragStarted) {
+				localDragTarget.Drag.active = false;
+				dragDropHandler.tooltip_active = false;
+				dragDropHandler.end_drag();
+			}
+		}
 
-        // Reusable function to assemble metadata only when a true drag is confirmed
-        // Reusable function to assemble metadata only when a true drag is confirmed
-        function initiateDragPayload(mouse) {
-            if (dragInitiated)
-                return;
-            dragInitiated = true;
+		// Reusable function to assemble metadata only when a true drag is confirmed
+		function initiateDragPayload(mouse) {
+			if (dragInitiated)
+				return;
+			dragInitiated = true;
 
-            const uris = [];
-            const rawPaths = [];
-            const mainPath = fileSlot.path;
-            const mainUri = mainPath.startsWith("file://") ? mainPath : ("file://" + mainPath);
+			const uris = [];
+			const rawPaths = [];
+			const mainPath = fileSlot.path;
+			const mainUri = mainPath.startsWith("file://") ? mainPath : ("file://" + mainPath);
 
-            let fView = null;
-            let p = fileSlot.parent;
-            while (p) {
-                if (typeof p.selectedCount !== 'undefined' && typeof p.selectedPaths !== 'undefined') {
-                    fView = p;
-                    break;
-                }
-                p = p.parent;
-            }
+			const mgr = fileSlot.selectionManager;
 
-            if (fView && fView.selectedCount > 1 && fView.selectedPaths[mainPath]) {
-                const keys = Object.keys(fView.selectedPaths);
-                for (let i = 0; i < keys.length; i++) {
-                    const pathKey = keys[i];
-                    rawPaths.push(pathKey);
-                    uris.push(pathKey.startsWith("file://") ? pathKey : ("file://" + pathKey));
-                }
-            } else {
-                rawPaths.push(mainPath);
-                uris.push(mainUri);
-            }
+			let selectedMap = {};
+			try {
+				selectedMap = JSON.parse(mgr ? mgr.selected_paths : "{}");
+			} catch (e) {}
 
-            if (typeof dragDropHandler !== 'undefined') {
-                dragDropHandler.set_drag_data(mainPath, uris, rawPaths, uris.length, fileSlot.title, fileSlot.icon);
-            }
+			if (mgr && mgr.selected_count > 1 && selectedMap[mainPath]) {
+				const keys = Object.keys(selectedMap);
+				for (let i = 0; i < keys.length; i++) {
+					const pathKey = keys[i];
+					if (selectedMap[pathKey]) {
+						rawPaths.push(pathKey);
+						uris.push(pathKey.startsWith("file://") ? pathKey : ("file://" + pathKey));
+					}
+				}
+			} else {
+				rawPaths.push(mainPath);
+				uris.push(mainUri);
+			}
 
-            fileSlot.grabToImage(function (result) {
-                if (mouseArea.isPressAndHoldActive) {
-                    if (typeof dragDropHandler !== 'undefined')
-                        dragDropHandler.active_dragged_paths = [];
-                    return;
-                }
+			if (typeof dragDropHandler !== 'undefined') {
+				dragDropHandler.set_drag_data(mainPath, uris, rawPaths, uris.length, fileSlot.title, fileSlot.icon);
+			}
 
-                localDragTarget.Drag.imageSource = result.url;
-                localDragTarget.Drag.hotSpot = Qt.point(Math.round(fileSlot.width / 2), Math.round(fileSlot.height / 2));
+			fileSlot.grabToImage(function (result) {
+				if (mouseArea.isPressAndHoldActive) {
+					if (typeof dragDropHandler !== 'undefined')
+						dragDropHandler.active_dragged_paths = [];
+					return;
+				}
 
-                if (typeof dragDropHandler !== 'undefined') {
-                    const pt = mouseArea.mapToItem(null, mouse.x, mouse.y);
-                    dragDropHandler.track_mouse_shake(pt.x, pt.y);
-                    dragDropHandler.begin_drag(result.url.toString(), fileSlot.width, fileSlot.height);
-                }
+				localDragTarget.Drag.imageSource = result.url;
+				localDragTarget.Drag.hotSpot = Qt.point(Math.round(fileSlot.width / 2), Math.round(fileSlot.height / 2));
 
-                mouseArea.dragStarted = true;
-                localDragTarget.Drag.active = true;
-            });
-        }
+				if (typeof dragDropHandler !== 'undefined') {
+					const pt = mouseArea.mapToItem(null, mouse.x, mouse.y);
+					dragDropHandler.track_mouse_shake(pt.x, pt.y);
+					dragDropHandler.begin_drag(result.url.toString(), fileSlot.width, fileSlot.height);
+				}
 
-        onPositionChanged: mouse => {
-            if (typeof dragDropHandler !== 'undefined') {
-                if (!mouseArea.dragStarted && !mouseArea.isPressAndHoldActive && mouseArea.drag.active) {
-                    const deltaX = mouse.x - mouseArea.startX;
-                    const deltaY = mouse.y - mouseArea.startY;
-                    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+				mouseArea.dragStarted = true;
+				localDragTarget.Drag.active = true;
+			});
+		}
 
-                    if (distance > 10) {
-                        mouseArea.initiateDragPayload(mouse);
-                    }
-                }
+		onPositionChanged: mouse => {
+			if (typeof dragDropHandler !== 'undefined') {
+				if (!mouseArea.dragStarted && !mouseArea.isPressAndHoldActive && mouseArea.drag.active) {
+					const deltaX = mouse.x - mouseArea.startX;
+					const deltaY = mouse.y - mouseArea.startY;
+					const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
 
-                if (mouseArea.dragStarted) {
-                    const pt = mouseArea.mapToItem(null, mouse.x, mouse.y);
-                    dragDropHandler.track_mouse_shake(pt.x, pt.y);
-                }
-            }
-        }
+					if (distance > 10) {
+						mouseArea.initiateDragPayload(mouse);
+					}
+				}
+
+				if (mouseArea.dragStarted) {
+					const pt = mouseArea.mapToItem(null, mouse.x, mouse.y);
+					dragDropHandler.track_mouse_shake(pt.x, pt.y);
+				}
+			}
+		}
 
 		onPressed: mouse => {
 			if (mouse.button === Qt.LeftButton && typeof dragDropHandler !== 'undefined') {
@@ -433,18 +432,18 @@ Item {
 			}
 		}
 
-        onReleased: mouse => {
-            mouseArea.isPressAndHoldActive = false;
-            mouseArea.dragInitiated = false;
+		onReleased: mouse => {
+			mouseArea.isPressAndHoldActive = false;
+			mouseArea.dragInitiated = false;
 
-            if (typeof dragDropHandler !== 'undefined') {
-                dragDropHandler.tooltip_active = false;
-                dragDropHandler.end_drag();
-            }
-            localDragTarget.Drag.active = false;
-            localDragTarget.Drag.imageSource = "";
-            mouseArea.dragStarted = false;
-        }
+			if (typeof dragDropHandler !== 'undefined') {
+				dragDropHandler.tooltip_active = false;
+				dragDropHandler.end_drag();
+			}
+			localDragTarget.Drag.active = false;
+			localDragTarget.Drag.imageSource = "";
+			mouseArea.dragStarted = false;
+		}
 
 		onPressAndHold: {
 			mouseArea.isPressAndHoldActive = true;

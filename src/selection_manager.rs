@@ -1,4 +1,4 @@
-use qmetaobject::prelude::*;
+use qmetaobject::{QVariantList, prelude::*};
 use serde_json;
 use std::collections::HashMap;
 
@@ -10,8 +10,8 @@ pub struct SelectionManager {
 	selected_paths: qt_property!(String; NOTIFY selection_changed),
 	selected_count: qt_property!(i32; NOTIFY selection_changed),
 	last_selected_index: qt_property!(i32; NOTIFY selection_changed),
-    // NEW PROPERTY: Consolidated status for QML binding
-    selection_status: qt_property!(String; NOTIFY selection_changed), 
+	// NEW PROPERTY: Consolidated status for QML binding
+	selection_status: qt_property!(String; NOTIFY selection_changed),
 	window: qt_property!(QVariant),
 
 	selection_changed: qt_signal!(),
@@ -20,8 +20,8 @@ pub struct SelectionManager {
 		fn enter_selection_mode(&mut self) {
 			if !self.selection_active {
 				self.selection_active = true;
-                // Update status when entering selection mode
-                self.update_status(); 
+				// Update status when entering selection mode
+				self.update_status();
 				self.selection_changed();
 			}
 		}
@@ -32,9 +32,10 @@ pub struct SelectionManager {
 			if self.selection_active {
 				self.selection_active = false;
 				self.selected_paths = String::new();
+				self.selected_count = 0;
 				self.last_selected_index = -1;
-                // Update status when exiting selection mode
-                self.update_status();
+				// Update status when exiting selection mode
+				self.update_status();
 				self.selection_changed();
 			}
 		}
@@ -51,10 +52,11 @@ pub struct SelectionManager {
 			} else {
 				sel.insert(path, true);
 			}
+			self.selected_count = sel.len() as i32;
 			self.selected_paths = serde_json::to_string(&sel).unwrap_or_default();
 			self.last_selected_index = idx;
-            // Update status after changing selection
-            self.update_status(); 
+			// Update status after changing selection
+			self.update_status();
 
 			if self.selected_count == 0 {
 				self.exit_selection_mode();
@@ -67,16 +69,24 @@ pub struct SelectionManager {
 	range_select: qt_method!(
 		fn range_select(&mut self, from_idx: i32, to_idx: i32) {
 			self.last_selected_index = from_idx.max(to_idx);
-            // Update status when changing selection range
-            self.update_status(); 
+			// Update status when changing selection range
+			self.update_status();
 		}
 	),
 
 	select_all: qt_method!(
-		fn select_all(&mut self) {
+		fn select_all(&mut self, paths: QVariantList) {
 			self.selection_active = true;
-            // Assuming 'select all' populates the paths, we just trigger update/signal
-            self.update_status(); 
+			let mut sel = HashMap::new();
+			for p in &paths {
+				let path_str = p.to_qstring().to_string();
+				if !path_str.is_empty() {
+					sel.insert(path_str, true);
+				}
+			}
+			self.selected_count = sel.len() as i32;
+			self.selected_paths = serde_json::to_string(&sel).unwrap_or_default();
+			self.update_status();
 			self.selection_changed();
 		}
 	),
@@ -105,14 +115,25 @@ pub struct SelectionManager {
 }
 
 impl SelectionManager {
-    // Helper function to generate the consolidated status JSON
-    fn update_status(&mut self) {
-        let mut status = HashMap::new();
-        status.insert("count".to_string(), serde_json::Value::from(self.selected_count));
-        status.insert("paths".to_string(), serde_json::Value::from(self.get_selected_paths().keys().cloned().collect::<Vec<String>>()));
-        // This new property will hold the consolidated status JSON string
-        self.selection_status = serde_json::to_string(&status).unwrap_or_default();
-    }
+	// Helper function to generate the consolidated status JSON
+	fn update_status(&mut self) {
+		let mut status = HashMap::new();
+		status.insert(
+			"count".to_string(),
+			serde_json::Value::from(self.selected_count),
+		);
+		status.insert(
+			"paths".to_string(),
+			serde_json::Value::from(
+				self.get_selected_paths()
+					.keys()
+					.cloned()
+					.collect::<Vec<String>>(),
+			),
+		);
+		// This new property will hold the consolidated status JSON string
+		self.selection_status = serde_json::to_string(&status).unwrap_or_default();
+	}
 
 	fn get_selected_paths(&self) -> HashMap<String, bool> {
 		if self.selected_paths.is_empty() {

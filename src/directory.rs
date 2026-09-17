@@ -109,7 +109,7 @@ pub struct Directory {
 					self.items[idx].icon = format!("file://{}", dst);
 				}
 			}
-			// notify QML to refresh model (use model reset to avoid triggering path reloads)
+
 			self.begin_reset_model();
 			self.end_reset_model();
 		}
@@ -128,9 +128,11 @@ pub struct Directory {
 		}
 	),
 
-	refresh: qt_method!(
-		pub fn refresh(&mut self) {
-			self.path_changed()
+	reload: qt_method!(
+		pub fn reload(&mut self) {
+			let path = self.path_str.clone();
+			self.load_directory(path, false);
+			self.path_changed();
 		}
 	),
 

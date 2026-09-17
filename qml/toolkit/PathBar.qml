@@ -1,4 +1,5 @@
-pragma ComponentBehavior: Bound
+pragma
+ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
@@ -11,19 +12,19 @@ RowLayout {
 	id: pathBar
 	spacing: Kirigami.Units.smallSpacing
 
-    property ShellWindow window
+	property ShellWindow window
 	property Directory directory
 	property string currentPath: pathBar.directory ? pathBar.directory.path : ""
 
 	property var segments: {
-		var p = pathBar.currentPath;
+		let p = pathBar.currentPath;
 		if (p === "" || p === ".")
 			return ["/"];
 		if (p.endsWith("/") && p.length > 1)
 			p = p.substring(0, p.length - 1);
-		var parts = p.split("/");
-		var result = [];
-		for (var i = 0; i < parts.length; i++) {
+		const parts = p.split("/");
+		const result = [];
+		for (let i = 0; i < parts.length; i++) {
 			if (parts[i] !== "") {
 				result.push(parts[i]);
 			}
@@ -34,15 +35,16 @@ RowLayout {
 	}
 
 	function pathForIndex(idx) {
-		var p = pathBar.currentPath;
+		let p = pathBar.currentPath;
 		if (p === "" || p === ".")
 			return "/";
 		if (p.endsWith("/") && p.length > 1)
 			p = p.substring(0, p.length - 1);
-		var parts = p.split("/").filter(function (s) {
+		const parts = p.split("/").filter(function (s) {
 			return s !== "";
 		});
-		var result = "/" + parts.slice(0, idx + 1).join("/");
+		const result = "/" + parts.slice(0, idx + 1).join("/");
+
 		return result;
 	}
 
@@ -69,7 +71,7 @@ RowLayout {
 				path: pathBar.pathForIndex(delegateRoot.index)
 				title: delegateRoot.modelData === "/" ? "/" : delegateRoot.modelData
 				icon: delegateRoot.index === pathBar.segments.length - 1 && pathBar.directory ? String(pathBar.directory.icon) : ""
-                dragDropHandler: window.dragDropHandler
+				dragDropHandler: window.dragDropHandler
 
 				is_dir: true
 				index: delegateRoot.index
