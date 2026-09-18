@@ -44,7 +44,7 @@ Item {
 	}
 
 	// Emitted on navigation
-	signal navigate(string targetPath)
+	signal navigate(string targetPath, var sourceSlot)
 
 	// Emitted when toggling this item's selection
 	signal selectionToggled(string path, int idx)
@@ -58,7 +58,6 @@ Item {
 	// Emitted on right click context menu request
 	signal contextMenuRequested(string path, bool isDir, int mouseX, int mouseY, var mouseAreaItem)
 
-	// --- Slot ---
 	implicitWidth: contentLayout.implicitWidth + (fileSlot.labelBesideIcon && fileSlot.showIcon ? Kirigami.Units.largeSpacing * 2 : Kirigami.Units.smallSpacing * 2)
 	implicitHeight: contentLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
 	opacity: (fileSlot.dragDropHandler && fileSlot.dragDropHandler.active_dragged_paths && fileSlot.dragDropHandler.active_dragged_paths.indexOf(fileSlot.path) !== -1) ? 0.2 : 1.0
@@ -368,7 +367,7 @@ Item {
 				if (typeof fileSlot.dragDropHandler !== 'undefined')
 					fileSlot.dragDropHandler.tooltip_active = false;
 				Qt.callLater(function () {
-					fileSlot.navigate(targetPath);
+					fileSlot.navigate(targetPath, fileSlot);
 				});
 			}
 		}
@@ -381,6 +380,7 @@ Item {
 		width: fileSlot.width > 0 ? fileSlot.width : fileSlot.implicitWidth
 		height: fileSlot.height > 0 ? fileSlot.height : fileSlot.implicitHeight
 		Drag.keys: ["text/uri-list", "text/plain"]
+		property DragDropHandler dragDropHandler: fileSlot.dragDropHandler ? fileSlot.dragDropHandler : null
 		Drag.mimeData: {
 			"text/uri-list": dragDropHandler ? dragDropHandler.drag_uris.join("\n") : ""
 		}
@@ -558,7 +558,7 @@ Item {
 			} else if (mouse.modifiers & Qt.ControlModifier) {
 				fileSlot.selectionToggled(fileSlot.path, fileSlot.index);
 			} else {
-				fileSlot.navigate(fileSlot.path);
+				fileSlot.navigate(fileSlot.path, fileSlot);
 			}
 		}
 	}

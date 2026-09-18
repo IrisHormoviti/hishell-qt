@@ -32,6 +32,45 @@ Item {
 		mgr.select_all(paths);
 	}
 
+	Item {
+		id: externalOpenAnimation
+		z: 3
+		visible: false
+		transformOrigin: Item.Center
+
+		Image {
+			id: externalOpenImage
+			anchors.fill: parent
+			fillMode: Image.PreserveAspectFit
+			smooth: true
+		}
+
+		ParallelAnimation {
+			id: externalOpenAnimationEffect
+			NumberAnimation {
+				target: externalOpenAnimation
+				property: "scale"
+				from: 1.0
+				to: 1.5
+				duration: 220
+				easing.type: Easing.OutCubic
+			}
+			NumberAnimation {
+				target: externalOpenAnimation
+				property: "opacity"
+				from: 1.0
+				to: 0.0
+				duration: 220
+				easing.type: Easing.InCubic
+			}
+			onFinished: {
+				externalOpenAnimation.visible = false;
+				externalOpenAnimation.scale = 1.0;
+				externalOpenAnimation.opacity = 1.0;
+			}
+		}
+	}
+
 	Component.onCompleted: {
 		folderView.forceActiveFocus();
 		Qt.callLater(() => {
@@ -310,8 +349,24 @@ Item {
 							}
 						})() : false
 
-					onNavigate: targetPath => {
-						((folderView.rootWindow && folderView.rootWindow.directory) || folderView.directory).open_path(targetPath);
+					onNavigate: (targetPath, sourceSlot) => {
+						const openDirectory = (folderView.rootWindow && folderView.rootWindow.directory) || folderView.directory;
+						if (!sourceSlot || sourceSlot.is_dir) {
+							openDirectory.open_path(targetPath);
+							return;
+						}
+
+						sourceSlot.grabToImage(result => {
+							externalOpenAnimation.parent = sourceSlot;
+							externalOpenAnimation.x = 0;
+							externalOpenAnimation.y = 0;
+							externalOpenAnimation.width = sourceSlot.width;
+							externalOpenAnimation.height = sourceSlot.height;
+							externalOpenImage.source = result.url;
+							externalOpenAnimation.visible = true;
+							externalOpenAnimationEffect.restart();
+						});
+						openDirectory.open_path(targetPath);
 					}
 
 					onSelectionToggled: (p, idx) => {
