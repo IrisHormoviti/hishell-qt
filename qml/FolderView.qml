@@ -6,7 +6,7 @@ import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import "Hishell"
 import "toolkit"
-import "."
+import "./"
 
 Item {
 	id: folderView
@@ -113,6 +113,7 @@ Item {
 	}
 
 	MouseArea {
+		id: backgroundMouseArea
 		anchors.fill: parent
 		z: -1
 		acceptedButtons: Qt.LeftButton | Qt.RightButton
@@ -121,7 +122,8 @@ Item {
 			if (folderView.rootWindow && folderView.rootWindow.selectionManager)
 				folderView.rootWindow.selectionManager.clear();
 			if (mouse.button === Qt.RightButton) {
-				folderContextMenu.popup(this, mouse.x, mouse.y);
+				const pt = backgroundMouseArea.mapToItem(folderView, mouse.x, mouse.y);
+				folderContextMenu.popup(folderView, pt.x, pt.y);
 			}
 		}
 	}
@@ -276,7 +278,8 @@ Item {
 				if (folderView.rootWindow && folderView.rootWindow.selectionManager)
 					folderView.rootWindow.selectionManager.clear();
 				if (mouse.button === Qt.RightButton) {
-					folderContextMenu.popup(flickableBgMouseArea, mouse.x, mouse.y);
+					const pt = flickableBgMouseArea.mapToItem(folderView, mouse.x, mouse.y);
+					folderContextMenu.popup(folderView, pt.x, pt.y);
 				}
 			}
 		}
@@ -446,7 +449,6 @@ Item {
 		Menu {
 			title: qsTr("New")
 			icon.name: "document-new"
-			popupType: Popup.Window
 
 			MenuItem {
 				text: qsTr("Folder")
@@ -474,7 +476,7 @@ Item {
 			targetSlotPath = slotPath;
 			targetSlotIsDir = isDir;
 			targetSlotIsImage = isImg;
-			popup(mouseAreaItem, mx, my);
+			popup();
 		}
 
 		MenuItem {
@@ -484,14 +486,15 @@ Item {
 		MenuItem {
 			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.openWithAction : null
 			visible: !itemContextMenu.targetSlotIsDir
+			height: visible ? implicitHeight : 0
 		}
 
 		MenuSeparator {
-			visible: itemContextMenu.targetSlotIsDir
 		}
 
 		MenuItem {
 			visible: itemContextMenu.targetSlotIsDir
+			height: visible ? implicitHeight : 0
 			text: {
 				const name = itemContextMenu.targetSlotPath.substring(itemContextMenu.targetSlotPath.lastIndexOf("/") + 1);
 				return name.length > 0 ? qsTr("Paste into %1").arg(name) : qsTr("Paste");
@@ -504,21 +507,21 @@ Item {
 			}
 		}
 
-		MenuSeparator {
-			visible: itemContextMenu.targetSlotIsImage
-		}
-
 		MenuItem {
 			visible: itemContextMenu.targetSlotIsImage
+			height: visible ? implicitHeight : 0
 			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.rotateClockwiseAction : null
 		}
 
 		MenuItem {
 			visible: itemContextMenu.targetSlotIsImage
+			height: visible ? implicitHeight : 0
 			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.rotateCounterClockwiseAction : null
 		}
 
 		MenuSeparator {
+			visible: itemContextMenu.targetSlotIsDir || itemContextMenu.targetSlotIsImage
+			height: visible ? implicitHeight : 0
 		}
 
 		MenuItem {
@@ -527,9 +530,6 @@ Item {
 
 		MenuItem {
 			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.cutAction : null
-		}
-
-		MenuSeparator {
 		}
 
 		MenuItem {

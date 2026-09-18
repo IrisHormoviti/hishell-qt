@@ -1,6 +1,3 @@
-pragma
-ComponentBehavior: Bound
-
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -10,7 +7,7 @@ import "../"
 
 RowLayout {
 	id: pathBar
-	spacing: Kirigami.Units.smallSpacing
+	spacing: Kirigami.Units.mediumSpacing
 
 	property ShellWindow window
 	property Directory directory
@@ -23,7 +20,7 @@ RowLayout {
 		if (p.endsWith("/") && p.length > 1)
 			p = p.substring(0, p.length - 1);
 		const parts = p.split("/");
-		const result = [];
+		let result = [];
 		for (let i = 0; i < parts.length; i++) {
 			if (parts[i] !== "") {
 				result.push(parts[i]);
@@ -75,7 +72,7 @@ RowLayout {
 
 				is_dir: true
 				index: delegateRoot.index
-				gridSize: 22
+				gridSize: 32
 				labelBesideIcon: true
 				isSelected: delegateRoot.index === pathBar.segments.length - 1
 				fixedWidth: false

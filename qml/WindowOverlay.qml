@@ -9,42 +9,80 @@ Item {
 	property int margin: 12
 
 	MouseArea {
-		anchors.fill: parent
+		id: topEdge
+		anchors.left: parent.left
+		anchors.right: parent.right
+		anchors.top: parent.top
+		height: root.margin
 		hoverEnabled: true
-
-		function getEdges(x, y) {
-			let e = 0;
-			if (x <= root.margin)
-				e |= Qt.LeftEdge;
-			if (x >= width - root.margin)
-				e |= Qt.RightEdge;
-			if (y <= root.margin)
-				e |= Qt.TopEdge;
-			if (y >= height - root.margin)
-				e |= Qt.BottomEdge;
-			return e
-		}
-
 		cursorShape: {
-			const e = getEdges(mouseX, mouseY);
-			if (e === (Qt.TopEdge | Qt.LeftEdge) || e === (Qt.BottomEdge | Qt.RightEdge))
+			if (mouseX <= root.margin)
 				return Qt.SizeFDiagCursor;
-			if (e === (Qt.TopEdge | Qt.RightEdge) || e === (Qt.BottomEdge | Qt.LeftEdge))
+			if (mouseX >= width - root.margin)
 				return Qt.SizeBDiagCursor;
-			if (e & (Qt.LeftEdge | Qt.RightEdge))
-				return Qt.SizeHorCursor;
-			if (e & (Qt.TopEdge | Qt.BottomEdge))
-				return Qt.SizeVerCursor;
-			return Qt.ArrowCursor;
+			return Qt.SizeVerCursor;
 		}
-
 		onPressed: mouse => {
-			const e = getEdges(mouse.x, mouse.y);
-			if (e !== 0 && root.targetWindow) {
+			let e = Qt.TopEdge;
+			if (mouse.x <= root.margin)
+				e |= Qt.LeftEdge;
+			if (mouse.x >= width - root.margin)
+				e |= Qt.RightEdge;
+			if (root.targetWindow)
 				root.targetWindow.startSystemResize(e);
-			} else {
-				mouse.accepted = false; // Propagate click through to buttons/UI below
-			}
+		}
+	}
+
+	MouseArea {
+		id: bottomEdge
+		anchors.left: parent.left
+		anchors.right: parent.right
+		anchors.bottom: parent.bottom
+		height: root.margin
+		hoverEnabled: true
+		cursorShape: {
+			if (mouseX <= root.margin)
+				return Qt.SizeBDiagCursor;
+			if (mouseX >= width - root.margin)
+				return Qt.SizeFDiagCursor;
+			return Qt.SizeVerCursor;
+		}
+		onPressed: mouse => {
+			let e = Qt.BottomEdge;
+			if (mouse.x <= root.margin)
+				e |= Qt.LeftEdge;
+			if (mouse.x >= width - root.margin)
+				e |= Qt.RightEdge;
+			if (root.targetWindow)
+				root.targetWindow.startSystemResize(e);
+		}
+	}
+
+	MouseArea {
+		id: leftEdge
+		anchors.left: parent.left
+		anchors.top: topEdge.bottom
+		anchors.bottom: bottomEdge.top
+		width: root.margin
+		hoverEnabled: true
+		cursorShape: Qt.SizeHorCursor
+		onPressed: mouse => {
+			if (root.targetWindow)
+				root.targetWindow.startSystemResize(Qt.LeftEdge);
+		}
+	}
+
+	MouseArea {
+		id: rightEdge
+		anchors.right: parent.right
+		anchors.top: topEdge.bottom
+		anchors.bottom: bottomEdge.top
+		width: root.margin
+		hoverEnabled: true
+		cursorShape: Qt.SizeHorCursor
+		onPressed: mouse => {
+			if (root.targetWindow)
+				root.targetWindow.startSystemResize(Qt.RightEdge);
 		}
 	}
 }
