@@ -68,7 +68,10 @@ RowLayout {
 				path: pathBar.pathForIndex(delegateRoot.index)
 				title: delegateRoot.modelData === "/" ? "/" : delegateRoot.modelData
 				icon: delegateRoot.index === pathBar.segments.length - 1 && pathBar.directory ? String(pathBar.directory.icon) : ""
-				dragDropHandler: window.dragDropHandler
+
+				dragDropHandler: pathBar.window.dragDropHandler
+				fileManager: pathBar.window.fileManager
+				actionManager: pathBar.window.actionManager
 
 				is_dir: true
 				index: delegateRoot.index

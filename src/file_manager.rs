@@ -391,6 +391,12 @@ pub struct FileManager {
 		}
 	),
 
+	get_icon: qt_method!(
+		pub fn get_icon(&self, path: String) -> String {
+			crate::directory::get_icon(&path)
+		}
+	),
+
 	open_file_with_dialog: qt_method!(
 		fn open_file_with_dialog(&self, path: QString) -> bool {
 			let p = clean_path(&path.to_string());

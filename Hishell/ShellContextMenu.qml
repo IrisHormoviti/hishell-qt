@@ -1,6 +1,9 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import Hishell
+import Hishell.toolkit
 
 Menu {
 	id: contextMenu
@@ -10,10 +13,37 @@ Menu {
 	property bool targetIsImage: false
 	property bool targetIsBackground: false
 
-	// popupType: Popup.Window
+	Repeater {
+		model: contextMenu.targetIsBackground ? contextMenu.actionManager.actionsFor("directory") : []
+		delegate: MenuItem {
+			required property Action modelData
+			action: modelData
+		}
+	}
+
+	Instantiator {
+		model: contextMenu.targetIsBackground ? [contextMenu.actionManager.group("new")] : []
+		delegate: ActionGroupMenu {
+			required property var modelData
+			actionManager: contextMenu.actionManager
+			group: modelData
+		}
+		onObjectAdded: (index, object) => contextMenu.addMenu(object)
+		onObjectRemoved: (index, object) => contextMenu.removeMenu(object)
+	}
+
+	Instantiator {
+		model: contextMenu.targetIsBackground ? [contextMenu.actionManager.directory] : []
+		delegate: ViewMenu {
+			required property Directory modelData
+			directory: modelData
+		}
+		onObjectAdded: (index, object) => contextMenu.addMenu(object)
+		onObjectRemoved: (index, object) => contextMenu.removeMenu(object)
+	}
 
 	Repeater {
-		model: contextMenu.targetIsBackground ? contextMenu.actionManager.backgroundActionsGroup : contextMenu.actionManager.openGroup
+		model: contextMenu.targetIsBackground ? [] : contextMenu.actionManager.actionsFor("items")
 		delegate: MenuItem {
 			required property Action modelData
 			action: modelData
@@ -26,7 +56,15 @@ Menu {
 	}
 
 	Repeater {
-		model: contextMenu.targetIsDir ? contextMenu.actionManager.folderActionsGroup : (contextMenu.targetIsImage ? contextMenu.actionManager.imageGroup : [])
+		model: contextMenu.targetIsDir ? contextMenu.actionManager.actionsFor("folders") : []
+		delegate: MenuItem {
+			required property Action modelData
+			action: modelData
+		}
+	}
+
+	Repeater {
+		model: contextMenu.targetIsImage ? contextMenu.actionManager.actionsFor("files") : []
 		delegate: MenuItem {
 			required property Action modelData
 			action: modelData
@@ -36,7 +74,7 @@ Menu {
 	MenuSeparator {}
 
 	Repeater {
-		model: contextMenu.targetIsBackground ? [] : contextMenu.actionManager.editGroup
+		model: []
 		delegate: MenuItem {
 			required property Action modelData
 			action: modelData

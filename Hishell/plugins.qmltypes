@@ -53,8 +53,19 @@ Module {
 		Property { name: "path"; type: "string" }
 		Signal { name: "config_changed" }
 		Signal { name: "path_changed" }
+		Signal { name: "requestExecutePrompt" }
+		Method {
+			name: "execute_file"
+			type: "void"
+			Parameter { name: "path"; type: "string" }
+		}
 		Method {
 			name: "open_path"
+			type: "void"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "open_in_new_window"
 			type: "void"
 			Parameter { name: "path"; type: "string" }
 		}
@@ -169,6 +180,11 @@ Module {
 		Method {
 			name: "open_file"
 			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "get_icon"
+			type: "string"
 			Parameter { name: "path"; type: "string" }
 		}
 		Method {

@@ -153,6 +153,10 @@ Item {
 		actionManager: folderView.rootWindow.actionManager
 		targetIsBackground: true
 	}
+	ContextMenu.onRequested: {
+		if (folderView.rootWindow)
+			folderView.rootWindow.actionManager.pasteTargetPath = "";
+	}
 
 	MouseArea {
 		id: backgroundMouseArea
@@ -352,9 +356,8 @@ Item {
 						})() : false
 
 					onNavigate: (targetPath, sourceSlot) => {
-						const openDirectory = (folderView.rootWindow && folderView.rootWindow.directory) || folderView.directory;
 						if (!sourceSlot || sourceSlot.is_dir) {
-							openDirectory.open_path(targetPath);
+							folderView.directory.open_path(targetPath);
 							return;
 						}
 
@@ -368,7 +371,21 @@ Item {
 							externalOpenAnimation.visible = true;
 							externalOpenAnimationEffect.restart();
 						});
-						openDirectory.open_path(targetPath);
+						folderView.directory.open_path(targetPath);
+					}
+
+					onOpenWindow: (targetPath, sourceSlot) => {
+						sourceSlot.grabToImage(result => {
+							externalOpenAnimation.parent = sourceSlot;
+							externalOpenAnimation.x = 0;
+							externalOpenAnimation.y = 0;
+							externalOpenAnimation.width = sourceSlot.width;
+							externalOpenAnimation.height = sourceSlot.height;
+							externalOpenImage.source = result.url;
+							externalOpenAnimation.visible = true;
+							externalOpenAnimationEffect.restart();
+						});
+						folderView.directory.open_in_new_window(targetPath);
 					}
 
 					onSelectionToggled: (p, idx) => {
@@ -485,5 +502,11 @@ Item {
 					folderView.rootWindow.selectionManager.deselect_all()
 			}
 		}
+	}
+
+	ExecuteDialog {
+		id: execDialog
+		directory: folderView.directory
+		fileManager: folderView.rootWindow ? folderView.rootWindow.fileManager : null
 	}
 }

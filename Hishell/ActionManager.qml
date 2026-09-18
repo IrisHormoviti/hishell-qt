@@ -32,10 +32,10 @@ Item {
 		return true;
 	}
 
-	// ── Open Group (Fileslots) ──
+	// ── Open Group ──
 	property alias openAction: openAction
 	property alias openWithAction: openWithAction
-	readonly property var openGroup: [openAction, openWithAction]
+	readonly property var openGroup: [openAction, openWithAction, openWindowAction]
 
 	Action {
 		id: openAction
@@ -59,6 +59,25 @@ Item {
 	}
 
 	Action {
+		id: openWindowAction
+		text: qsTr("Open in Window")
+		icon.name: "xsi-window-new-symbolic"
+		shortcut: "Ctrl+N"
+		enabled: actionManager.hasSelection
+		onTriggered: {
+			if (!actionManager.hasSelection) {
+				actionManager.directory.open_in_new_window(actionManager.directory.path);
+			} else {
+				const paths = actionManager.selectedPathList;
+				for (let i = 0; i < paths.length; i++) {
+					const p = paths[i];
+					actionManager.directory.open_in_new_window(p);
+				}
+			}
+		}
+	}
+
+	Action {
 		id: openWithAction
 		text: qsTr("Open With...")
 		icon.name: "system-run"
@@ -71,7 +90,7 @@ Item {
 		}
 	}
 
-	// ── Item Edit Group (Fileslots) ──
+	// ── Item Edit Group ──
 	property alias copyAction: copyAction
 	property alias cutAction: cutAction
 	property alias duplicateAction: duplicateAction
@@ -179,9 +198,8 @@ Item {
 		}
 	}
 
-	// ── Folder Edit Group (Folders in General) ──
+	// ── Folder Group ──
 	property alias pasteAction: pasteAction
-	property alias pasteIntoAction: pasteIntoAction
 	property string pasteTargetPath: ""
 
 	function pasteInto(destPath) {
@@ -196,32 +214,23 @@ Item {
 
 	Action {
 		id: pasteAction
-		text: qsTr("Paste")
-		icon.name: "edit-paste"
-		shortcut: "Ctrl+V"
-		enabled: true
-		onTriggered: {
-			actionManager.pasteInto(actionManager.directory ? actionManager.directory.path : "");
-		}
-	}
-
-	Action {
-		id: pasteIntoAction
 		text: {
 			const name = actionManager.pasteTargetPath.substring(actionManager.pasteTargetPath.lastIndexOf("/") + 1);
 			return name.length > 0 ? qsTr("Paste into %1").arg(name) : qsTr("Paste");
 		}
 		icon.name: "edit-paste"
+		shortcut: "Ctrl+V"
 		enabled: true
-		onTriggered: actionManager.pasteInto(actionManager.pasteTargetPath)
+		onTriggered: {
+			actionManager.pasteInto(actionManager.pasteTargetPath);
+		}
 	}
 
-	// ── Inside Folder Group (New) ──
+	// ── New Group ──
 	property alias newFolderAction: newFolderAction
 	property alias newTextFileAction: newTextFileAction
-	readonly property var folderActionsGroup: [pasteIntoAction]
+	readonly property var folderActionsGroup: [pasteAction]
 	readonly property var newActionsGroup: [newFolderAction, newTextFileAction]
-	readonly property var backgroundActionsGroup: [pasteAction, newFolderAction, newTextFileAction]
 
 	Action {
 		id: newFolderAction
@@ -249,10 +258,89 @@ Item {
 		}
 	}
 
-	// ── MIME Specific Group (Image) ──
+	// ── Group Contexts ──
 	property alias rotateClockwiseAction: rotateClockwiseAction
 	property alias rotateCounterClockwiseAction: rotateCounterClockwiseAction
 	readonly property var imageGroup: [rotateClockwiseAction, rotateCounterClockwiseAction]
+
+	readonly property var menuGroups: [
+		{
+			id: "new",
+			title: qsTr("New"),
+			actions: newActionsGroup,
+			contexts: ["directory"],
+			submenu: true
+		},
+		{
+			id: "open",
+			title: qsTr("Open"),
+			actions: openGroup,
+			contexts: ["items"],
+			submenu: false
+		},
+		{
+			id: "edit",
+			title: qsTr("Edit"),
+			actions: editGroup,
+			contexts: ["items"],
+			submenu: false
+		},
+		{
+			id: "image",
+			title: qsTr("Image"),
+			actions: imageGroup,
+			contexts: ["files"],
+			submenu: false
+		},
+		{
+			id: "directory",
+			title: qsTr("Folder"),
+			actions: folderActionsGroup,
+			contexts: ["directory", "folders"],
+			submenu: false
+		},
+		{
+			id: "view",
+			title: qsTr("View"),
+			actions: [],
+			contexts: ["directory"],
+			submenu: true,
+			customMenu: "ViewMenu"
+		}
+	]
+
+	function group(id) {
+		for (let i = 0; i < menuGroups.length; i++) {
+			if (menuGroups[i].id === id)
+				return menuGroups[i];
+		}
+		return null;
+	}
+
+	function groupsFor(context) {
+		return menuGroups.filter(groupData => groupData.contexts.indexOf(context) !== -1);
+	}
+
+	function actionsFor(context) {
+		let actions = [];
+		const groups = groupsFor(context);
+		for (let i = 0; i < groups.length; i++) {
+			if (groups[i].submenu !== true)
+				actions = actions.concat(groups[i].actions);
+		}
+		return actions;
+	}
+
+	function isMenuGroupVisible(groupId) {
+		const groupData = actionManager.group(groupId);
+		if (!groupData)
+			return false;
+		if (groupData.contexts.indexOf("items") !== -1)
+			return hasSelection;
+		if (groupData.contexts.indexOf("files") !== -1)
+			return isImageSelected;
+		return true;
+	}
 
 	Action {
 		id: rotateClockwiseAction

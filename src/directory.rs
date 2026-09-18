@@ -67,7 +67,6 @@ pub struct FileItem {
 	pub title: String,
 	pub path: String,
 	pub is_dir: bool,
-	pub is_symlink: bool,
 	pub icon: String,
 }
 
@@ -88,13 +87,39 @@ pub struct Directory {
 	path_str: String,
 	path_changed: qt_signal!(),
 
+	#[allow(non_snake_case)]
+	requestExecutePrompt: qt_signal!(path: String),
+
+	execute_file: qt_method!(
+		pub fn execute_file(&self, path: String) {
+			let path_buf = Path::new(&path);
+			let mut cmd = Command::new(&path);
+			if let Some(parent) = path_buf.parent() {
+				cmd.current_dir(parent);
+			}
+			let _ = cmd.spawn();
+		}
+	),
+
 	open_path: qt_method!(
 		pub fn open_path(&mut self, path: String) {
 			let path_buf = Path::new(&path);
 			if path_buf.is_file() {
-				open_file(path)
+				if is_executable(&path) {
+					self.requestExecutePrompt(path);
+				} else {
+					open_file(path);
+				}
 			} else {
 				self.set_path(path);
+			}
+		}
+	),
+
+	open_in_new_window: qt_method!(
+		pub fn open_in_new_window(&self, path: String) {
+			if let Ok(exe) = std::env::current_exe() {
+				let _ = Command::new(exe).arg(&path).spawn();
 			}
 		}
 	),
@@ -171,9 +196,7 @@ impl Directory {
 				let entry_path = entry.path();
 				let p = entry_path.to_string_lossy().to_string();
 				let title = get_item_title(&entry_path);
-				let file_type = entry.file_type().ok();
-				let is_dir = file_type.as_ref().map(|t| t.is_dir()).unwrap_or(false);
-				let is_symlink = file_type.as_ref().map(|t| t.is_symlink()).unwrap_or(false);
+				let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
 				let mut icon = get_icon(&p);
 
 				// If this is a .desktop file, prefer the Icon= value from the desktop entry
@@ -251,7 +274,6 @@ impl Directory {
 					title,
 					path: p,
 					is_dir,
-					is_symlink,
 					icon,
 				});
 			}
@@ -339,7 +361,6 @@ impl QAbstractListModel for Directory {
 			0x0102 => item.is_dir.into(),
 			0x0103 => QString::from(item.icon.as_str()).into(),
 			0x0104 => QString::from(item.title.as_str()).into(),
-			0x0105 => item.is_symlink.into(),
 			_ => QVariant::default(),
 		}
 	}
@@ -351,7 +372,6 @@ impl QAbstractListModel for Directory {
 		map.insert(0x0102, "is_dir".into());
 		map.insert(0x0103, "icon".into());
 		map.insert(0x0104, "title".into());
-		map.insert(0x0105, "is_symlink".into());
 		map
 	}
 }
@@ -454,31 +474,31 @@ pub fn get_folder_icon(path: &str) -> String {
 }
 
 pub fn open_file(path: String) {
-	let path_buf = Path::new(&path);
+	let _ = Command::new("xdg-open").arg(&path).spawn();
+}
 
-	let mut is_exec = false;
+pub fn is_executable(path: &str) -> bool {
+	let path_buf = Path::new(path);
+
 	if let Ok(mut file) = std::fs::File::open(&path_buf) {
 		use std::io::Read;
 		let mut buffer = [0; 4];
 		if file.read_exact(&mut buffer).is_ok() {
 			if buffer == [0x7f, b'E', b'L', b'F'] || (buffer[0] == b'#' && buffer[1] == b'!') {
-				is_exec = true;
+				return true;
 			}
 		}
 	}
 
 	#[cfg(unix)]
-	if !is_exec {
+	{
 		use std::os::unix::fs::PermissionsExt;
-		is_exec = std::fs::metadata(&path_buf)
-			.map(|m| m.permissions().mode() & 0o111 != 0)
-			.unwrap_or(false);
+		if let Ok(meta) = std::fs::metadata(&path_buf) {
+			if meta.permissions().mode() & 0o111 != 0 {
+				return true;
+			}
+		}
 	}
 
-	if is_exec {
-		let _ = std::process::Command::new(&path).spawn();
-		return;
-	}
-
-	let _ = std::process::Command::new("xdg-open").arg(&path).spawn();
+	false
 }

@@ -10,19 +10,22 @@ Item {
 	id: fileSlot
 
 	required property string path
-	required property string icon
-	required property string title
-	required property int index
-	required property bool is_dir
-	required property bool is_symlink
-	required property DragDropHandler dragDropHandler
-	property ActionManager actionManager
-	property FileManager fileManager
 
+	property ShellWindow window: Window.window as ShellWindow
+
+	property DragDropHandler dragDropHandler: window ? window.dragDropHandler : null
+	property ActionManager actionManager: window ? window.actionManager : null
+	property FileManager fileManager: window ? window.fileManager : null
+
+	property string icon: fileManager ? fileManager.get_icon(path) : ""
+	property string title
 	property int gridSize: 64
 	property bool labelBesideIcon: gridSize < 32
 	property bool fixedWidth: true
 	property bool showIcon: icon !== ""
+	property bool is_symlink: false
+	property int index: 0
+	property bool is_dir: false
 
 	property int animationDuration: 200
 	property int animationEase: Easing.OutCubic
@@ -49,6 +52,8 @@ Item {
 	// Emitted on navigation
 	signal navigate(string targetPath, var sourceSlot)
 
+	signal openWindow(string targetPath, var sourceSlot)
+
 	// Emitted when toggling this item's selection
 	signal selectionToggled(string path, int idx)
 
@@ -66,7 +71,11 @@ Item {
 		targetIsDir: fileSlot.is_dir
 		targetIsImage: fileSlot.fileManager && fileSlot.fileManager.is_image_file(fileSlot.path)
 	}
-	ContextMenu.onRequested: fileSlot.contextMenuRequested(fileSlot.path, fileSlot.index)
+	ContextMenu.onRequested: {
+		if (fileSlot.actionManager)
+			fileSlot.actionManager.pasteTargetPath = fileSlot.is_dir ? fileSlot.path : "";
+		fileSlot.contextMenuRequested(fileSlot.path, fileSlot.index);
+	}
 
 	implicitWidth: contentLayout.implicitWidth + (fileSlot.labelBesideIcon && fileSlot.showIcon ? Kirigami.Units.largeSpacing * 2 : Kirigami.Units.smallSpacing * 2)
 	implicitHeight: contentLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
@@ -167,8 +176,12 @@ Item {
 		Label {
 			id: labelItem
 			Layout.alignment: fileSlot.labelBesideIcon ? Qt.AlignVCenter : Qt.AlignHCenter
+
+			property string title: fileSlot.title == "" ? fileSlot.path.substring(fileSlot.path.lastIndexOf("/") + 1) : fileSlot.title
+
 			text: {
-				let t = fileSlot.title;
+				let t = title;
+
 				let idx = t.lastIndexOf('.');
 				if (idx > 0 && !(t.startsWith('.') && t.indexOf('.', 1) === -1)) {
 					let name = t.substring(0, idx);
@@ -564,7 +577,8 @@ Item {
 				return;
 			}
 			if (mouse.button === Qt.MiddleButton)
-				return;
+				fileSlot.openWindow(fileSlot.path, fileSlot);
+			return;
 
 			if (fileSlot.selectionActive) {
 				if (mouse.modifiers & Qt.ShiftModifier) {

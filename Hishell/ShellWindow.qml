@@ -74,7 +74,7 @@ Kirigami.ApplicationWindow {
 		bottomPadding: 0
 
 		// Remove Kirigami's own header
-		globalToolBarStyle: Kirigami.ApplicationHeaderStyle.None
+		globalToolBarStyle: Kirigami.ApplicationHeaderStyle.Auto
 
 		ColumnLayout {
 			anchors.fill: parent
@@ -111,7 +111,7 @@ Kirigami.ApplicationWindow {
 
 					// Left padding
 					Item {
-						Layout.preferredWidth: Kirigami.Units.largeSpacing
+						Layout.preferredWidth: Kirigami.Units.mediumSpacing
 					}
 
 					LayoutEngine {
@@ -120,11 +120,11 @@ Kirigami.ApplicationWindow {
 						window: root
 						Layout.fillWidth: true
 					}
-				}
 
-				// Right padding
-				Item {
-					Layout.preferredWidth: Kirigami.Units.largeSpacing
+					// Right padding
+					Item {
+						Layout.preferredWidth: Kirigami.Units.mediumSpacing
+					}
 				}
 			}
 
