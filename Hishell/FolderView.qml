@@ -4,14 +4,12 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
-import "Hishell"
-import "toolkit"
-import "./"
+import Hishell
 
 Item {
 	id: folderView
 	property ShellWindow window
-	readonly property ShellWindow rootWindow: folderView.window || folderView.Window.window
+	readonly property ShellWindow rootWindow: folderView.window
 	property Directory directory
 	property Config config: directory.config
 
@@ -129,7 +127,7 @@ Item {
 	}
 
 	function isDropValid(targetPath, sourcePaths) {
-		return dropValidator.is_drop_valid(targetPath, sourcePaths);
+		return window.dropValidator.is_drop_valid(targetPath, sourcePaths);
 	}
 
 	// Active Drop Highlight Border
@@ -156,7 +154,8 @@ Item {
 		z: 0
 
 		property bool isHovered: false
-		property var dragHandler: folderView.rootWindow ? folderView.rootWindow.dragDropHandler : null
+		property FileManager fileManager: folderView.rootWindow ? folderView.rootWindow.fileManager : null
+		property DragDropHandler dragHandler: folderView.rootWindow ? folderView.rootWindow.dragDropHandler : null
 
 		onEntered: drag => {
 			checkDrop(drag);
@@ -218,7 +217,7 @@ Item {
 			if (uris.length > 0 && typeof fileManager !== 'undefined' && fileManager) {
 				const action = (typeof dragHandler !== 'undefined' && dragHandler) ? dragHandler.drag_action : "copy";
 				if (fileManager.process_uris_action(folderView.directory.path, uris, action)) {
-					folderView.directory.refresh();
+					folderView.directory.reload();
 				}
 				drop.accept();
 			}
@@ -303,13 +302,13 @@ Item {
 
 					gridSize: folderView.config.grid_size
 					selectionActive: selectionManager ? selectionManager.selection_active : false
-					isSelected: selectionManager ? (function() {
-						try {
-							return !!JSON.parse(selectionManager.selected_paths)[path];
-						} catch (e) {
-							return false;
-						}
-					})() : false
+					isSelected: selectionManager ? (function () {
+							try {
+								return !!JSON.parse(selectionManager.selected_paths)[path];
+							} catch (e) {
+								return false;
+							}
+						})() : false
 
 					onNavigate: targetPath => {
 						((folderView.rootWindow && folderView.rootWindow.directory) || folderView.directory).open_path(targetPath);
@@ -443,8 +442,7 @@ Item {
 			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.pasteAction : null
 		}
 
-		MenuSeparator {
-		}
+		MenuSeparator {}
 
 		Menu {
 			title: qsTr("New")
@@ -489,8 +487,7 @@ Item {
 			height: visible ? implicitHeight : 0
 		}
 
-		MenuSeparator {
-		}
+		MenuSeparator {}
 
 		MenuItem {
 			visible: itemContextMenu.targetSlotIsDir
@@ -540,15 +537,13 @@ Item {
 			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.linkAction : null
 		}
 
-		MenuSeparator {
-		}
+		MenuSeparator {}
 
 		MenuItem {
 			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.renameAction : null
 		}
 
-		MenuSeparator {
-		}
+		MenuSeparator {}
 
 		MenuItem {
 			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.trashAction : null

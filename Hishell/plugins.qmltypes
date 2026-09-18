@@ -1,0 +1,356 @@
+import QtQuick.tooling 1.2
+
+Module {
+	Component {
+		name: "Config"
+		prototype: "QObject"
+		exports: ["Hishell/Config 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Property { name: "title"; type: "string"; isReadonly: true }
+		Property { name: "icon"; type: "string"; isReadonly: true }
+		Property { name: "wallpaper"; type: "string"; isReadonly: true }
+		Property { name: "top_layout"; type: "string"; isReadonly: true }
+		Property { name: "middle_layout"; type: "string"; isReadonly: true }
+		Property { name: "bottom_layout"; type: "string"; isReadonly: true }
+		Property { name: "header_layout"; type: "string"; isReadonly: true }
+		Property { name: "grid_size"; type: "u16"; isReadonly: true }
+		Property { name: "show_labels"; type: "bool"; isReadonly: true }
+		Property { name: "view_mode"; type: "u8"; isReadonly: true }
+		Property { name: "sort"; type: "u8"; isReadonly: true }
+		Property { name: "sort_date_mode"; type: "u8"; isReadonly: true }
+		Property { name: "sort_alpha_mode"; type: "u8"; isReadonly: true }
+		Property { name: "stash_shown"; type: "bool"; isReadonly: true }
+		Property { name: "stash_dotfiles"; type: "bool"; isReadonly: true }
+		Property { name: "arbitrary_placement"; type: "bool"; isReadonly: true }
+		Property { name: "arbitrary_positions"; type: "string"; isReadonly: true }
+		Signal { name: "config_changed" }
+		Method {
+			name: "load"
+			type: "void"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "set"
+			type: "void"
+			Parameter { name: "path"; type: "string" }
+			Parameter { name: "section"; type: "string" }
+			Parameter { name: "key"; type: "string" }
+			Parameter { name: "value"; type: "string" }
+			Parameter { name: "local"; type: "bool" }
+		}
+	}
+	Component {
+		name: "Directory"
+		prototype: "QObject"
+		exports: ["Hishell/Directory 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Property { name: "config"; type: "QVariant"; isReadonly: true }
+		Property { name: "title"; type: "string"; isReadonly: true }
+		Property { name: "icon"; type: "string"; isReadonly: true }
+		Property { name: "has_meta"; type: "bool"; isReadonly: true }
+		Property { name: "path"; type: "string" }
+		Signal { name: "config_changed" }
+		Signal { name: "path_changed" }
+		Method {
+			name: "open_path"
+			type: "void"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "poll_thumbnails"
+			type: "void"
+		}
+		Method {
+			name: "set_config"
+			type: "void"
+			Parameter { name: "section"; type: "string" }
+			Parameter { name: "key"; type: "string" }
+			Parameter { name: "value"; type: "string" }
+			Parameter { name: "local"; type: "bool" }
+		}
+		Method {
+			name: "reload"
+			type: "void"
+		}
+		Method {
+			name: "get_all_paths"
+			type: "QVariantList"
+		}
+		Method {
+			name: "load_directory"
+			type: "void"
+			Parameter { name: "path"; type: "string" }
+			Parameter { name: "include_hidden"; type: "bool" }
+		}
+	}
+	Component {
+		name: "FileManager"
+		prototype: "QObject"
+		exports: ["Hishell/FileManager 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Method {
+			name: "copy_file"
+			type: "bool"
+			Parameter { name: "source"; type: "string" }
+			Parameter { name: "dest"; type: "string" }
+		}
+		Method {
+			name: "duplicate_file"
+			type: "bool"
+			Parameter { name: "source"; type: "string" }
+		}
+		Method {
+			name: "new_folder"
+			type: "bool"
+			Parameter { name: "parent"; type: "string" }
+		}
+		Method {
+			name: "new_text_file"
+			type: "bool"
+			Parameter { name: "parent"; type: "string" }
+		}
+		Method {
+			name: "create_link"
+			type: "bool"
+			Parameter { name: "source"; type: "string" }
+			Parameter { name: "dest"; type: "string" }
+		}
+		Method {
+			name: "trash_file"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "delete_file"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "rename_file"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+			Parameter { name: "new_name"; type: "string" }
+		}
+		Method {
+			name: "copy_paths_to_clipboard"
+			type: "bool"
+			Parameter { name: "paths_newline"; type: "string" }
+		}
+		Method {
+			name: "cut_paths_to_clipboard"
+			type: "bool"
+			Parameter { name: "paths_newline"; type: "string" }
+		}
+		Method {
+			name: "paste_from_clipboard"
+			type: "bool"
+			Parameter { name: "dest_dir"; type: "string" }
+		}
+		Method {
+			name: "get_mime_type"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "get_text_content"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "process_uris_action"
+			type: "bool"
+			Parameter { name: "dest_dir"; type: "string" }
+			Parameter { name: "uris_newline"; type: "string" }
+			Parameter { name: "action"; type: "string" }
+		}
+		Method {
+			name: "open_file"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "open_file_with_dialog"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "rotate_image"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+			Parameter { name: "degrees"; type: "int" }
+		}
+		Method {
+			name: "is_image_file"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "is_directory"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+	}
+	Component {
+		name: "DragDropHandler"
+		prototype: "QObject"
+		exports: ["Hishell/DragDropHandler 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Property { name: "drag_action"; type: "string"; isReadonly: true }
+		Property { name: "drag_cursor_x"; type: "double"; isReadonly: true }
+		Property { name: "drag_cursor_y"; type: "double"; isReadonly: true }
+		Property { name: "tooltip_active"; type: "bool" }
+		Property { name: "active_dragged_paths"; type: "QVariantList" }
+		Property { name: "drag_icon_width"; type: "double"; isReadonly: true }
+		Property { name: "drag_icon_height"; type: "double"; isReadonly: true }
+		Property { name: "drag_uris"; type: "QVariantList"; isReadonly: true }
+		Property { name: "drag_source_paths"; type: "QVariantList"; isReadonly: true }
+		Property { name: "item_count"; type: "int"; isReadonly: true }
+		Property { name: "file_title"; type: "string"; isReadonly: true }
+		Property { name: "file_icon"; type: "string"; isReadonly: true }
+		Property { name: "dragged_slot"; type: "QVariant"; isReadonly: true }
+		Property { name: "shake_history_json"; type: "string"; isReadonly: true }
+		Property { name: "window"; type: "QVariant"; isReadonly: true }
+		Signal { name: "drag_action_changed" }
+		Signal { name: "drag_cursor_changed" }
+		Signal { name: "tooltip_active_changed" }
+		Signal { name: "active_dragged_paths_changed" }
+		Method {
+			name: "track_mouse_shake"
+			type: "void"
+			Parameter { name: "x"; type: "double" }
+			Parameter { name: "y"; type: "double" }
+		}
+		Method {
+			name: "cycle_drag_action"
+			type: "void"
+		}
+		Method {
+			name: "reset"
+			type: "void"
+		}
+		Method {
+			name: "set_drag_data"
+			type: "void"
+			Parameter { name: "main_path"; type: "string" }
+			Parameter { name: "uris"; type: "QVariantList" }
+			Parameter { name: "source_paths"; type: "QVariantList" }
+			Parameter { name: "item_count"; type: "int" }
+			Parameter { name: "file_title"; type: "string" }
+			Parameter { name: "file_icon"; type: "string" }
+		}
+		Method {
+			name: "begin_drag"
+			type: "void"
+			Parameter { name: "image_url"; type: "string" }
+			Parameter { name: "width"; type: "double" }
+			Parameter { name: "height"; type: "double" }
+		}
+		Method {
+			name: "end_drag"
+			type: "void"
+		}
+	}
+	Component {
+		name: "DropValidator"
+		prototype: "QObject"
+		exports: ["Hishell/DropValidator 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Property { name: "window"; type: "QVariant"; isReadonly: true }
+		Method {
+			name: "is_drop_valid"
+			type: "bool"
+			Parameter { name: "target_path"; type: "string" }
+			Parameter { name: "source_paths"; type: "QVariantList" }
+		}
+	}
+	Component {
+		name: "PathUtils"
+		prototype: "QObject"
+		exports: ["Hishell/PathUtils 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Property { name: "window"; type: "QVariant"; isReadonly: true }
+		Method {
+			name: "get_segments"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "path_for_index"
+			type: "string"
+			Parameter { name: "current_path"; type: "string" }
+			Parameter { name: "idx"; type: "int" }
+		}
+		Method {
+			name: "folder_name"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "normalize_path"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "parent_path"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+	}
+	Component {
+		name: "SelectionManager"
+		prototype: "QObject"
+		exports: ["Hishell/SelectionManager 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Property { name: "selection_active"; type: "bool"; isReadonly: true }
+		Property { name: "selected_paths"; type: "string"; isReadonly: true }
+		Property { name: "selected_count"; type: "int"; isReadonly: true }
+		Property { name: "last_selected_index"; type: "int"; isReadonly: true }
+		Property { name: "selection_status"; type: "string"; isReadonly: true }
+		Property { name: "window"; type: "QVariant"; isReadonly: true }
+		Signal { name: "selection_changed" }
+		Method {
+			name: "enter_selection_mode"
+			type: "void"
+		}
+		Method {
+			name: "exit_selection_mode"
+			type: "void"
+		}
+		Method {
+			name: "toggle_selection"
+			type: "void"
+			Parameter { name: "path"; type: "string" }
+			Parameter { name: "idx"; type: "int" }
+		}
+		Method {
+			name: "range_select"
+			type: "void"
+			Parameter { name: "from_idx"; type: "int" }
+			Parameter { name: "to_idx"; type: "int" }
+		}
+		Method {
+			name: "select_all"
+			type: "void"
+			Parameter { name: "paths"; type: "QVariantList" }
+		}
+		Method {
+			name: "deselect_all"
+			type: "void"
+		}
+		Method {
+			name: "get_selected_path_list"
+			type: "QVariantList"
+		}
+		Method {
+			name: "clear"
+			type: "void"
+		}
+	}
+}

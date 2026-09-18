@@ -1,9 +1,9 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
-import "../Hishell"
-import "../"
+import Hishell
 
 RowLayout {
 	id: pathBar
@@ -80,7 +80,7 @@ RowLayout {
 				Layout.preferredWidth: implicitWidth
 				Layout.preferredHeight: implicitHeight
 
-				onNavigate: (targetPath) => {
+				onNavigate: targetPath => {
 					pathBar.directory.path = targetPath;
 				}
 			}

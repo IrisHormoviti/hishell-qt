@@ -1,8 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
-import "Hishell"
-import "toolkit"
+import Hishell
 
 Kirigami.ApplicationWindow {
 	id: root
@@ -12,12 +11,12 @@ Kirigami.ApplicationWindow {
 
 	property alias selectionManager: selectionManager
 	property alias dragDropHandler: dragDropHandler
+	property alias dropValidator: dropValidator
 	property alias fileManager: fileManager
 	property alias directory: directory
 	property alias actionManager: actionManager
 
-	WindowOverlay {
-	}
+	WindowOverlay {}
 
 	Directory {
 		id: directory
@@ -66,8 +65,7 @@ Kirigami.ApplicationWindow {
 		bottomLayoutEngine.layoutString = String(directory.config.bottom_layout);
 	}
 
-	pageStack.initialPage: Kirigami.Page
-	{
+	pageStack.initialPage: Kirigami.Page {
 		padding: 0
 		topPadding: 0
 		leftPadding: 0

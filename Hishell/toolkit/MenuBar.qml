@@ -1,8 +1,9 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
-import "../"
+import Hishell
 
 MenuBar {
 	id: rootMenuBar
@@ -61,7 +62,7 @@ MenuBar {
 	ButtonGroup {
 		id: viewModeGroup
 
-		onClicked: (button) => {
+		onClicked: button => {
 			if (rootMenuBar.directory)
 				rootMenuBar.directory.set_config("VIEW", "ViewMode", button.objectName, rootMenuBar.isLocal);
 		}
@@ -70,7 +71,7 @@ MenuBar {
 	ButtonGroup {
 		id: sortGroup
 
-		onClicked: (button) => {
+		onClicked: button => {
 			if (rootMenuBar.directory)
 				rootMenuBar.directory.set_config("VIEW", "Sort", button.objectName, rootMenuBar.isLocal);
 		}
@@ -79,7 +80,7 @@ MenuBar {
 	ButtonGroup {
 		id: sortDateMode
 
-		onClicked: (button) => {
+		onClicked: button => {
 			if (rootMenuBar.directory)
 				rootMenuBar.directory.set_config("VIEW", "SortDateMode", button.objectName, rootMenuBar.isLocal);
 		}
@@ -88,7 +89,7 @@ MenuBar {
 	ButtonGroup {
 		id: sortAlphaMode
 
-		onClicked: (button) => {
+		onClicked: button => {
 			if (rootMenuBar.directory)
 				rootMenuBar.directory.set_config("VIEW", "SortAlphaMode", button.objectName, rootMenuBar.isLocal);
 		}
@@ -141,10 +142,14 @@ MenuBar {
 
 		for (let i = 0; i < rootMenuBar.count; i++) {
 			let m = rootMenuBar.menuAt(i);
-			if (m === openMenu) openIdx = i;
-			else if (m === editMenu) editIdx = i;
-			else if (m === imageMenu) imageIdx = i;
-			else if (m === viewMenu) viewIdx = i;
+			if (m === openMenu)
+				openIdx = i;
+			else if (m === editMenu)
+				editIdx = i;
+			else if (m === imageMenu)
+				imageIdx = i;
+			else if (m === viewMenu)
+				viewIdx = i;
 		}
 
 		if (showSelection) {
@@ -153,21 +158,27 @@ MenuBar {
 				rootMenuBar.insertMenu(target, openMenu);
 			}
 			for (let i = 0; i < rootMenuBar.count; i++) {
-				if (rootMenuBar.menuAt(i) === viewMenu) viewIdx = i;
-				if (rootMenuBar.menuAt(i) === editMenu) editIdx = i;
+				if (rootMenuBar.menuAt(i) === viewMenu)
+					viewIdx = i;
+				if (rootMenuBar.menuAt(i) === editMenu)
+					editIdx = i;
 			}
 			if (editIdx === -1) {
 				let target = (viewIdx !== -1) ? viewIdx : rootMenuBar.count;
 				rootMenuBar.insertMenu(target, editMenu);
 			}
 		} else {
-			if (openIdx !== -1) rootMenuBar.removeMenu(openMenu);
-			if (editIdx !== -1) rootMenuBar.removeMenu(editMenu);
+			if (openIdx !== -1)
+				rootMenuBar.removeMenu(openMenu);
+			if (editIdx !== -1)
+				rootMenuBar.removeMenu(editMenu);
 		}
 
 		for (let i = 0; i < rootMenuBar.count; i++) {
-			if (rootMenuBar.menuAt(i) === viewMenu) viewIdx = i;
-			if (rootMenuBar.menuAt(i) === imageMenu) imageIdx = i;
+			if (rootMenuBar.menuAt(i) === viewMenu)
+				viewIdx = i;
+			if (rootMenuBar.menuAt(i) === imageMenu)
+				imageIdx = i;
 		}
 
 		if (showImage) {
@@ -176,7 +187,8 @@ MenuBar {
 				rootMenuBar.insertMenu(target, imageMenu);
 			}
 		} else {
-			if (imageIdx !== -1) rootMenuBar.removeMenu(imageMenu);
+			if (imageIdx !== -1)
+				rootMenuBar.removeMenu(imageMenu);
 		}
 	}
 
@@ -201,8 +213,7 @@ MenuBar {
 		}
 	}
 
-	property Menu openMenu: Menu
-	{
+	property Menu openMenu: Menu {
 		id: openMenu
 
 		title: qsTr("Open")
@@ -220,8 +231,7 @@ MenuBar {
 		}
 	}
 
-	property Menu editMenu: Menu
-	{
+	property Menu editMenu: Menu {
 		id: editMenu
 
 		title: qsTr("Edit")
@@ -237,8 +247,7 @@ MenuBar {
 			action: rootMenuBar.actionManager ? rootMenuBar.actionManager.cutAction : null
 		}
 
-		MenuSeparator {
-		}
+		MenuSeparator {}
 
 		MenuItem {
 			action: rootMenuBar.actionManager ? rootMenuBar.actionManager.duplicateAction : null
@@ -248,23 +257,20 @@ MenuBar {
 			action: rootMenuBar.actionManager ? rootMenuBar.actionManager.linkAction : null
 		}
 
-		MenuSeparator {
-		}
+		MenuSeparator {}
 
 		MenuItem {
 			action: rootMenuBar.actionManager ? rootMenuBar.actionManager.renameAction : null
 		}
 
-		MenuSeparator {
-		}
+		MenuSeparator {}
 
 		MenuItem {
 			action: rootMenuBar.actionManager ? rootMenuBar.actionManager.trashAction : null
 		}
 	}
 
-	property Menu imageMenu: Menu
-	{
+	property Menu imageMenu: Menu {
 		id: imageMenu
 
 		title: qsTr("Image")
@@ -308,11 +314,9 @@ MenuBar {
 				text: qsTr("Here")
 				onClicked: rootMenuBar.isLocal = true
 			}
-
 		}
 
-		MenuSeparator {
-		}
+		MenuSeparator {}
 
 		MenuItem {
 
@@ -347,13 +351,10 @@ MenuBar {
 					Layout.preferredWidth: charMetrics.width
 					horizontalAlignment: Text.AlignHCenter
 				}
-
 			}
-
 		}
 
-		MenuSeparator {
-		}
+		MenuSeparator {}
 
 		MenuItem {
 
@@ -383,13 +384,10 @@ MenuBar {
 					ToolTip.visible: hovered
 					objectName: "LIST"
 				}
-
 			}
-
 		}
 
-		MenuSeparator {
-		}
+		MenuSeparator {}
 
 		Menu {
 			title: qsTr("Sort By...")
@@ -439,11 +437,9 @@ MenuBar {
 					checked: rootMenuBar.config ? rootMenuBar.config.sort_date_mode === 2 : false
 					objectName: "ACCESSED"
 				}
-
 			}
 
-			MenuSeparator {
-			}
+			MenuSeparator {}
 
 			MenuItem {
 				text: qsTr("Alphabetical")
@@ -472,13 +468,10 @@ MenuBar {
 					checked: rootMenuBar.config ? rootMenuBar.config.sort_alpha_mode === 1 : false
 					objectName: "FILENAMES"
 				}
-
 			}
-
 		}
 
-		MenuSeparator {
-		}
+		MenuSeparator {}
 
 		Menu {
 			title: qsTr("Stash")
@@ -504,9 +497,6 @@ MenuBar {
 						rootMenuBar.config.set(rootMenuBar.directory.path, "VIEW", "StashDotFiles", String(checked), rootMenuBar.isLocal);
 				}
 			}
-
 		}
-
 	}
-
 }

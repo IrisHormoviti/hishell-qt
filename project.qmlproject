@@ -1,0 +1,13 @@
+import QmlProject
+
+Project {
+    importPaths: [
+        ".",
+        "/usr/lib/qt6/qml",
+        "/usr/lib/x86_64-linux-gnu/qt6/qml"
+    ]
+
+    QmlFiles {
+        directory: "."
+    }
+}

@@ -1,11 +1,10 @@
-pragma
-ComponentBehavior: Bound
+pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
-import "Hishell"
+import Hishell
 
 Item {
 	id: fileSlot
@@ -21,6 +20,9 @@ Item {
 	property bool labelBesideIcon: gridSize < 32
 	property bool fixedWidth: true
 	property bool showIcon: icon !== ""
+
+	property int animationDuration: 200
+	property int animationEase: Easing.OutCubic
 
 	// Selection state passed from FolderView
 	property bool selectionActive: false
@@ -60,10 +62,19 @@ Item {
 	implicitWidth: contentLayout.implicitWidth + (fileSlot.labelBesideIcon && fileSlot.showIcon ? Kirigami.Units.largeSpacing * 2 : Kirigami.Units.smallSpacing * 2)
 	implicitHeight: contentLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
 	opacity: (fileSlot.dragDropHandler && fileSlot.dragDropHandler.active_dragged_paths && fileSlot.dragDropHandler.active_dragged_paths.indexOf(fileSlot.path) !== -1) ? 0.2 : 1.0
+	scale: mouseArea.pressed ? 0.85 : (mouseArea.containsMouse ? 1.08 : 1.0)
 
 	Behavior on opacity {
 		NumberAnimation {
-			duration: 100
+			duration: fileSlot.animationDuration
+			easing.type: fileSlot.animationEase
+		}
+	}
+
+	Behavior on scale {
+		NumberAnimation {
+			duration: fileSlot.animationDuration
+			easing.type: fileSlot.animationEase
 		}
 	}
 
@@ -178,7 +189,8 @@ Item {
 		opacity: fileSlot.isSelected ? 0.25 : 0.0
 		Behavior on opacity {
 			NumberAnimation {
-				duration: 120
+				duration: fileSlot.animationDuration
+				easing.type: fileSlot.animationEase
 			}
 		}
 	}
@@ -194,7 +206,8 @@ Item {
 		opacity: fileSlot.isSelected ? 1.0 : 0.0
 		Behavior on opacity {
 			NumberAnimation {
-				duration: 120
+				duration: fileSlot.animationDuration
+				easing.type: fileSlot.animationEase
 			}
 		}
 	}
@@ -211,7 +224,8 @@ Item {
 		visible: fileSlot.selectionActive
 		Behavior on color {
 			ColorAnimation {
-				duration: 120
+				duration: fileSlot.animationDuration
+				easing.type: fileSlot.animationEase
 			}
 		}
 
@@ -222,7 +236,8 @@ Item {
 			opacity: fileSlot.isSelected ? 1.0 : 0.4
 			Behavior on opacity {
 				NumberAnimation {
-					duration: 120
+					duration: fileSlot.animationDuration
+					easing.type: fileSlot.animationEase
 				}
 			}
 		}
@@ -240,7 +255,8 @@ Item {
 		border.width: 2
 		Behavior on opacity {
 			NumberAnimation {
-				duration: 120
+				duration: fileSlot.animationDuration
+				easing.type: fileSlot.animationEase
 			}
 		}
 	}
@@ -378,6 +394,7 @@ Item {
 	MouseArea {
 		id: mouseArea
 		anchors.fill: parent
+		hoverEnabled: true
 		acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
 		pressAndHoldInterval: 600
 
@@ -430,8 +447,7 @@ Item {
 			let selectedMap = {};
 			try {
 				selectedMap = JSON.parse(mgr ? mgr.selected_paths : "{}");
-			} catch (e) {
-			}
+			} catch (e) {}
 
 			if (mgr && mgr.selected_count > 1 && selectedMap[mainPath]) {
 				const keys = Object.keys(selectedMap);

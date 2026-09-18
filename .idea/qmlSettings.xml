@@ -6,6 +6,12 @@
         <entry key="">
           <value>
             <PerProfileState>
+              <option name="myExtraQmlPaths">
+                <list>
+                  <option value="$PROJECT_DIR$/qml" />
+                  <option value="/usr/lib/qt6/qml" />
+                </list>
+              </option>
               <option name="myLSPCompletionEnabled" value="true" />
               <option name="myLSPEnabled" value="true" />
             </PerProfileState>

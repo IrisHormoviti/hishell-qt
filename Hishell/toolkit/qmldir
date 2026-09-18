@@ -1,0 +1,6 @@
+module Hishell.toolkit
+
+CloseButton CloseButton.qml
+MenuBar MenuBar.qml
+PathBar PathBar.qml
+Spacer Spacer.qml

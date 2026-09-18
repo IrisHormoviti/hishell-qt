@@ -47,8 +47,8 @@ pub struct DragDropHandler {
 	drag_action: qt_property!(String; NOTIFY drag_action_changed),
 	drag_cursor_x: qt_property!(f64; NOTIFY drag_cursor_changed),
 	drag_cursor_y: qt_property!(f64; NOTIFY drag_cursor_changed),
-	tooltip_active: qt_property!(bool; NOTIFY tooltip_active_changed),
-	active_dragged_paths: qt_property!(QVariantList; NOTIFY active_dragged_paths_changed),
+	tooltip_active: qt_property!(bool; WRITE set_tooltip_active NOTIFY tooltip_active_changed),
+	active_dragged_paths: qt_property!(QVariantList; WRITE set_active_dragged_paths NOTIFY active_dragged_paths_changed),
 	drag_icon_width: qt_property!(f64),
 	drag_icon_height: qt_property!(f64),
 	drag_uris: qt_property!(QVariantList),
@@ -177,6 +177,18 @@ pub struct DragDropHandler {
 }
 
 impl DragDropHandler {
+	pub fn set_tooltip_active(&mut self, val: bool) {
+		if self.tooltip_active != val {
+			self.tooltip_active = val;
+			self.tooltip_active_changed();
+		}
+	}
+
+	pub fn set_active_dragged_paths(&mut self, val: QVariantList) {
+		self.active_dragged_paths = val;
+		self.active_dragged_paths_changed();
+	}
+
 	fn now_ms() -> u64 {
 		SystemTime::now()
 			.duration_since(UNIX_EPOCH)

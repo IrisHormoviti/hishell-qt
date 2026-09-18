@@ -4,6 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
+use trash;
 
 static INTERNAL_CLIPBOARD: Lazy<Mutex<Option<(Vec<String>, bool)>>> =
 	Lazy::new(|| Mutex::new(None));
