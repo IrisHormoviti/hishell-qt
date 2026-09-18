@@ -61,7 +61,7 @@ Item {
 	implicitWidth: contentLayout.implicitWidth + (fileSlot.labelBesideIcon && fileSlot.showIcon ? Kirigami.Units.largeSpacing * 2 : Kirigami.Units.smallSpacing * 2)
 	implicitHeight: contentLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
 	opacity: (fileSlot.dragDropHandler && fileSlot.dragDropHandler.active_dragged_paths && fileSlot.dragDropHandler.active_dragged_paths.indexOf(fileSlot.path) !== -1) ? 0.2 : 1.0
-	scale: mouseArea.pressed ? 0.85 : (mouseArea.containsMouse ? 1.08 : 1.0)
+	scale: mouseArea.pressed ? 0.9 : (mouseArea.containsMouse ? 1.05 : 1.0)
 
 	Behavior on opacity {
 		NumberAnimation {
@@ -213,13 +213,19 @@ Item {
 
 	// Checkmark
 	Rectangle {
+		Kirigami.Theme.colorSet: Kirigami.Theme.Selection
+		Kirigami.Theme.inherit: false
+
 		anchors.top: parent.top
 		anchors.right: parent.right
-		anchors.margins: 4
+		anchors.margins: Kirigami.Units.mediumSpacing
 		width: Kirigami.Units.iconSizes.small
 		height: Kirigami.Units.iconSizes.small
-		radius: width / 2
-		color: fileSlot.isSelected ? Kirigami.Theme.highlightColor : "transparent"
+		radius: Kirigami.Units.cornerRadius
+		border.width: 2
+		border.color: Kirigami.Theme.backgroundColor
+		color: fileSlot.isSelected ? Kirigami.Theme.backgroundColor : "transparent"
+		opacity: fileSlot.isSelected ? 1.0 : 0.4
 		visible: fileSlot.selectionActive
 		Behavior on color {
 			ColorAnimation {
@@ -232,7 +238,8 @@ Item {
 			anchors.fill: parent
 			anchors.margins: 2
 			source: "emblem-ok-symbolic"
-			opacity: fileSlot.isSelected ? 1.0 : 0.4
+			opacity: fileSlot.isSelected ? 1.0 : 0
+
 			Behavior on opacity {
 				NumberAnimation {
 					duration: fileSlot.animationDuration
@@ -396,7 +403,7 @@ Item {
 		anchors.fill: parent
 		hoverEnabled: true
 		acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
-		pressAndHoldInterval: 600
+		pressAndHoldInterval: 300
 
 		drag.target: localDragTarget
 		drag.axis: Drag.XAndYAxis
