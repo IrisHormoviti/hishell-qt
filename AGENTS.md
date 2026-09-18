@@ -65,7 +65,7 @@
 - Always validate with `cargo run` and a timeout before considering a task done.
 
 - **qmlls**: QML language linter for validating `.qml` files and catching syntax/type errors early
-    - Usage: `qmlls --no-cmake-calls -E QML_IMPORT_PATH=/home/iris/Projects/hishell-qt:qml -I . qml/*.qml`
+    - Usage: `timeout 30s qmlls --no-cmake-calls -E QML_IMPORT_PATH=/home/iris/Projects/hishell-qt:qml -I . Hishell/*.qml; status=$status; printf 'qmlls exit: %s\n' $status; exit $status`
     - No output = no errors found
 
 - **cargo fmt**: Ensures consistent tab indentation across all files (Rust and QML)

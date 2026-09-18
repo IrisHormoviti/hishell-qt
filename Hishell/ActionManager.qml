@@ -35,6 +35,7 @@ Item {
 	// ── Open Group (Fileslots) ──
 	property alias openAction: openAction
 	property alias openWithAction: openWithAction
+	readonly property var openGroup: [openAction, openWithAction]
 
 	Action {
 		id: openAction
@@ -77,6 +78,7 @@ Item {
 	property alias linkAction: linkAction
 	property alias renameAction: renameAction
 	property alias trashAction: trashAction
+	readonly property var editGroup: [copyAction, cutAction, duplicateAction, linkAction, renameAction, trashAction]
 
 	Action {
 		id: copyAction
@@ -179,6 +181,8 @@ Item {
 
 	// ── Folder Edit Group (Folders in General) ──
 	property alias pasteAction: pasteAction
+	property alias pasteIntoAction: pasteIntoAction
+	property string pasteTargetPath: ""
 
 	function pasteInto(destPath) {
 		const dest = destPath || (actionManager.directory ? actionManager.directory.path : "");
@@ -201,9 +205,23 @@ Item {
 		}
 	}
 
+	Action {
+		id: pasteIntoAction
+		text: {
+			const name = actionManager.pasteTargetPath.substring(actionManager.pasteTargetPath.lastIndexOf("/") + 1);
+			return name.length > 0 ? qsTr("Paste into %1").arg(name) : qsTr("Paste");
+		}
+		icon.name: "edit-paste"
+		enabled: true
+		onTriggered: actionManager.pasteInto(actionManager.pasteTargetPath)
+	}
+
 	// ── Inside Folder Group (New) ──
 	property alias newFolderAction: newFolderAction
 	property alias newTextFileAction: newTextFileAction
+	readonly property var folderActionsGroup: [pasteIntoAction]
+	readonly property var newActionsGroup: [newFolderAction, newTextFileAction]
+	readonly property var backgroundActionsGroup: [pasteAction, newFolderAction, newTextFileAction]
 
 	Action {
 		id: newFolderAction
@@ -234,6 +252,7 @@ Item {
 	// ── MIME Specific Group (Image) ──
 	property alias rotateClockwiseAction: rotateClockwiseAction
 	property alias rotateCounterClockwiseAction: rotateCounterClockwiseAction
+	readonly property var imageGroup: [rotateClockwiseAction, rotateCounterClockwiseAction]
 
 	Action {
 		id: rotateClockwiseAction

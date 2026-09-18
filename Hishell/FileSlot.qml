@@ -14,7 +14,10 @@ Item {
 	required property string title
 	required property int index
 	required property bool is_dir
+	required property bool is_symlink
 	required property DragDropHandler dragDropHandler
+	property ActionManager actionManager
+	property FileManager fileManager
 
 	property int gridSize: 64
 	property bool labelBesideIcon: gridSize < 32
@@ -55,8 +58,15 @@ Item {
 	// Emitted on press and hold
 	signal pressHeld(string path, int idx)
 
-	// Emitted on right click context menu request
-	signal contextMenuRequested(string path, bool isDir, int mouseX, int mouseY, var mouseAreaItem)
+	// Emitted before the attached context menu opens.
+	signal contextMenuRequested(string path, int idx)
+
+	ContextMenu.menu: ShellContextMenu {
+		actionManager: fileSlot.actionManager
+		targetIsDir: fileSlot.is_dir
+		targetIsImage: fileSlot.fileManager && fileSlot.fileManager.is_image_file(fileSlot.path)
+	}
+	ContextMenu.onRequested: fileSlot.contextMenuRequested(fileSlot.path, fileSlot.index)
 
 	implicitWidth: contentLayout.implicitWidth + (fileSlot.labelBesideIcon && fileSlot.showIcon ? Kirigami.Units.largeSpacing * 2 : Kirigami.Units.smallSpacing * 2)
 	implicitHeight: contentLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
@@ -168,6 +178,7 @@ Item {
 				return t;
 			}
 			textFormat: Text.StyledText
+			font.italic: fileSlot.is_symlink
 			color: Kirigami.Theme.textColor
 			wrapMode: Text.Wrap
 			maximumLineCount: 2
@@ -402,7 +413,7 @@ Item {
 		id: mouseArea
 		anchors.fill: parent
 		hoverEnabled: true
-		acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+		acceptedButtons: Qt.LeftButton | Qt.MiddleButton
 		pressAndHoldInterval: 300
 
 		drag.target: localDragTarget
@@ -550,7 +561,6 @@ Item {
 
 		onClicked: mouse => {
 			if (mouse.button === Qt.RightButton) {
-				fileSlot.contextMenuRequested(fileSlot.path, fileSlot.is_dir, mouse.x, mouse.y, mouseArea);
 				return;
 			}
 			if (mouse.button === Qt.MiddleButton)

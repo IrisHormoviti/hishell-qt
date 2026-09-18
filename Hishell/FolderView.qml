@@ -149,18 +149,22 @@ Item {
 		anchors.margins: 4
 	}
 
+	ContextMenu.menu: ShellContextMenu {
+		actionManager: folderView.rootWindow.actionManager
+		targetIsBackground: true
+	}
+
 	MouseArea {
 		id: backgroundMouseArea
 		anchors.fill: parent
 		z: -1
-		acceptedButtons: Qt.LeftButton | Qt.RightButton
+		acceptedButtons: Qt.LeftButton
+
 		onClicked: mouse => {
-			folderView.forceActiveFocus();
-			if (folderView.rootWindow && folderView.rootWindow.selectionManager)
-				folderView.rootWindow.selectionManager.clear();
-			if (mouse.button === Qt.RightButton) {
-				const pt = backgroundMouseArea.mapToItem(folderView, mouse.x, mouse.y);
-				folderContextMenu.popup(folderView, pt.x, pt.y);
+			if (mouse.button === Qt.LeftButton) {
+				folderView.forceActiveFocus();
+				if (folderView.rootWindow && folderView.rootWindow.selectionManager)
+					folderView.rootWindow.selectionManager.clear();
 			}
 		}
 	}
@@ -310,15 +314,11 @@ Item {
 			width: flickable.contentWidth
 			height: flickable.contentHeight
 			z: 0
-			acceptedButtons: Qt.LeftButton | Qt.RightButton
+			acceptedButtons: Qt.LeftButton
 			onClicked: mouse => {
 				folderView.forceActiveFocus();
 				if (folderView.rootWindow && folderView.rootWindow.selectionManager)
 					folderView.rootWindow.selectionManager.clear();
-				if (mouse.button === Qt.RightButton) {
-					const pt = flickableBgMouseArea.mapToItem(folderView, mouse.x, mouse.y);
-					folderContextMenu.popup(folderView, pt.x, pt.y);
-				}
 			}
 		}
 
@@ -334,6 +334,8 @@ Item {
 
 				delegate: FileSlot {
 					property SelectionManager selectionManager: folderView.rootWindow ? folderView.rootWindow.selectionManager : null
+					actionManager: folderView.rootWindow ? folderView.rootWindow.actionManager : null
+					fileManager: folderView.rootWindow ? folderView.rootWindow.fileManager : null
 
 					dragDropHandler: folderView.rootWindow ? folderView.rootWindow.dragDropHandler : null
 					width: labelBesideIcon ? Kirigami.Units.gridUnit * 10 : gridSize + Kirigami.Units.gridUnit * 3
@@ -393,7 +395,7 @@ Item {
 						}
 					}
 
-					onContextMenuRequested: (slotPath, isDir, mx, my, mouseAreaItem) => {
+					onContextMenuRequested: (slotPath, slotIndex) => {
 						folderView.forceActiveFocus();
 						if (selectionManager) {
 							let isAlreadySelected = false;
@@ -402,11 +404,9 @@ Item {
 							} catch (e) {}
 							if (!isAlreadySelected) {
 								selectionManager.clear();
-								selectionManager.toggle_selection(slotPath, index);
+								selectionManager.toggle_selection(slotPath, slotIndex);
 							}
 						}
-						const isImg = (folderView.rootWindow && folderView.rootWindow.fileManager) ? folderView.rootWindow.fileManager.is_image_file(slotPath) : false;
-						itemContextMenu.openForSlot(slotPath, isDir, isImg, mx, my, mouseAreaItem);
 					}
 				}
 			}
@@ -484,124 +484,6 @@ Item {
 				onClicked: if (folderView.rootWindow && folderView.rootWindow.selectionManager)
 					folderView.rootWindow.selectionManager.deselect_all()
 			}
-		}
-	}
-
-	Menu {
-		id: folderContextMenu
-		popupType: Popup.Window
-
-		MenuItem {
-			text: folderView.folderName === "/" ? qsTr("Paste") : qsTr("Paste into %1").arg(folderView.folderName)
-			icon.name: "edit-paste"
-			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.pasteAction : null
-		}
-
-		MenuSeparator {}
-
-		Menu {
-			title: qsTr("New")
-			icon.name: "document-new"
-
-			MenuItem {
-				text: qsTr("Folder")
-				icon.name: "folder-add"
-				action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.newFolderAction : null
-			}
-
-			MenuItem {
-				text: qsTr("Text File")
-				icon.name: "text-plain"
-				action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.newTextFileAction : null
-			}
-		}
-	}
-
-	Menu {
-		id: itemContextMenu
-		popupType: Popup.Window
-
-		property string targetSlotPath: ""
-		property bool targetSlotIsDir: false
-		property bool targetSlotIsImage: false
-
-		function openForSlot(slotPath, isDir, isImg, mx, my, mouseAreaItem) {
-			targetSlotPath = slotPath;
-			targetSlotIsDir = isDir;
-			targetSlotIsImage = isImg;
-			popup();
-		}
-
-		MenuItem {
-			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.openAction : null
-		}
-
-		MenuItem {
-			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.openWithAction : null
-			visible: !itemContextMenu.targetSlotIsDir
-			height: visible ? implicitHeight : 0
-		}
-
-		MenuSeparator {}
-
-		MenuItem {
-			visible: itemContextMenu.targetSlotIsDir
-			height: visible ? implicitHeight : 0
-			text: {
-				const name = itemContextMenu.targetSlotPath.substring(itemContextMenu.targetSlotPath.lastIndexOf("/") + 1);
-				return name.length > 0 ? qsTr("Paste into %1").arg(name) : qsTr("Paste");
-			}
-			icon.name: "edit-paste"
-			onTriggered: {
-				if (folderView.rootWindow && folderView.rootWindow.actionManager) {
-					folderView.rootWindow.actionManager.pasteInto(itemContextMenu.targetSlotPath);
-				}
-			}
-		}
-
-		MenuItem {
-			visible: itemContextMenu.targetSlotIsImage
-			height: visible ? implicitHeight : 0
-			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.rotateClockwiseAction : null
-		}
-
-		MenuItem {
-			visible: itemContextMenu.targetSlotIsImage
-			height: visible ? implicitHeight : 0
-			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.rotateCounterClockwiseAction : null
-		}
-
-		MenuSeparator {
-			visible: itemContextMenu.targetSlotIsDir || itemContextMenu.targetSlotIsImage
-			height: visible ? implicitHeight : 0
-		}
-
-		MenuItem {
-			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.copyAction : null
-		}
-
-		MenuItem {
-			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.cutAction : null
-		}
-
-		MenuItem {
-			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.duplicateAction : null
-		}
-
-		MenuItem {
-			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.linkAction : null
-		}
-
-		MenuSeparator {}
-
-		MenuItem {
-			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.renameAction : null
-		}
-
-		MenuSeparator {}
-
-		MenuItem {
-			action: folderView.rootWindow && folderView.rootWindow.actionManager ? folderView.rootWindow.actionManager.trashAction : null
 		}
 	}
 }

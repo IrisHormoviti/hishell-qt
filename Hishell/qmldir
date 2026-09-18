@@ -2,6 +2,7 @@ module Hishell
 typeinfo plugins.qmltypes
 
 ActionManager ActionManager.qml
+ShellContextMenu ShellContextMenu.qml
 FileSlot FileSlot.qml
 FolderView FolderView.qml
 LayoutEngine LayoutEngine.qml
