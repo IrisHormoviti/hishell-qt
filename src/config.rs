@@ -1,5 +1,6 @@
+use crate::bridge::ffi::{Config, QString};
 use crate::config_parser::{ConfigParser, ConfigValue};
-use qmetaobject::prelude::*;
+use core::pin::Pin;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -54,55 +55,79 @@ pub fn get_image(path: &Path, section: &str, key: &str) -> Option<String> {
 	None
 }
 
-#[derive(QObject, Default)]
-pub struct Config {
-	base: qt_base_class!(trait QObject),
-
-	pub title: qt_property!(String; NOTIFY config_changed),
-	pub icon: qt_property!(String; NOTIFY config_changed),
-	pub wallpaper: qt_property!(String; NOTIFY config_changed),
-
-	pub top_layout: qt_property!(String; NOTIFY config_changed),
-	pub middle_layout: qt_property!(String; NOTIFY config_changed),
-	pub bottom_layout: qt_property!(String; NOTIFY config_changed),
-	pub header_layout: qt_property!(String; NOTIFY config_changed),
-
-	pub grid_size: qt_property!(u16; NOTIFY config_changed),
-	pub show_labels: qt_property!(bool; NOTIFY config_changed),
-	pub view_mode: qt_property!(u8; NOTIFY config_changed),
-	pub sort: qt_property!(u8; NOTIFY config_changed),
-	pub sort_date_mode: qt_property!(u8; NOTIFY config_changed),
-	pub sort_alpha_mode: qt_property!(u8; NOTIFY config_changed),
-	pub stash_shown: qt_property!(bool; NOTIFY config_changed),
-	pub stash_dotfiles: qt_property!(bool; NOTIFY config_changed),
-	pub arbitrary_placement: qt_property!(bool; NOTIFY config_changed),
-	pub arbitrary_positions: qt_property!(String; NOTIFY config_changed),
-
-	config_changed: qt_signal!(),
-
-	load: qt_method!(
-		pub fn load(&mut self, path: String) {
-			self._load(Path::new(&path));
-		}
-	),
-
-	set: qt_method!(
-		pub fn set(
-			&mut self,
-			path: String,
-			section: String,
-			key: String,
-			value: String,
-			local: bool,
-		) {
-			self._set(Path::new(&path), &section, &key, &value, local);
-			self.config_changed();
-		}
-	),
+pub struct ConfigRust {
+	pub title: QString,
+	pub icon: QString,
+	pub wallpaper: QString,
+	pub top_layout: QString,
+	pub middle_layout: QString,
+	pub bottom_layout: QString,
+	pub header_layout: QString,
+	pub grid_size: u16,
+	pub show_labels: bool,
+	pub view_mode: u8,
+	pub sort: u8,
+	pub sort_date_mode: u8,
+	pub sort_alpha_mode: u8,
+	pub stash_shown: bool,
+	pub stash_dotfiles: bool,
+	pub arbitrary_placement: bool,
+	pub arbitrary_positions: QString,
 }
 
-impl Config {
-	pub fn _load(&mut self, path: &Path) {
+impl Default for ConfigRust {
+	fn default() -> Self {
+		Self {
+			title: QString::default(),
+			icon: QString::default(),
+			wallpaper: QString::default(),
+			top_layout: QString::from("[]"),
+			middle_layout: QString::from(r#"["./"]"#),
+			bottom_layout: QString::from("[]"),
+			header_layout: QString::from(r#"["toolkit/PathBar", "toolkit/Spacer", "toolkit/MenuBar"]"#),
+			grid_size: 64,
+			show_labels: true,
+			view_mode: 0,
+			sort: 0,
+			sort_date_mode: 0,
+			sort_alpha_mode: 0,
+			stash_shown: false,
+			stash_dotfiles: true,
+			arbitrary_placement: false,
+			arbitrary_positions: QString::from("{}"),
+		}
+	}
+}
+
+impl ConfigRust {
+	pub fn load(self: Pin<&mut Config>, path: &QString) {
+		let path_str = path.to_string();
+		self._load(Path::new(&path_str));
+	}
+
+	pub fn set(
+		mut self: Pin<&mut Config>,
+		path: &QString,
+		section: &QString,
+		key: &QString,
+		value: &QString,
+		local: bool,
+	) {
+		let path_str = path.to_string();
+		let sec_str = section.to_string();
+		let key_str = key.to_string();
+		let val_str = value.to_string();
+		self.as_mut()._set(
+			Path::new(&path_str),
+			&sec_str,
+			&key_str,
+			&val_str,
+			local,
+		);
+		self.config_changed();
+	}
+
+	pub fn _load(mut self: Pin<&mut Config>, path: &Path) {
 		let parsed = load_path(path);
 
 		let get = |sec, key| parsed.get(sec).and_then(|s| s.get(key));
@@ -135,53 +160,56 @@ impl Config {
 			_ => default.to_string(),
 		};
 
-		self.title = get_str("DISPLAY", "Title", "").into();
-		self.icon = get_image(path, "DISPLAY", "Icon")
-			.map(|p| {
-				if p.starts_with('/') {
-					format!("file://{}", p)
-				} else {
-					p
-				}
-			})
-			.unwrap_or_default();
-		self.wallpaper = get_image(path, "DISPLAY", "Wallpaper")
-			.map(|p| {
-				if p.starts_with('/') {
-					format!("file://{}", p)
-				} else {
-					p
-				}
-			})
-			.unwrap_or_default();
+		let title_val = QString::from(&get_str("DISPLAY", "Title", ""));
+		let icon_val = QString::from(
+			&get_image(path, "DISPLAY", "Icon")
+				.map(|p| {
+					if p.starts_with('/') {
+						format!("file://{}", p)
+					} else {
+						p
+					}
+				})
+				.unwrap_or_default(),
+		);
+		let wallpaper_val = QString::from(
+			&get_image(path, "DISPLAY", "Wallpaper")
+				.map(|p| {
+					if p.starts_with('/') {
+						format!("file://{}", p)
+					} else {
+						p
+					}
+				})
+				.unwrap_or_default(),
+		);
 
-		self.top_layout = get_json("LAYOUT", "Top", "[]").into();
-		self.middle_layout = get_json("LAYOUT", "Middle", r#"["./"]"#).into();
-		self.bottom_layout = get_json("LAYOUT", "Bottom", "[]").into();
-		self.header_layout = get_json(
+		let top_layout_val = QString::from(&get_json("LAYOUT", "Top", "[]"));
+		let middle_layout_val = QString::from(&get_json("LAYOUT", "Middle", r#"["./"]"#));
+		let bottom_layout_val = QString::from(&get_json("LAYOUT", "Bottom", "[]"));
+		let header_layout_val = QString::from(&get_json(
 			"LAYOUT",
 			"Header",
 			r#"["toolkit/PathBar", "toolkit/Spacer", "toolkit/MenuBar"]"#,
-		)
-		.into();
+		));
 
-		self.grid_size = get_num("VIEW", "GridSize", 64) as u16;
-		self.show_labels = get_bool("VIEW", "ShowLabels", true);
+		let grid_size_val = get_num("VIEW", "GridSize", 64) as u16;
+		let show_labels_val = get_bool("VIEW", "ShowLabels", true);
 
-		self.view_mode = match get_str("VIEW", "ViewMode", "GRID").to_uppercase().as_str() {
+		let view_mode_val = match get_str("VIEW", "ViewMode", "GRID").to_uppercase().as_str() {
 			"GRID" => 0,
 			"LIST" => 1,
 			_ => 0,
 		};
 
-		self.sort = match get_str("VIEW", "Sort", "NEWEST").to_uppercase().as_str() {
+		let sort_val = match get_str("VIEW", "Sort", "NEWEST").to_uppercase().as_str() {
 			"NEWEST" => 0,
 			"OLDEST" => 1,
 			"ALPHABETICAL" => 2,
 			_ => 0,
 		};
 
-		self.sort_date_mode = match get_str("VIEW", "SortDateMode", "MODIFIED")
+		let sort_date_mode_val = match get_str("VIEW", "SortDateMode", "MODIFIED")
 			.to_uppercase()
 			.as_str()
 		{
@@ -191,7 +219,7 @@ impl Config {
 			_ => 0,
 		};
 
-		self.sort_alpha_mode = match get_str("VIEW", "SortAlphaMode", "TITLES")
+		let sort_alpha_mode_val = match get_str("VIEW", "SortAlphaMode", "TITLES")
 			.to_uppercase()
 			.as_str()
 		{
@@ -200,14 +228,33 @@ impl Config {
 			_ => 0,
 		};
 
-		self.stash_shown = get_bool("VIEW", "StashShown", false);
-		self.stash_dotfiles = get_bool("VIEW", "StashDotFiles", true);
-		self.arbitrary_positions = get_json("VIEW", "ArbitraryPlacementPositions", "{}").into();
+		let stash_shown_val = get_bool("VIEW", "StashShown", false);
+		let stash_dotfiles_val = get_bool("VIEW", "StashDotFiles", true);
+		let arbitrary_placement_val = get_bool("VIEW", "ArbitraryPlacement", false);
+		let arbitrary_positions_val = QString::from(&get_json("VIEW", "ArbitraryPlacementPositions", "{}"));
+
+		self.as_mut().set_title(title_val);
+		self.as_mut().set_icon(icon_val);
+		self.as_mut().set_wallpaper(wallpaper_val);
+		self.as_mut().set_top_layout(top_layout_val);
+		self.as_mut().set_middle_layout(middle_layout_val);
+		self.as_mut().set_bottom_layout(bottom_layout_val);
+		self.as_mut().set_header_layout(header_layout_val);
+		self.as_mut().set_grid_size(grid_size_val);
+		self.as_mut().set_show_labels(show_labels_val);
+		self.as_mut().set_view_mode(view_mode_val);
+		self.as_mut().set_sort(sort_val);
+		self.as_mut().set_sort_date_mode(sort_date_mode_val);
+		self.as_mut().set_sort_alpha_mode(sort_alpha_mode_val);
+		self.as_mut().set_stash_shown(stash_shown_val);
+		self.as_mut().set_stash_dotfiles(stash_dotfiles_val);
+		self.as_mut().set_arbitrary_placement(arbitrary_placement_val);
+		self.as_mut().set_arbitrary_positions(arbitrary_positions_val);
 
 		self.config_changed();
 	}
 
-	pub fn _set(&mut self, path: &Path, section: &str, key: &str, value: &str, local: bool) {
+	pub fn _set(mut self: Pin<&mut Config>, path: &Path, section: &str, key: &str, value: &str, local: bool) {
 		let file_path = if local {
 			path.join(".meta")
 		} else {

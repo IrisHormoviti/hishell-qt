@@ -1,4 +1,5 @@
-use qmetaobject::{QVariantList, prelude::*};
+use crate::bridge::ffi::{DragDropHandler, QString, QStringList, QVariant};
+use core::pin::Pin;
 use serde_json;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -40,153 +41,144 @@ struct ShakePosition {
 	time: u64,
 }
 
-#[derive(QObject, Default)]
-pub struct DragDropHandler {
-	base: qt_base_class!(trait QObject),
+pub struct DragDropHandlerRust {
+	pub drag_action: QString,
+	pub drag_cursor_x: f64,
+	pub drag_cursor_y: f64,
+	pub tooltip_active: bool,
+	pub active_dragged_paths: QStringList,
+	pub drag_icon_width: f64,
+	pub drag_icon_height: f64,
+	pub drag_uris: QStringList,
+	pub drag_source_paths: QStringList,
+	pub item_count: i32,
+	pub file_title: QString,
+	pub file_icon: QString,
+	pub dragged_slot: QVariant,
+	pub shake_history_json: QString,
+	pub window: QVariant,
+}
 
-	drag_action: qt_property!(String; NOTIFY drag_action_changed),
-	drag_cursor_x: qt_property!(f64; NOTIFY drag_cursor_changed),
-	drag_cursor_y: qt_property!(f64; NOTIFY drag_cursor_changed),
-	tooltip_active: qt_property!(bool; WRITE set_tooltip_active NOTIFY tooltip_active_changed),
-	active_dragged_paths: qt_property!(QVariantList; WRITE set_active_dragged_paths NOTIFY active_dragged_paths_changed),
-	drag_icon_width: qt_property!(f64),
-	drag_icon_height: qt_property!(f64),
-	drag_uris: qt_property!(QVariantList),
-	drag_source_paths: qt_property!(QVariantList),
-	item_count: qt_property!(i32),
-	file_title: qt_property!(String),
-	file_icon: qt_property!(String),
-	dragged_slot: qt_property!(QVariant),
-	shake_history_json: qt_property!(String),
-	window: qt_property!(QVariant),
-
-	drag_action_changed: qt_signal!(),
-	drag_cursor_changed: qt_signal!(),
-	tooltip_active_changed: qt_signal!(),
-	active_dragged_paths_changed: qt_signal!(),
-
-	track_mouse_shake: qt_method!(
-		fn track_mouse_shake(&mut self, x: f64, y: f64) {
-			self.drag_cursor_x = x;
-			self.drag_cursor_y = y;
-			self.drag_cursor_changed();
-
-			let now = Self::now_ms();
-			let mut history: Vec<ShakePosition> = self.get_shake_positions();
-			history.push(ShakePosition { x, y, time: now });
-
-			history.retain(|p| now.saturating_sub(p.time) <= 450);
-			self.set_shake_positions(&history);
-
-			if history.len() < 5 {
-				return;
-			}
-
-			let mut reversals = 0;
-			let mut last_dx = 0.0;
-			let mut last_dy = 0.0;
-			let mut total_distance = 0.0;
-
-			for i in 1..history.len() {
-				let dx = history[i].x - history[i - 1].x;
-				let dy = history[i].y - history[i - 1].y;
-				let dist = (dx * dx + dy * dy).sqrt();
-				total_distance += dist;
-
-				if (dx > 3.0 && last_dx < -3.0) || (dx < -3.0 && last_dx > 3.0) {
-					reversals += 1;
-				} else if (dy > 3.0 && last_dy < -3.0) || (dy < -3.0 && last_dy > 3.0) {
-					reversals += 1;
-				}
-
-				if dx.abs() > 2.0 {
-					last_dx = dx;
-				}
-				if dy.abs() > 2.0 {
-					last_dy = dy;
-				}
-			}
-
-			if reversals >= 3 && total_distance > 50.0 {
-				self.cycle_drag_action();
-				self.set_shake_positions(&[]);
-			}
+impl Default for DragDropHandlerRust {
+	fn default() -> Self {
+		Self {
+			drag_action: QString::from("copy"),
+			drag_cursor_x: 0.0,
+			drag_cursor_y: 0.0,
+			tooltip_active: false,
+			active_dragged_paths: QStringList::default(),
+			drag_icon_width: 0.0,
+			drag_icon_height: 0.0,
+			drag_uris: QStringList::default(),
+			drag_source_paths: QStringList::default(),
+			item_count: 0,
+			file_title: QString::default(),
+			file_icon: QString::default(),
+			dragged_slot: QVariant::default(),
+			shake_history_json: QString::default(),
+			window: QVariant::default(),
 		}
-	),
-
-	cycle_drag_action: qt_method!(
-		fn cycle_drag_action(&mut self) {
-			let current = self.get_drag_action_enum();
-			let next = current.next();
-			self.drag_action = next.as_str().into();
-			self.drag_action_changed();
-		}
-	),
-
-	reset: qt_method!(
-		fn reset(&mut self) {
-			self.active_dragged_paths = Default::default();
-			self.active_dragged_paths_changed();
-			self.tooltip_active = false;
-			self.tooltip_active_changed();
-			self.set_shake_positions(&[]);
-		}
-	),
-
-	set_drag_data: qt_method!(
-		fn set_drag_data(
-			&mut self,
-			_main_path: String,
-			uris: QVariantList,
-			source_paths: QVariantList,
-			item_count: i32,
-			file_title: String,
-			file_icon: String,
-		) {
-			self.drag_uris = uris;
-			self.drag_source_paths = source_paths;
-			self.item_count = item_count;
-			self.file_title = file_title.into();
-			self.file_icon = file_icon.into();
-			self.drag_action = "copy".into();
-			self.drag_action_changed();
-		}
-	),
-
-	begin_drag: qt_method!(
-		fn begin_drag(&mut self, _image_url: String, width: f64, height: f64) {
-			self.drag_icon_width = width;
-			self.drag_icon_height = height;
-			self.active_dragged_paths = self.drag_source_paths.clone();
-			self.active_dragged_paths_changed();
-			self.tooltip_active = true;
-			self.tooltip_active_changed();
-		}
-	),
-
-	end_drag: qt_method!(
-		fn end_drag(&mut self) {
-			self.active_dragged_paths = Default::default();
-			self.active_dragged_paths_changed();
-			self.tooltip_active = false;
-			self.tooltip_active_changed();
-			self.drag_icon_width = 0.0;
-			self.drag_icon_height = 0.0;
-		}
-	),
+	}
 }
 
 impl DragDropHandler {
-	pub fn set_tooltip_active(&mut self, val: bool) {
-		if self.tooltip_active != val {
-			self.tooltip_active = val;
-			self.tooltip_active_changed();
+	pub fn track_mouse_shake(mut self: Pin<&mut Self>, x: f64, y: f64) {
+		self.as_mut().set_drag_cursor_x(x);
+		self.as_mut().set_drag_cursor_y(y);
+		self.as_mut().drag_cursor_changed();
+
+		let now = Self::now_ms();
+		let mut history: Vec<ShakePosition> = self.get_shake_positions();
+		history.push(ShakePosition { x, y, time: now });
+
+		history.retain(|p| now.saturating_sub(p.time) <= 450);
+		self.as_mut().set_shake_positions(&history);
+
+		if history.len() < 5 {
+			return;
+		}
+
+		let mut reversals = 0;
+		let mut last_dx = 0.0;
+		let mut last_dy = 0.0;
+		let mut total_distance = 0.0;
+
+		for i in 1..history.len() {
+			let dx = history[i].x - history[i - 1].x;
+			let dy = history[i].y - history[i - 1].y;
+			let dist = (dx * dx + dy * dy).sqrt();
+			total_distance += dist;
+
+			if (dx > 3.0 && last_dx < -3.0) || (dx < -3.0 && last_dx > 3.0) {
+				reversals += 1;
+			} else if (dy > 3.0 && last_dy < -3.0) || (dy < -3.0 && last_dy > 3.0) {
+				reversals += 1;
+			}
+
+			if dx.abs() > 2.0 {
+				last_dx = dx;
+			}
+			if dy.abs() > 2.0 {
+				last_dy = dy;
+			}
+		}
+
+		if reversals >= 3 && total_distance > 50.0 {
+			self.as_mut().cycle_drag_action();
+			self.as_mut().set_shake_positions(&[]);
 		}
 	}
 
-	pub fn set_active_dragged_paths(&mut self, val: QVariantList) {
-		self.active_dragged_paths = val;
-		self.active_dragged_paths_changed();
+	pub fn cycle_drag_action(mut self: Pin<&mut Self>) {
+		let current = self.get_drag_action_enum();
+		let next = current.next();
+		self.as_mut().set_drag_action(QString::from(next.as_str()));
+		self.as_mut().drag_action_changed();
+	}
+
+	pub fn reset(mut self: Pin<&mut Self>) {
+		self.as_mut().set_active_dragged_paths(QStringList::default());
+		self.as_mut().active_dragged_paths_changed();
+		self.as_mut().set_tooltip_active(false);
+		self.as_mut().tooltip_active_changed();
+		self.as_mut().set_shake_positions(&[]);
+	}
+
+	pub fn set_drag_data(
+		mut self: Pin<&mut Self>,
+		_main_path: &QString,
+		uris: &QStringList,
+		source_paths: &QStringList,
+		item_count: i32,
+		file_title: &QString,
+		file_icon: &QString,
+	) {
+		self.as_mut().set_drag_uris(uris.clone());
+		self.as_mut().set_drag_source_paths(source_paths.clone());
+		self.as_mut().set_item_count(item_count);
+		self.as_mut().set_file_title(file_title.clone());
+		self.as_mut().set_file_icon(file_icon.clone());
+		self.as_mut().set_drag_action(QString::from("copy"));
+		self.as_mut().drag_action_changed();
+	}
+
+	pub fn begin_drag(mut self: Pin<&mut Self>, _image_url: &QString, width: f64, height: f64) {
+		self.as_mut().set_drag_icon_width(width);
+		self.as_mut().set_drag_icon_height(height);
+		let sources = self.rust().drag_source_paths.clone();
+		self.as_mut().set_active_dragged_paths(sources);
+		self.as_mut().active_dragged_paths_changed();
+		self.as_mut().set_tooltip_active(true);
+		self.as_mut().tooltip_active_changed();
+	}
+
+	pub fn end_drag(mut self: Pin<&mut Self>) {
+		self.as_mut().set_active_dragged_paths(QStringList::default());
+		self.as_mut().active_dragged_paths_changed();
+		self.as_mut().set_tooltip_active(false);
+		self.as_mut().tooltip_active_changed();
+		self.as_mut().set_drag_icon_width(0.0);
+		self.as_mut().set_drag_icon_height(0.0);
 	}
 
 	fn now_ms() -> u64 {
@@ -197,7 +189,7 @@ impl DragDropHandler {
 	}
 
 	fn get_drag_action_enum(&self) -> DragAction {
-		match self.drag_action.to_string().as_str() {
+		match self.drag_action().to_string().as_str() {
 			"move" => DragAction::Move,
 			"link" => DragAction::Link,
 			_ => DragAction::Copy,
@@ -205,13 +197,15 @@ impl DragDropHandler {
 	}
 
 	fn get_shake_positions(&self) -> Vec<ShakePosition> {
-		if self.shake_history_json.is_empty() {
+		let json = self.shake_history_json().to_string();
+		if json.is_empty() {
 			return Vec::new();
 		}
-		serde_json::from_str(&self.shake_history_json).unwrap_or_default()
+		serde_json::from_str(&json).unwrap_or_default()
 	}
 
-	fn set_shake_positions(&mut self, positions: &[ShakePosition]) {
-		self.shake_history_json = serde_json::to_string(positions).unwrap_or_default();
+	fn set_shake_positions(mut self: Pin<&mut Self>, positions: &[ShakePosition]) {
+		let json = serde_json::to_string(positions).unwrap_or_default();
+		self.as_mut().set_shake_history_json(QString::from(&json));
 	}
 }

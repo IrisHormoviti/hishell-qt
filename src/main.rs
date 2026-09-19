@@ -1,3 +1,4 @@
+mod bridge;
 mod config;
 mod config_parser;
 mod desktop_entry;
@@ -11,66 +12,50 @@ mod portal;
 mod selection_manager;
 mod thumbnailer;
 
-use crate::config::Config;
-use crate::directory::Directory;
-use crate::dragdrop_handler::DragDropHandler;
-use crate::drop_validator::DropValidator;
-use crate::file_manager::FileManager;
-use crate::path_utils::PathUtils;
-use crate::selection_manager::SelectionManager;
-use qmetaobject::prelude::*;
-use std::ffi::CStr;
+pub use config::ConfigRust;
+pub use directory::DirectoryRust;
+pub use dragdrop_handler::DragDropHandlerRust;
+pub use drop_validator::DropValidatorRust;
+pub use file_manager::FileManagerRust;
+pub use path_utils::PathUtils;
+pub use selection_manager::SelectionManagerRust;
+
+use cxx_qt_lib::{QGuiApplication, QQmlApplicationEngine, QString, QUrl};
+
+fn percent_decode(input: &str) -> String {
+	let mut out = String::with_capacity(input.len());
+	let bytes = input.as_bytes();
+	let mut i = 0;
+	while i < bytes.len() {
+		if bytes[i] == b'%' && i + 2 < bytes.len() {
+			if let (Some(h), Some(l)) = (hex_char(bytes[i + 1]), hex_char(bytes[i + 2])) {
+				out.push((h * 16 + l) as char);
+				i += 3;
+				continue;
+			}
+		}
+		out.push(bytes[i] as char);
+		i += 1;
+	}
+	out
+}
+
+fn hex_char(b: u8) -> Option<u8> {
+	match b {
+		b'0'..=b'9' => Some(b - b'0'),
+		b'a'..=b'f' => Some(b - b'a' + 10),
+		b'A'..=b'F' => Some(b - b'A' + 10),
+		_ => None,
+	}
+}
 
 fn main() {
-	static IMPORT_NAME: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Hishell\0") };
-	static CONFIG_STR: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Config\0") };
-	static DIRECTORY_STR: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Directory\0") };
-	static FILEMANAGER_STR: &CStr =
-		unsafe { CStr::from_bytes_with_nul_unchecked(b"FileManager\0") };
-	static DRAGDROPHANDLER_STR: &CStr =
-		unsafe { CStr::from_bytes_with_nul_unchecked(b"DragDropHandler\0") };
-	static DROPVALIDATOR_STR: &CStr =
-		unsafe { CStr::from_bytes_with_nul_unchecked(b"DropValidator\0") };
-	static PATHUTILS_STR: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"PathUtils\0") };
-	// static LAYOUTENGINE_STR: &CStr =
-	// 	unsafe { CStr::from_bytes_with_nul_unchecked(b"HishellLayoutEngine\0") };
-	static SELECTIONMANAGER_STR: &CStr =
-		unsafe { CStr::from_bytes_with_nul_unchecked(b"SelectionManager\0") };
-
 	let args: Vec<String> = std::env::args().collect();
-	fn percent_decode(input: &str) -> String {
-		let mut out = String::with_capacity(input.len());
-		let bytes = input.as_bytes();
-		let mut i = 0;
-		while i < bytes.len() {
-			if bytes[i] == b'%' && i + 2 < bytes.len() {
-				if let (Some(h), Some(l)) = (hex_char(bytes[i + 1]), hex_char(bytes[i + 2])) {
-					out.push((h * 16 + l) as char);
-					i += 3;
-					continue;
-				}
-			}
-			out.push(bytes[i] as char);
-			i += 1;
-		}
-		out
-	}
-
-	fn hex_char(b: u8) -> Option<u8> {
-		match b {
-			b'0'..=b'9' => Some(b - b'0'),
-			b'a'..=b'f' => Some(b - b'a' + 10),
-			b'A'..=b'F' => Some(b - b'A' + 10),
-			_ => None,
-		}
-	}
 
 	let initial_path = if args.len() > 1 {
 		let mut arg = args[1].clone();
 		if arg.starts_with("file://") {
-			let rest = &arg[7..];
-			let decoded = percent_decode(rest);
-			arg = decoded;
+			arg = percent_decode(&arg[7..]);
 		}
 		if arg == "~" || arg.starts_with("~/") {
 			if let Ok(home) = std::env::var("HOME") {
@@ -94,77 +79,34 @@ fn main() {
 			.map(|cwd| cwd.to_string_lossy().to_string())
 			.unwrap_or_else(|_| ".".to_string())
 	};
+
 	println!("startup initial_path={}", initial_path);
 
-	qmetaobject::qml_register_type::<Config>(IMPORT_NAME, 1, 0, CONFIG_STR);
-	qmetaobject::qml_register_type::<Directory>(IMPORT_NAME, 1, 0, DIRECTORY_STR);
-	qmetaobject::qml_register_type::<FileManager>(IMPORT_NAME, 1, 0, FILEMANAGER_STR);
-	qmetaobject::qml_register_type::<DragDropHandler>(IMPORT_NAME, 1, 0, DRAGDROPHANDLER_STR);
-	qmetaobject::qml_register_type::<DropValidator>(IMPORT_NAME, 1, 0, DROPVALIDATOR_STR);
-	qmetaobject::qml_register_type::<PathUtils>(IMPORT_NAME, 1, 0, PATHUTILS_STR);
-	qmetaobject::qml_register_type::<SelectionManager>(IMPORT_NAME, 1, 0, SELECTIONMANAGER_STR);
+	let mut app = QGuiApplication::new();
+	let mut engine = QQmlApplicationEngine::new();
 
-	let main_qml_path = std::path::Path::new("Hishell/ShellWindow.qml");
-
-	let mut engine = QmlEngine::new();
-	engine.set_property(
-		"initialPath".into(),
-		QVariant::from(QString::from(initial_path.as_str())),
-	);
-	let find_qml = || -> Option<std::path::PathBuf> {
-		let cwd = std::env::current_dir().ok();
-		if let Some(c) = cwd {
-			let p = c.join(main_qml_path);
-			if p.exists() {
-				return Some(std::fs::canonicalize(&p).unwrap_or_else(|_| p.clone()));
-			}
-		}
-
-		if let Ok(mut dir) = std::env::current_exe().and_then(|e| {
-			e.parent()
-				.map(|p| p.to_path_buf())
-				.ok_or(std::io::Error::new(std::io::ErrorKind::Other, "no parent"))
-		}) {
-			for _ in 0..6 {
-				let candidate = dir.join(main_qml_path);
-				if candidate.exists() {
-					return Some(
-						std::fs::canonicalize(candidate)
-							.unwrap_or_else(|_| dir.join(main_qml_path)),
-					);
-				}
-				if let Some(p) = dir.parent() {
-					dir = p.to_path_buf();
-				} else {
-					break;
-				}
-			}
-		}
-
-		let sys_candidates = [
-			std::path::PathBuf::from("/usr/share/hishell-qt").join(main_qml_path),
-			std::path::PathBuf::from("/usr/share/hishell-qt").join(main_qml_path),
-			std::path::PathBuf::from("/usr/share/qml/hishell-qt").join(main_qml_path),
-		];
-		for c in sys_candidates.iter() {
-			if c.exists() {
-				return Some(std::fs::canonicalize(c).unwrap_or_else(|_| c.clone()));
-			}
-		}
-
-		None
-	};
-
-	if let Some(qml_path) = find_qml() {
-		println!("loading QML from {}", qml_path.display());
-		if let Some(root_dir) = qml_path.parent().and_then(|p| p.parent()) {
-			engine.add_import_path(root_dir.to_string_lossy().to_string().into());
-		}
-		engine.load_file(qml_path.to_string_lossy().to_string().into());
-	} else {
-		engine.add_import_path(".".into());
-		engine.load_file(main_qml_path.to_string_lossy().to_string().into());
+	// Expose initial path to QML via context property
+	let name = QString::from("initialPath");
+	let value = QString::from(initial_path.as_str());
+	if let Some(engine_pin) = engine.as_mut() {
+		bridge::ffi::set_context_property(engine_pin, &name, &value);
 	}
 
-	engine.exec();
+	// Load QML entry point
+	let main_qml = "Hishell/ShellWindow.qml";
+	let qml_path = std::path::Path::new(main_qml);
+	let url = if qml_path.exists() {
+		let abs = std::fs::canonicalize(qml_path).unwrap_or_else(|_| qml_path.to_path_buf());
+		format!("file://{}", abs.display())
+	} else {
+		format!("file://{}/{}", std::env::current_dir().unwrap_or_default().display(), main_qml)
+	};
+
+	if let Some(engine_pin) = engine.as_mut() {
+		engine_pin.load(&QUrl::from(url.as_str()));
+	}
+
+	if let Some(app_pin) = app.as_mut() {
+		app_pin.exec();
+	}
 }

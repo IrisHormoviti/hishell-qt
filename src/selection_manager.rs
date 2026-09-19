@@ -1,144 +1,131 @@
-use qmetaobject::{QVariantList, prelude::*};
-use serde_json;
+use cxx_qt_lib::{QStringList, QString, QVariant};
 use std::collections::HashMap;
 
-#[derive(QObject, Default)]
-pub struct SelectionManager {
-	base: qt_base_class!(trait QObject),
-
-	selection_active: qt_property!(bool; NOTIFY selection_changed),
-	selected_paths: qt_property!(String; NOTIFY selection_changed),
-	selected_count: qt_property!(i32; NOTIFY selection_changed),
-	last_selected_index: qt_property!(i32; NOTIFY selection_changed),
-	// NEW PROPERTY: Consolidated status for QML binding
-	selection_status: qt_property!(String; NOTIFY selection_changed),
-	window: qt_property!(QVariant),
-
-	selection_changed: qt_signal!(),
-
-	enter_selection_mode: qt_method!(
-		fn enter_selection_mode(&mut self) {
-			if !self.selection_active {
-				self.selection_active = true;
-				// Update status when entering selection mode
-				self.update_status();
-				self.selection_changed();
-			}
-		}
-	),
-
-	exit_selection_mode: qt_method!(
-		fn exit_selection_mode(&mut self) {
-			if self.selection_active {
-				self.selection_active = false;
-				self.selected_paths = String::new();
-				self.selected_count = 0;
-				self.last_selected_index = -1;
-				// Update status when exiting selection mode
-				self.update_status();
-				self.selection_changed();
-			}
-		}
-	),
-
-	toggle_selection: qt_method!(
-		fn toggle_selection(&mut self, path: String, idx: i32) {
-			if !self.selection_active {
-				self.enter_selection_mode();
-			}
-			let mut sel = self.get_selected_paths();
-			if sel.contains_key(&path) {
-				sel.remove(&path);
-			} else {
-				sel.insert(path, true);
-			}
-			self.selected_count = sel.len() as i32;
-			self.selected_paths = serde_json::to_string(&sel).unwrap_or_default();
-			self.last_selected_index = idx;
-			// Update status after changing selection
-			self.update_status();
-
-			if self.selected_count == 0 {
-				self.exit_selection_mode();
-			} else {
-				self.selection_changed();
-			}
-		}
-	),
-
-	range_select: qt_method!(
-		fn range_select(&mut self, from_idx: i32, to_idx: i32) {
-			self.last_selected_index = from_idx.max(to_idx);
-			// Update status when changing selection range
-			self.update_status();
-		}
-	),
-
-	select_all: qt_method!(
-		fn select_all(&mut self, paths: QVariantList) {
-			self.selection_active = true;
-			let mut sel = HashMap::new();
-			for p in &paths {
-				let path_str = p.to_qstring().to_string();
-				if !path_str.is_empty() {
-					sel.insert(path_str, true);
-				}
-			}
-			self.selected_count = sel.len() as i32;
-			self.selected_paths = serde_json::to_string(&sel).unwrap_or_default();
-			self.update_status();
-			self.selection_changed();
-		}
-	),
-
-	deselect_all: qt_method!(
-		fn deselect_all(&mut self) {
-			self.exit_selection_mode();
-		}
-	),
-
-	get_selected_path_list: qt_method!(
-		fn get_selected_path_list(&self) -> QVariantList {
-			let mut list = QVariantList::default();
-			for key in self.get_selected_paths().keys() {
-				list.push(QString::from(key.as_str()).into());
-			}
-			list
-		}
-	),
-
-	clear: qt_method!(
-		fn clear(&mut self) {
-			self.exit_selection_mode();
-		}
-	),
+pub struct SelectionManagerRust {
+	pub selection_active: bool,
+	pub selected_paths: QString,
+	pub selected_count: i32,
+	pub last_selected_index: i32,
+	pub selection_status: QString,
+	pub window: QVariant,
 }
 
-impl SelectionManager {
-	// Helper function to generate the consolidated status JSON
-	fn update_status(&mut self) {
-		let mut status = HashMap::new();
-		status.insert(
-			"count".to_string(),
-			serde_json::Value::from(self.selected_count),
-		);
-		status.insert(
-			"paths".to_string(),
-			serde_json::Value::from(
-				self.get_selected_paths()
-					.keys()
-					.cloned()
-					.collect::<Vec<String>>(),
-			),
-		);
-		// This new property will hold the consolidated status JSON string
-		self.selection_status = serde_json::to_string(&status).unwrap_or_default();
+impl Default for SelectionManagerRust {
+	fn default() -> Self {
+		Self {
+			selection_active: false,
+			selected_paths: QString::default(),
+			selected_count: 0,
+			last_selected_index: -1,
+			selection_status: QString::default(),
+			window: QVariant::default(),
+		}
 	}
+}
 
+impl SelectionManagerRust {
 	fn get_selected_paths(&self) -> HashMap<String, bool> {
-		if self.selected_paths.is_empty() {
+		let s = self.selected_paths.to_string();
+		if s.is_empty() {
 			return HashMap::new();
 		}
-		serde_json::from_str(&self.selected_paths).unwrap_or_default()
+		serde_json::from_str(&s).unwrap_or_default()
+	}
+
+	fn update_status(&mut self) {
+		let paths: Vec<String> = self.get_selected_paths().into_keys().collect();
+		let mut status = serde_json::Map::new();
+		status.insert("count".to_string(), serde_json::Value::from(self.selected_count));
+		status.insert("paths".to_string(), serde_json::Value::from(paths));
+		let json = serde_json::to_string(&status).unwrap_or_default();
+		self.selection_status = QString::from(json.as_str());
+	}
+}
+
+use crate::bridge::ffi::SelectionManager;
+use std::pin::Pin;
+
+impl SelectionManager {
+	pub fn enter_selection_mode(mut self: Pin<&mut Self>) {
+		if !*self.selection_active() {
+			self.as_mut().set_selection_active(true);
+			self.rust_mut().update_status();
+			self.as_mut().selection_changed();
+		}
+	}
+
+	pub fn exit_selection_mode(mut self: Pin<&mut Self>) {
+		if *self.selection_active() {
+			self.as_mut().set_selection_active(false);
+			self.as_mut().set_selected_paths(QString::default());
+			self.as_mut().set_selected_count(0);
+			self.as_mut().set_last_selected_index(-1);
+			self.rust_mut().update_status();
+			self.as_mut().selection_changed();
+		}
+	}
+
+	pub fn toggle_selection(mut self: Pin<&mut Self>, path: &QString, idx: i32) {
+		if !*self.selection_active() {
+			self.as_mut().enter_selection_mode();
+		}
+		let mut sel = self.rust().get_selected_paths();
+		let path_str = path.to_string();
+		if sel.contains_key(&path_str) {
+			sel.remove(&path_str);
+		} else {
+			sel.insert(path_str, true);
+		}
+		let count = sel.len() as i32;
+		let json = serde_json::to_string(&sel).unwrap_or_default();
+		self.as_mut().set_selected_count(count);
+		self.as_mut().set_selected_paths(QString::from(json.as_str()));
+		self.as_mut().set_last_selected_index(idx);
+		self.rust_mut().update_status();
+		if count == 0 {
+			self.exit_selection_mode();
+		} else {
+			self.as_mut().selection_changed();
+		}
+	}
+
+	pub fn range_select(mut self: Pin<&mut Self>, from_idx: i32, to_idx: i32) {
+		self.as_mut().set_last_selected_index(from_idx.max(to_idx));
+		self.rust_mut().update_status();
+	}
+
+	pub fn select_all(mut self: Pin<&mut Self>, paths: &QStringList) {
+		self.as_mut().set_selection_active(true);
+		let mut sel = HashMap::new();
+        
+		for path in paths.into_iter() {
+			let path_str = path.to_string();
+			if !path_str.is_empty() {
+				sel.insert(path_str, true);
+			}
+		}
+
+		let count = sel.len() as i32;
+		let json = serde_json::to_string(&sel).unwrap_or_default();
+		self.as_mut().set_selected_count(count);
+		self.as_mut().set_selected_paths(QString::from(json.as_str()));
+		self.rust_mut().update_status();
+		self.as_mut().selection_changed();
+	}
+
+	pub fn deselect_all(self: Pin<&mut Self>) {
+		self.exit_selection_mode();
+	}
+
+	pub fn get_selected_path_list(&self) -> QStringList {
+		let mut list = QStringList::default();
+		for key in self.rust().get_selected_paths().into_keys() {
+			list.append(QString::from(key.as_str()));
+		}
+		list
+	}
+
+	pub fn clear(self: Pin<&mut Self>) {
+		self.exit_selection_mode();
 	}
 }
