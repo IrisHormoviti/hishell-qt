@@ -49,11 +49,6 @@ Item {
 		}
 	}
 
-	// Emitted on navigation
-	signal navigate(string targetPath, var sourceSlot)
-
-	signal openWindow(string targetPath, var sourceSlot)
-
 	// Emitted when toggling this item's selection
 	signal selectionToggled(string path, int idx)
 
@@ -203,7 +198,6 @@ Item {
 
 	// ── Selection ──
 
-	// Accent color bg
 	Rectangle {
 		anchors.fill: parent
 		anchors.margins: 2
@@ -218,7 +212,6 @@ Item {
 		}
 	}
 
-	// Border
 	Rectangle {
 		anchors.fill: parent
 		anchors.margins: 2
@@ -235,7 +228,6 @@ Item {
 		}
 	}
 
-	// Checkmark
 	Rectangle {
 		Kirigami.Theme.colorSet: Kirigami.Theme.Selection
 		Kirigami.Theme.inherit: false
@@ -398,7 +390,8 @@ Item {
 				if (typeof fileSlot.dragDropHandler !== 'undefined')
 					fileSlot.dragDropHandler.tooltip_active = false;
 				Qt.callLater(function () {
-					fileSlot.navigate(targetPath, fileSlot);
+					if (fileSlot.actionManager && fileSlot.actionManager.openAction)
+						fileSlot.actionManager.openAction.execute(targetPath, fileSlot, false);
 				});
 			}
 		}
@@ -436,7 +429,6 @@ Item {
 		property bool dragStarted: false
 		property bool isPressAndHoldActive: false
 
-		// Track where the mouse was first pressed down
 		property int startX: 0
 		property int startY: 0
 		property bool dragInitiated: false
@@ -450,7 +442,6 @@ Item {
 			}
 		}
 
-		// Reusable function to assemble metadata only when a true drag is confirmed
 		function initiateDragPayload(mouse) {
 			if (dragInitiated)
 				return;
@@ -576,9 +567,11 @@ Item {
 			if (mouse.button === Qt.RightButton) {
 				return;
 			}
-			if (mouse.button === Qt.MiddleButton)
-				fileSlot.openWindow(fileSlot.path, fileSlot);
-			return;
+			if (mouse.button === Qt.MiddleButton) {
+				if (fileSlot.actionManager && fileSlot.actionManager.openAction)
+					fileSlot.actionManager.openAction.execute(fileSlot.path, fileSlot, true);
+				return;
+			}
 
 			if (fileSlot.selectionActive) {
 				if (mouse.modifiers & Qt.ShiftModifier) {
@@ -589,7 +582,8 @@ Item {
 			} else if (mouse.modifiers & Qt.ControlModifier) {
 				fileSlot.selectionToggled(fileSlot.path, fileSlot.index);
 			} else {
-				fileSlot.navigate(fileSlot.path, fileSlot);
+				if (fileSlot.actionManager && fileSlot.actionManager.openAction)
+					fileSlot.actionManager.openAction.execute(fileSlot.path, fileSlot, false);
 			}
 		}
 	}

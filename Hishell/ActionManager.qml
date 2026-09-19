@@ -32,6 +32,47 @@ Item {
 		return true;
 	}
 
+	// ── Animation Component ──
+
+	Item {
+		id: externalOpenAnimation
+		z: 100
+		visible: false
+		transformOrigin: Item.Center
+
+		Image {
+			id: externalOpenImage
+			anchors.fill: parent
+			fillMode: Image.PreserveAspectFit
+			smooth: true
+		}
+
+		ParallelAnimation {
+			id: externalOpenAnimationEffect
+			NumberAnimation {
+				target: externalOpenAnimation
+				property: "scale"
+				from: 1.0
+				to: 1.5
+				duration: 220
+				easing.type: Easing.OutCubic
+			}
+			NumberAnimation {
+				target: externalOpenAnimation
+				property: "opacity"
+				from: 1.0
+				to: 0.0
+				duration: 220
+				easing.type: Easing.InCubic
+			}
+			onFinished: {
+				externalOpenAnimation.visible = false;
+				externalOpenAnimation.scale = 1.0;
+				externalOpenAnimation.opacity = 1.0;
+			}
+		}
+	}
+
 	// ── Open Group ──
 	property alias openAction: openAction
 	property alias openWithAction: openWithAction
@@ -43,18 +84,36 @@ Item {
 		icon.name: "document-open"
 		shortcut: "Return"
 		enabled: actionManager.hasSelection
+
+		function execute(targetPath: string, sourceItem: Item, inNewWindow = false) {
+			const paths = targetPath !== "" ? [targetPath] : actionManager.selectedPathList;
+			for (let i = 0; i < paths.length; i++) {
+				const p = paths[i];
+				if (sourceItem) {
+					const globalPos = sourceItem.mapToItem(actionManager, 0, 0);
+					sourceItem.grabToImage(result => {
+						externalOpenAnimation.x = globalPos.x;
+						externalOpenAnimation.y = globalPos.y;
+						externalOpenAnimation.width = sourceItem.width;
+						externalOpenAnimation.height = sourceItem.height;
+						externalOpenImage.source = result.url;
+						externalOpenAnimation.visible = true;
+						externalOpenAnimationEffect.restart();
+					});
+				}
+
+				if (inNewWindow) {
+					actionManager.directory.open_in_new_window(p);
+				} else {
+					actionManager.directory.open_path(p);
+				}
+			}
+		}
+
 		onTriggered: {
 			if (!actionManager.hasSelection)
 				return;
-			const paths = actionManager.selectedPathList;
-			for (let i = 0; i < paths.length; i++) {
-				const p = paths[i];
-				if (actionManager.fileManager && actionManager.fileManager.is_directory(p)) {
-					actionManager.directory.open_path(p);
-				} else if (actionManager.fileManager) {
-					actionManager.fileManager.open_file(p);
-				}
-			}
+			execute("", null, false);
 		}
 	}
 
@@ -70,8 +129,7 @@ Item {
 			} else {
 				const paths = actionManager.selectedPathList;
 				for (let i = 0; i < paths.length; i++) {
-					const p = paths[i];
-					actionManager.directory.open_in_new_window(p);
+					openAction.execute(paths[i], null, true);
 				}
 			}
 		}

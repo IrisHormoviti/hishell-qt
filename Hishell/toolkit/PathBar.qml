@@ -83,9 +83,9 @@ RowLayout {
 				Layout.preferredWidth: implicitWidth
 				Layout.preferredHeight: implicitHeight
 
-				onNavigate: targetPath => {
-					pathBar.directory.path = targetPath;
-				}
+				// onNavigate: targetPath => {
+				// 	pathBar.directory.path = targetPath;
+				// }
 			}
 		}
 	}

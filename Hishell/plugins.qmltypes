@@ -97,6 +97,81 @@ Module {
 		}
 	}
 	Component {
+		name: "DragDropHandler"
+		prototype: "QObject"
+		exports: ["Hishell/DragDropHandler 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Property { name: "drag_action"; type: "string"; isReadonly: true }
+		Property { name: "drag_cursor_x"; type: "double"; isReadonly: true }
+		Property { name: "drag_cursor_y"; type: "double"; isReadonly: true }
+		Property { name: "tooltip_active"; type: "bool" }
+		Property { name: "active_dragged_paths"; type: "QVariantList" }
+		Property { name: "drag_icon_width"; type: "double"; isReadonly: true }
+		Property { name: "drag_icon_height"; type: "double"; isReadonly: true }
+		Property { name: "drag_uris"; type: "QVariantList"; isReadonly: true }
+		Property { name: "drag_source_paths"; type: "QVariantList"; isReadonly: true }
+		Property { name: "item_count"; type: "int"; isReadonly: true }
+		Property { name: "file_title"; type: "string"; isReadonly: true }
+		Property { name: "file_icon"; type: "string"; isReadonly: true }
+		Property { name: "dragged_slot"; type: "QVariant"; isReadonly: true }
+		Property { name: "shake_history_json"; type: "string"; isReadonly: true }
+		Property { name: "window"; type: "QVariant"; isReadonly: true }
+		Signal { name: "drag_action_changed" }
+		Signal { name: "drag_cursor_changed" }
+		Signal { name: "tooltip_active_changed" }
+		Signal { name: "active_dragged_paths_changed" }
+		Method {
+			name: "track_mouse_shake"
+			type: "void"
+			Parameter { name: "x"; type: "double" }
+			Parameter { name: "y"; type: "double" }
+		}
+		Method {
+			name: "cycle_drag_action"
+			type: "void"
+		}
+		Method {
+			name: "reset"
+			type: "void"
+		}
+		Method {
+			name: "set_drag_data"
+			type: "void"
+			Parameter { name: "main_path"; type: "string" }
+			Parameter { name: "uris"; type: "QVariantList" }
+			Parameter { name: "source_paths"; type: "QVariantList" }
+			Parameter { name: "item_count"; type: "int" }
+			Parameter { name: "file_title"; type: "string" }
+			Parameter { name: "file_icon"; type: "string" }
+		}
+		Method {
+			name: "begin_drag"
+			type: "void"
+			Parameter { name: "image_url"; type: "string" }
+			Parameter { name: "width"; type: "double" }
+			Parameter { name: "height"; type: "double" }
+		}
+		Method {
+			name: "end_drag"
+			type: "void"
+		}
+	}
+	Component {
+		name: "DropValidator"
+		prototype: "QObject"
+		exports: ["Hishell/DropValidator 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Property { name: "window"; type: "QVariant"; isReadonly: true }
+		Method {
+			name: "is_drop_valid"
+			type: "bool"
+			Parameter { name: "target_path"; type: "string" }
+			Parameter { name: "source_paths"; type: "QVariantList" }
+		}
+	}
+	Component {
 		name: "FileManager"
 		prototype: "QObject"
 		exports: ["Hishell/FileManager 1.0"]
@@ -207,81 +282,6 @@ Module {
 			name: "is_directory"
 			type: "bool"
 			Parameter { name: "path"; type: "string" }
-		}
-	}
-	Component {
-		name: "DragDropHandler"
-		prototype: "QObject"
-		exports: ["Hishell/DragDropHandler 1.0"]
-		exportMetaObjectRevisions: [256]
-
-		Property { name: "drag_action"; type: "string"; isReadonly: true }
-		Property { name: "drag_cursor_x"; type: "double"; isReadonly: true }
-		Property { name: "drag_cursor_y"; type: "double"; isReadonly: true }
-		Property { name: "tooltip_active"; type: "bool" }
-		Property { name: "active_dragged_paths"; type: "QVariantList" }
-		Property { name: "drag_icon_width"; type: "double"; isReadonly: true }
-		Property { name: "drag_icon_height"; type: "double"; isReadonly: true }
-		Property { name: "drag_uris"; type: "QVariantList"; isReadonly: true }
-		Property { name: "drag_source_paths"; type: "QVariantList"; isReadonly: true }
-		Property { name: "item_count"; type: "int"; isReadonly: true }
-		Property { name: "file_title"; type: "string"; isReadonly: true }
-		Property { name: "file_icon"; type: "string"; isReadonly: true }
-		Property { name: "dragged_slot"; type: "QVariant"; isReadonly: true }
-		Property { name: "shake_history_json"; type: "string"; isReadonly: true }
-		Property { name: "window"; type: "QVariant"; isReadonly: true }
-		Signal { name: "drag_action_changed" }
-		Signal { name: "drag_cursor_changed" }
-		Signal { name: "tooltip_active_changed" }
-		Signal { name: "active_dragged_paths_changed" }
-		Method {
-			name: "track_mouse_shake"
-			type: "void"
-			Parameter { name: "x"; type: "double" }
-			Parameter { name: "y"; type: "double" }
-		}
-		Method {
-			name: "cycle_drag_action"
-			type: "void"
-		}
-		Method {
-			name: "reset"
-			type: "void"
-		}
-		Method {
-			name: "set_drag_data"
-			type: "void"
-			Parameter { name: "main_path"; type: "string" }
-			Parameter { name: "uris"; type: "QVariantList" }
-			Parameter { name: "source_paths"; type: "QVariantList" }
-			Parameter { name: "item_count"; type: "int" }
-			Parameter { name: "file_title"; type: "string" }
-			Parameter { name: "file_icon"; type: "string" }
-		}
-		Method {
-			name: "begin_drag"
-			type: "void"
-			Parameter { name: "image_url"; type: "string" }
-			Parameter { name: "width"; type: "double" }
-			Parameter { name: "height"; type: "double" }
-		}
-		Method {
-			name: "end_drag"
-			type: "void"
-		}
-	}
-	Component {
-		name: "DropValidator"
-		prototype: "QObject"
-		exports: ["Hishell/DropValidator 1.0"]
-		exportMetaObjectRevisions: [256]
-
-		Property { name: "window"; type: "QVariant"; isReadonly: true }
-		Method {
-			name: "is_drop_valid"
-			type: "bool"
-			Parameter { name: "target_path"; type: "string" }
-			Parameter { name: "source_paths"; type: "QVariantList" }
 		}
 	}
 	Component {
