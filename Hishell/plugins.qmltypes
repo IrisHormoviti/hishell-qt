@@ -283,6 +283,10 @@ Module {
 			type: "bool"
 			Parameter { name: "path"; type: "string" }
 		}
+		Method {
+			name: "get_home_directory"
+			type: "string"
+		}
 	}
 	Component {
 		name: "PathUtils"

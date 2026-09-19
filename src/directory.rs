@@ -46,12 +46,12 @@ fn query_gio_icon(path: &str) -> Option<String> {
 							// prefer tokens that look like icon names (contain '-') or short words
 							if tok.contains('-')
 								|| (tok.len() <= 20
-									&& tok
-										.chars()
-										.all(|c| c.is_alphanumeric() || c == '.' || c == '_'))
-							{
-								return Some(tok.to_string());
-							}
+								&& tok
+								.chars()
+								.all(|c| c.is_alphanumeric() || c == '.' || c == '_'))
+								{
+									return Some(tok.to_string());
+								}
 						}
 					}
 				}
@@ -59,6 +59,42 @@ fn query_gio_icon(path: &str) -> Option<String> {
 		}
 	}
 	None
+}
+
+fn normalize_path(path: &Path, current_dir: &str) -> PathBuf {
+	let mut result = PathBuf::new();
+
+	if path.is_absolute() {
+		// RootDir component will set it
+	} else if !current_dir.is_empty() {
+		result.push(current_dir);
+	} else {
+		if let Ok(cwd) = std::env::current_dir() {
+			result.push(cwd);
+		} else {
+			result.push("/");
+		}
+	}
+
+	for component in path.components() {
+		match component {
+			std::path::Component::Prefix(p) => {
+				result.push(p.as_os_str());
+			}
+			std::path::Component::RootDir => {
+				result.clear();
+				result.push("/");
+			}
+			std::path::Component::CurDir => {}
+			std::path::Component::ParentDir => {
+				result.pop();
+			}
+			std::path::Component::Normal(c) => {
+				result.push(c);
+			}
+		}
+	}
+	result
 }
 
 #[derive(Default, Clone)]
@@ -145,10 +181,10 @@ pub struct Directory {
 		pub fn set_config(&mut self, section: String, key: String, value: String, local: bool) {
 			self.config.pinned().borrow_mut()._set(
 				Path::new(&self.path_str),
-				&section,
-				&key,
-				&value,
-				local,
+												   &section,
+										  &key,
+										  &value,
+										  local,
 			);
 			self.config_changed();
 		}
@@ -209,9 +245,9 @@ impl Directory {
 									std::path::PathBuf::from(&desktop_icon)
 								} else {
 									Path::new(&p)
-										.parent()
-										.unwrap_or(Path::new("/"))
-										.join(&desktop_icon)
+									.parent()
+									.unwrap_or(Path::new("/"))
+									.join(&desktop_icon)
 								};
 								if candidate.exists() {
 									icon = format!("file://{}", candidate.to_string_lossy());
@@ -238,34 +274,34 @@ impl Directory {
 						let video_exts = ["mp4", "mkv", "webm", "avi", "mov", "mpeg", "mpg"];
 						// also allow filenames that end with .AppImage even if ext detection fails
 						let fname = Path::new(&p)
-							.file_name()
-							.and_then(|n| n.to_str())
-							.unwrap_or("")
-							.to_lowercase();
+						.file_name()
+						.and_then(|n| n.to_str())
+						.unwrap_or("")
+						.to_lowercase();
 						let is_appimage_name = fname.ends_with(".appimage");
 						if image_exts.contains(&ext_l.as_str())
 							|| video_exts.contains(&ext_l.as_str())
 							|| is_appimage_name
-						{
-							if let Some(uri) =
-								thumbnailer::thumbnail_uri_if_exists(Path::new(&p), size)
 							{
-								icon = uri;
-							} else {
-								// avoid generating thumbnails for very large files
-								const MAX_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
-								match fs::metadata(&p) {
-									Ok(meta) => {
-										if meta.len() <= MAX_BYTES {
-											thumbnailer::enqueue(Path::new(&p), size);
+								if let Some(uri) =
+									thumbnailer::thumbnail_uri_if_exists(Path::new(&p), size)
+									{
+										icon = uri;
+									} else {
+										// avoid generating thumbnails for very large files
+										const MAX_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
+										match fs::metadata(&p) {
+											Ok(meta) => {
+												if meta.len() <= MAX_BYTES {
+													thumbnailer::enqueue(Path::new(&p), size);
+												}
+											}
+											Err(_) => {
+												thumbnailer::enqueue(Path::new(&p), size);
+											}
 										}
 									}
-									Err(_) => {
-										thumbnailer::enqueue(Path::new(&p), size);
-									}
-								}
 							}
-						}
 					}
 				}
 
@@ -280,7 +316,7 @@ impl Directory {
 		}
 
 		self.items
-			.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then(a.name.cmp(&b.name)));
+		.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then(a.name.cmp(&b.name)));
 
 		self.end_reset_model();
 	}
@@ -318,16 +354,16 @@ impl Directory {
 		}
 
 		let path_buf = Path::new(&path);
-		let abs_path = std::fs::canonicalize(path_buf).unwrap_or_else(|_| path_buf.to_path_buf());
+		let abs_path = normalize_path(path_buf, &self.path_str);
 		let abs_str = abs_path.to_string_lossy().to_string();
 
 		self.path_str = abs_str.clone();
 
 		let load_path = if abs_path.is_file() {
 			abs_path
-				.parent()
-				.map(|p| p.to_string_lossy().to_string())
-				.unwrap_or(abs_str.clone())
+			.parent()
+			.map(|p| p.to_string_lossy().to_string())
+			.unwrap_or(abs_str.clone())
 		} else {
 			abs_str.clone()
 		};
@@ -384,8 +420,8 @@ pub fn get_item_title(path: &Path) -> String {
 	}
 
 	path.file_name()
-		.map(|name| name.to_string_lossy().to_string())
-		.unwrap_or_else(|| path.to_string_lossy().to_string())
+	.map(|name| name.to_string_lossy().to_string())
+	.unwrap_or_else(|| path.to_string_lossy().to_string())
 }
 
 pub fn get_icon(path: &str) -> String {
@@ -394,9 +430,9 @@ pub fn get_icon(path: &str) -> String {
 	} else {
 		// Prefer system icons via `gio` when available, caching per-extension or per-mime.
 		let mime = from_path(path)
-			.first_or_octet_stream()
-			.essence_str()
-			.to_string();
+		.first_or_octet_stream()
+		.essence_str()
+		.to_string();
 		let key = if let Some(ext) = Path::new(path).extension().and_then(|e| e.to_str()) {
 			format!("ext:{}", ext.to_lowercase())
 		} else {
@@ -461,8 +497,8 @@ pub fn get_folder_icon(path: &str) -> String {
 
 		for (get_dir, fallback_name, icon) in xdg_dirs {
 			let target_path = get_dir()
-				.and_then(|d| std::fs::canonicalize(d).ok())
-				.unwrap_or_else(|| home.join(fallback_name));
+			.and_then(|d| std::fs::canonicalize(d).ok())
+			.unwrap_or_else(|| home.join(fallback_name));
 
 			if abs_path == target_path {
 				return icon.to_string();
