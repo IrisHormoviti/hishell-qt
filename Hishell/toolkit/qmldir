@@ -1,6 +1,6 @@
 module Hishell.toolkit
 
-CloseButton CloseButton.qml
+CloseButton WindowControl.qml
 MenuBar MenuBar.qml
 ViewMenu ViewMenu.qml
 PathBar PathBar.qml

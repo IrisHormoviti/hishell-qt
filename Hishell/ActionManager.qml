@@ -32,7 +32,7 @@ Item {
 		return true;
 	}
 
-	// ── Animation Component ──
+	// Open Animation
 
 	Item {
 		id: externalOpenAnimation
@@ -73,15 +73,94 @@ Item {
 		}
 	}
 
-	// ── Open Group ──
-	property alias openAction: openAction
-	property alias openWithAction: openWithAction
+	// Group Contexts
+	readonly property var menuGroups: [
+		{
+			id: "open",
+			title: qsTr("Open"),
+			actions: openGroup,
+			contexts: ["items"],
+			submenu: false
+		},
+		{
+			id: "edit",
+			title: qsTr("Edit"),
+			actions: editGroup,
+			contexts: ["items"],
+			submenu: false
+		},
+		{
+			id: "image",
+			title: qsTr("Image"),
+			actions: imageGroup,
+			contexts: ["files"],
+			submenu: false
+		},
+		{
+			id: "new",
+			title: qsTr("New"),
+			actions: newActionsGroup,
+			contexts: ["directory"],
+			submenu: true
+		},
+		{
+			id: "directory",
+			title: qsTr("Folder"),
+			actions: folderActionsGroup,
+			contexts: ["directory", "folders"],
+			submenu: false
+		},
+		{
+			id: "view",
+			title: qsTr("View"),
+			actions: [],
+			contexts: ["directory"],
+			submenu: true,
+			customMenu: "ViewMenu"
+		}
+	]
+
+	function group(id) {
+		for (let i = 0; i < menuGroups.length; i++) {
+			if (menuGroups[i].id === id)
+				return menuGroups[i];
+		}
+		return null;
+	}
+
+	function groupsFor(context) {
+		return menuGroups.filter(groupData => groupData.contexts.indexOf(context) !== -1);
+	}
+
+	function actionsFor(context) {
+		let actions = [];
+		const groups = groupsFor(context);
+		for (let i = 0; i < groups.length; i++) {
+			if (groups[i].submenu !== true)
+				actions = actions.concat(groups[i].actions);
+		}
+		return actions;
+	}
+
+	function isMenuGroupVisible(groupId) {
+		const groupData = actionManager.group(groupId);
+		if (!groupData)
+			return false;
+		if (groupData.contexts.indexOf("items") !== -1)
+			return hasSelection;
+		if (groupData.contexts.indexOf("files") !== -1)
+			return isImageSelected;
+		return true;
+	}
+
+	// Open Group
 	readonly property var openGroup: [openAction, openWithAction, openWindowAction]
 
+	property alias openAction: openAction
 	Action {
 		id: openAction
 		text: qsTr("Open")
-		icon.name: "document-open"
+		icon.name: "open-link"
 		shortcut: "Return"
 		enabled: actionManager.hasSelection
 
@@ -117,10 +196,34 @@ Item {
 		}
 	}
 
+	property alias navigateAction: navigateAction
+	Action {
+		id: navigateAction
+		text: qsTr("Navigate")
+		icon.name: "folder-open-symbolic"
+		shortcut: "Shift+Return"
+		enabled: actionManager.hasSelection && actionManager.selectedCount == 1
+
+		function execute(targetPath: string, sourceItem: Item) {
+			const paths = targetPath !== "" ? [targetPath] : actionManager.selectedPathList;
+			for (let i = 0; i < paths.length; i++) {
+				const p = paths[i];
+				actionManager.directory.open_path(p);
+			}
+		}
+
+		onTriggered: {
+			if (!actionManager.hasSelection)
+				return;
+			execute("", null, false);
+		}
+	}
+
+	property alias openWindowAction: openWindowAction
 	Action {
 		id: openWindowAction
 		text: qsTr("Open in Window")
-		icon.name: "xsi-window-new-symbolic"
+		icon.name: "window-new-symbolic"
 		shortcut: "Ctrl+N"
 		enabled: actionManager.hasSelection
 		onTriggered: {
@@ -135,12 +238,13 @@ Item {
 		}
 	}
 
+	property alias openWithAction: openWithAction
 	Action {
 		id: openWithAction
 		text: qsTr("Open With...")
 		icon.name: "system-run"
 		shortcut: "Ctrl+Alt+O"
-		enabled: actionManager.isSingleSelection && !actionManager.isFirstSelectedDir
+		enabled: actionManager.isSingleSelection
 		onTriggered: {
 			if (actionManager.isSingleSelection && actionManager.fileManager) {
 				actionManager.fileManager.open_file_with_dialog(actionManager.firstSelectedPath);
@@ -148,13 +252,7 @@ Item {
 		}
 	}
 
-	// ── Item Edit Group ──
-	property alias copyAction: copyAction
-	property alias cutAction: cutAction
-	property alias duplicateAction: duplicateAction
-	property alias linkAction: linkAction
-	property alias renameAction: renameAction
-	property alias trashAction: trashAction
+	// Item Edit Group
 	readonly property var editGroup: [copyAction, cutAction, duplicateAction, linkAction, renameAction, trashAction]
 
 	Action {
@@ -238,7 +336,7 @@ Item {
 
 	Action {
 		id: trashAction
-		text: qsTr("Move to Trash")
+		text: qsTr("Trash")
 		icon.name: "user-trash"
 		shortcut: "Delete"
 		enabled: actionManager.hasSelection
@@ -256,8 +354,8 @@ Item {
 		}
 	}
 
-	// ── Folder Group ──
-	property alias pasteAction: pasteAction
+	// Folder Group
+	readonly property var folderActionsGroup: [pasteAction, copyPathAction]
 	property string pasteTargetPath: ""
 
 	function pasteInto(destPath) {
@@ -284,10 +382,42 @@ Item {
 		}
 	}
 
-	// ── New Group ──
-	property alias newFolderAction: newFolderAction
-	property alias newTextFileAction: newTextFileAction
-	readonly property var folderActionsGroup: [pasteAction]
+	Action {
+		id: copyPathAction
+		text: "Copy Path"
+		icon.name: "edit-copy-path-symbolic"
+		shortcut: "Ctrl+Alt+C"
+		enabled: true
+		onTriggered: {
+			// FIXME
+		}
+	}
+
+	// Current Directory Group
+	Action {
+		id: editPathAction
+		text: "Edit Path"
+		icon.name: "text-field-framed-symbolic"
+		shortcut: "Ctrl+L"
+		enabled: !actionManager.hasSelection
+		onTriggered: {
+			// FIXME
+		}
+	}
+
+	Action {
+		id: searchAction
+		text: "Search..."
+		icon.name: "file-search-symbolic"
+		shortcut: "Ctrl+L"
+		enabled: !actionManager.hasSelection
+		onTriggered: {
+			// FIXME
+		}
+	}
+
+
+	// New Group
 	readonly property var newActionsGroup: [newFolderAction, newTextFileAction]
 
 	Action {
@@ -316,90 +446,9 @@ Item {
 		}
 	}
 
-	// ── Group Contexts ──
-	property alias rotateClockwiseAction: rotateClockwiseAction
-	property alias rotateCounterClockwiseAction: rotateCounterClockwiseAction
+	// Image Group
 	readonly property var imageGroup: [rotateClockwiseAction, rotateCounterClockwiseAction]
-
-	readonly property var menuGroups: [
-		{
-			id: "new",
-			title: qsTr("New"),
-			actions: newActionsGroup,
-			contexts: ["directory"],
-			submenu: true
-		},
-		{
-			id: "open",
-			title: qsTr("Open"),
-			actions: openGroup,
-			contexts: ["items"],
-			submenu: false
-		},
-		{
-			id: "edit",
-			title: qsTr("Edit"),
-			actions: editGroup,
-			contexts: ["items"],
-			submenu: false
-		},
-		{
-			id: "image",
-			title: qsTr("Image"),
-			actions: imageGroup,
-			contexts: ["files"],
-			submenu: false
-		},
-		{
-			id: "directory",
-			title: qsTr("Folder"),
-			actions: folderActionsGroup,
-			contexts: ["directory", "folders"],
-			submenu: false
-		},
-		{
-			id: "view",
-			title: qsTr("View"),
-			actions: [],
-			contexts: ["directory"],
-			submenu: true,
-			customMenu: "ViewMenu"
-		}
-	]
-
-	function group(id) {
-		for (let i = 0; i < menuGroups.length; i++) {
-			if (menuGroups[i].id === id)
-				return menuGroups[i];
-		}
-		return null;
-	}
-
-	function groupsFor(context) {
-		return menuGroups.filter(groupData => groupData.contexts.indexOf(context) !== -1);
-	}
-
-	function actionsFor(context) {
-		let actions = [];
-		const groups = groupsFor(context);
-		for (let i = 0; i < groups.length; i++) {
-			if (groups[i].submenu !== true)
-				actions = actions.concat(groups[i].actions);
-		}
-		return actions;
-	}
-
-	function isMenuGroupVisible(groupId) {
-		const groupData = actionManager.group(groupId);
-		if (!groupData)
-			return false;
-		if (groupData.contexts.indexOf("items") !== -1)
-			return hasSelection;
-		if (groupData.contexts.indexOf("files") !== -1)
-			return isImageSelected;
-		return true;
-	}
-
+	
 	Action {
 		id: rotateClockwiseAction
 		text: qsTr("Rotate Clockwise")
@@ -436,7 +485,7 @@ Item {
 		}
 	}
 
-	// ── Rename Dialog ──
+	// Rename Dialog
 	function openRenameDialog(filePath) {
 		renameDialog.filePath = filePath;
 		const name = filePath.substring(filePath.lastIndexOf("/") + 1);

@@ -66,6 +66,8 @@ pub struct Config {
 	pub middle_layout: qt_property!(String; NOTIFY config_changed),
 	pub bottom_layout: qt_property!(String; NOTIFY config_changed),
 	pub header_layout: qt_property!(String; NOTIFY config_changed),
+	pub native_menubar: qt_property!(bool; NOTIFY config_changed),
+	pub native_titlebar: qt_property!(bool; NOTIFY config_changed),
 
 	pub grid_size: qt_property!(u16; NOTIFY config_changed),
 	pub show_labels: qt_property!(bool; NOTIFY config_changed),
@@ -164,6 +166,8 @@ impl Config {
 			r#"["toolkit/PathBar", "toolkit/Spacer", "toolkit/MenuBar"]"#,
 		)
 		.into();
+		self.native_menubar = get_bool("LAYOUT", "NativeMenuBar", false);
+		self.native_titlebar = get_bool("LAYOUT", "NativeTitleBar", true);
 
 		self.grid_size = get_num("VIEW", "GridSize", 64) as u16;
 		self.show_labels = get_bool("VIEW", "ShowLabels", true);

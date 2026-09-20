@@ -9,11 +9,12 @@ import Hishell
 MenuBar {
 	id: rootMenuBar
 
+	readonly property ActionManager actionManager: window ? window.actionManager : null
+	
 	property ShellWindow window
 	property Directory directory
 	property Config config: directory ? directory.config : null
 	property bool isLocal: directory ? directory.has_meta : false
-	readonly property ActionManager actionManager: window ? window.actionManager : null
 	property bool hasOpenMenu: false
 
 	Layout.alignment: Qt.AlignRight

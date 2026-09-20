@@ -568,7 +568,7 @@ Item {
 				return;
 			}
 			if (mouse.button === Qt.MiddleButton) {
-				if (fileSlot.actionManager && fileSlot.actionManager.openAction)
+				if (fileSlot.actionManager)
 					fileSlot.actionManager.openAction.execute(fileSlot.path, fileSlot, true);
 				return;
 			}

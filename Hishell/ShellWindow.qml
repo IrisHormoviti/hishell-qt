@@ -1,14 +1,16 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import Hishell
+import Hishell.toolkit
 
 Kirigami.ApplicationWindow {
 	id: root
 	width: 800
 	height: 600
 	visible: true
+
+	flags: directory.config.native_titlebar ? Qt.Window : Qt.Window | Qt.FramelessWindowHint
 
 	property alias selectionManager: selectionManager
 	property alias dragDropHandler: dragDropHandler
@@ -47,7 +49,6 @@ Kirigami.ApplicationWindow {
 		fileManager: fileManager
 	}
 
-	// Drag Tooltip
 	DragTooltip {
 		active: dragDropHandler.tooltip_active && dragDropHandler.Drag.active
 		action: dragDropHandler.drag_action
@@ -66,6 +67,13 @@ Kirigami.ApplicationWindow {
 		bottomLayoutEngine.layoutString = String(directory.config.bottom_layout);
 	}
 
+	menuBar: MenuBar {
+		visible: directory.config.native_menubar
+
+		window: root
+		directory: root.directory
+	}
+
 	pageStack.initialPage: Kirigami.Page {
 		padding: 0
 		topPadding: 0
@@ -73,19 +81,17 @@ Kirigami.ApplicationWindow {
 		rightPadding: 0
 		bottomPadding: 0
 
-		// Remove Kirigami's own header
-		globalToolBarStyle: Kirigami.ApplicationHeaderStyle.Auto
+		globalToolBarStyle: Kirigami.ApplicationHeaderStyle.Breadcrumb
 
 		ColumnLayout {
 			anchors.fill: parent
 			spacing: 0
 
 			// Header bar
-			Item {
+			Kirigami.AbstractApplicationHeader {
 				Layout.fillWidth: true
-				Layout.preferredHeight: 44
 				Kirigami.Theme.colorSet: Kirigami.Theme.Header
-				Kirigami.Theme.inherit: false
+
 				z: 1
 
 				Rectangle {
@@ -109,28 +115,13 @@ Kirigami.ApplicationWindow {
 							root.startSystemMove()
 					}
 
-					// Left padding
-					Item {
-						Layout.preferredWidth: Kirigami.Units.mediumSpacing
-					}
-
 					LayoutEngine {
 						id: headerLayoutEngine
 						directory: directory
 						window: root
 						Layout.fillWidth: true
 					}
-
-					// Right padding
-					Item {
-						Layout.preferredWidth: Kirigami.Units.mediumSpacing
-					}
 				}
-			}
-
-			// Separator line
-			Kirigami.Separator {
-				Layout.fillWidth: true
 			}
 
 			// Top Layout area

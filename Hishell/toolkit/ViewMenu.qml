@@ -2,12 +2,14 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
+
 Menu {
 	id: viewMenu
 	required property var directory
 	property var config: directory ? directory.config : null
 	property bool isLocal: directory ? directory.has_meta : false
 	visible: false
+	height: contentHeight
 
 	title: qsTr("View")
 	popupType: Popup.Native
