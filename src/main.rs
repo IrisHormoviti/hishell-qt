@@ -5,6 +5,8 @@ mod directory;
 mod dragdrop_handler;
 mod drop_validator;
 mod file_manager;
+mod focus_manager;
+mod gamepad;
 mod image_utils;
 mod path_utils;
 mod portal;
@@ -16,6 +18,7 @@ use crate::directory::Directory;
 use crate::dragdrop_handler::DragDropHandler;
 use crate::drop_validator::DropValidator;
 use crate::file_manager::FileManager;
+use crate::focus_manager::FocusManager;
 use crate::path_utils::PathUtils;
 use crate::selection_manager::SelectionManager;
 use qmetaobject::prelude::*;
@@ -36,6 +39,8 @@ fn main() {
 	// 	unsafe { CStr::from_bytes_with_nul_unchecked(b"HishellLayoutEngine\0") };
 	static SELECTIONMANAGER_STR: &CStr =
 		unsafe { CStr::from_bytes_with_nul_unchecked(b"SelectionManager\0") };
+	static FOCUSMANAGER_STR: &CStr =
+		unsafe { CStr::from_bytes_with_nul_unchecked(b"FocusManager\0") };
 
 	let args: Vec<String> = std::env::args().collect();
 	fn percent_decode(input: &str) -> String {
@@ -103,6 +108,7 @@ fn main() {
 	qmetaobject::qml_register_type::<DropValidator>(IMPORT_NAME, 1, 0, DROPVALIDATOR_STR);
 	qmetaobject::qml_register_type::<PathUtils>(IMPORT_NAME, 1, 0, PATHUTILS_STR);
 	qmetaobject::qml_register_type::<SelectionManager>(IMPORT_NAME, 1, 0, SELECTIONMANAGER_STR);
+	qmetaobject::qml_register_type::<FocusManager>(IMPORT_NAME, 1, 0, FOCUSMANAGER_STR);
 
 	qmetaobject::qrc!(load_qml_resources,
 		"Hishell" as "Hishell" {
@@ -136,6 +142,8 @@ fn main() {
 	);
 	engine.add_import_path("qrc:///".into());
 	engine.load_file("qrc:///Hishell/ShellWindow.qml".into());
+
+	gamepad::init();
 
 	engine.exec();
 }

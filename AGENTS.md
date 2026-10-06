@@ -11,7 +11,7 @@
 
 - Rust backend (`src/`) + Qt6 QML frontend (`qml/`). Bridged via `qmetaobject`.
 - Main entry: `src/main.rs` registers `Config`, `Directory`, `FileManager`, `DragHandler`, `DropValidator`, `PathUtils`,
-  `LayoutEngine`, `SelectionManager` types for Qt.
+  `LayoutEngine`, `SelectionManager`, `FocusManager` types for Qt.
 - QML entry: `qml/main.qml` uses Kirigami application window; layouts are driven by `.cfg` config files.
 - **Prefer Rust backend over JS inside QML for code implementation whenever possible.** Use qmetaobject to expose Rust
   types/functions to QML rather than writing inline JavaScript logic.
@@ -25,7 +25,8 @@
 - QML types are registered in `src/main.rs` via `qmetaobject::qml_register_type` calls.
 - The `qml/Hishell/plugins.qmltypes` file lists the types available to QML imports; keep it in sync with what is
   registered in Rust.
-- New modules: `drag_handler.rs`, `selection_manager.rs`, `path_utils.rs`, `drop_validator.rs`, `layout_engine.rs`
+- New modules: `drag_handler.rs`, `selection_manager.rs`, `focus_manager.rs`, `gamepad.rs`, `path_utils.rs`,
+  `drop_validator.rs`, `layout_engine.rs`
 
 ## Configuration
 

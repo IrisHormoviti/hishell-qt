@@ -375,4 +375,68 @@ Module {
 			type: "string"
 		}
 	}
+	Component {
+		name: "FocusManager"
+		prototype: "QObject"
+		exports: ["Hishell/FocusManager 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Property { name: "focus_active"; type: "bool"; isReadonly: true }
+		Property { name: "focused_index"; type: "int"; isReadonly: true }
+		Property { name: "focused_path"; type: "string"; isReadonly: true }
+		Property { name: "item_count"; type: "int"; isReadonly: true }
+		Property { name: "grid_columns"; type: "int"; isReadonly: true }
+		Property { name: "focus_status"; type: "string"; isReadonly: true }
+		Property { name: "window"; type: "QVariant"; isReadonly: true }
+		Signal { name: "focus_changed" }
+		Signal { name: "accept_requested" }
+		Signal { name: "cancel_requested" }
+		Method {
+			name: "set_items"
+			type: "void"
+			Parameter { name: "paths"; type: "QVariantList" }
+			Parameter { name: "columns"; type: "int" }
+		}
+		Method {
+			name: "set_columns"
+			type: "void"
+			Parameter { name: "columns"; type: "int" }
+		}
+		Method {
+			name: "set_focus_index"
+			type: "void"
+			Parameter { name: "index"; type: "int" }
+		}
+		Method {
+			name: "set_focus_path"
+			type: "void"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "move_focus"
+			type: "bool"
+			Parameter { name: "direction"; type: "string" }
+		}
+		Method {
+			name: "focus_first"
+			type: "void"
+		}
+		Method {
+			name: "focus_last"
+			type: "void"
+		}
+		Method {
+			name: "clear"
+			type: "void"
+		}
+		Method {
+			name: "poll_gamepad"
+			type: "void"
+		}
+		Method {
+			name: "border_source"
+			type: "string"
+			Parameter { name: "color"; type: "string" }
+		}
+	}
 }

@@ -34,6 +34,11 @@ Item {
 	property bool selectionActive: false
 	property bool isSelected: false
 
+	// Focus state passed from FolderView (independent of selection)
+	property bool focusActive: false
+	property bool isFocused: false
+	property string focusBorderSource: ""
+
 	property int currentDragCount: 1
 
 	property bool isDraggingThisSlot: localDragTarget.Drag.active
@@ -57,6 +62,9 @@ Item {
 
 	// Emitted on press and hold
 	signal pressHeld(string path, int idx)
+
+	// Emitted when this slot receives a mouse press, to sync keyboard focus
+	signal focusRequested(string path)
 
 	// Emitted before the attached context menu opens.
 	signal contextMenuRequested(string path, int idx)
@@ -224,6 +232,85 @@ Item {
 			NumberAnimation {
 				duration: fileSlot.animationDuration
 				easing.type: fileSlot.animationEase
+			}
+		}
+	}
+
+	// ── Focus ──
+
+	Item {
+		id: focusIndicator
+		anchors.fill: parent
+		z: 3
+		visible: fileSlot.focusActive && fileSlot.isFocused
+
+		readonly property real cornerSize: Math.max(10, Math.round(Math.min(width, height) * 0.3))
+		property real pulse: 0.0
+
+		SequentialAnimation on pulse {
+			running: focusIndicator.visible
+			loops: Animation.Infinite
+			NumberAnimation {
+				to: 1.0
+				duration: 700
+				easing.type: Easing.InOutQuad
+			}
+			NumberAnimation {
+				to: -1.0
+				duration: 1400
+				easing.type: Easing.InOutQuad
+			}
+			NumberAnimation {
+				to: 0.0
+				duration: 700
+				easing.type: Easing.InOutQuad
+			}
+		}
+
+		Item {
+			id: focusCorners
+			anchors.fill: parent
+			scale: 1.0 + focusIndicator.pulse * 0.05
+			opacity: 0.95 - Math.abs(focusIndicator.pulse) * 0.35
+
+			Image {
+				anchors.left: parent.left
+				anchors.top: parent.top
+				width: focusIndicator.cornerSize
+				height: focusIndicator.cornerSize
+				source: fileSlot.focusBorderSource
+				sourceClipRect: Qt.rect(0, 0, 32, 32)
+				smooth: true
+			}
+
+			Image {
+				anchors.right: parent.right
+				anchors.top: parent.top
+				width: focusIndicator.cornerSize
+				height: focusIndicator.cornerSize
+				source: fileSlot.focusBorderSource
+				sourceClipRect: Qt.rect(32, 0, 32, 32)
+				smooth: true
+			}
+
+			Image {
+				anchors.right: parent.right
+				anchors.bottom: parent.bottom
+				width: focusIndicator.cornerSize
+				height: focusIndicator.cornerSize
+				source: fileSlot.focusBorderSource
+				sourceClipRect: Qt.rect(32, 32, 32, 32)
+				smooth: true
+			}
+
+			Image {
+				anchors.left: parent.left
+				anchors.bottom: parent.bottom
+				width: focusIndicator.cornerSize
+				height: focusIndicator.cornerSize
+				source: fileSlot.focusBorderSource
+				sourceClipRect: Qt.rect(0, 32, 32, 32)
+				smooth: true
 			}
 		}
 	}
@@ -536,12 +623,15 @@ Item {
 		}
 
 		onPressed: mouse => {
-			if (mouse.button === Qt.LeftButton && typeof dragDropHandler !== 'undefined') {
-				mouseArea.isPressAndHoldActive = false;
-				mouseArea.dragInitiated = false;
+			if (mouse.button === Qt.LeftButton) {
+				fileSlot.focusRequested(fileSlot.path);
+				if (typeof dragDropHandler !== 'undefined') {
+					mouseArea.isPressAndHoldActive = false;
+					mouseArea.dragInitiated = false;
 
-				mouseArea.startX = mouse.x;
-				mouseArea.startY = mouse.y;
+					mouseArea.startX = mouse.x;
+					mouseArea.startY = mouse.y;
+				}
 			}
 		}
 

@@ -12,11 +12,22 @@ Item {
 	readonly property ShellWindow rootWindow: folderView.window
 	property Directory directory
 	property Config config: directory.config
+	property FocusManager focusManager: folderView.rootWindow ? folderView.rootWindow.focusManager : null
+	readonly property string focusBorderSource: folderView.focusManager ? folderView.focusManager.border_source(Kirigami.Theme.highlightColor.toString()) : ""
 
 	Layout.fillWidth: true
 	Layout.fillHeight: true
 
 	focus: true
+	activeFocusOnTab: true
+
+	Connections {
+		target: folderView.Window.window
+		function onActiveChanged() {
+			if (folderView.Window.window.active)
+				folderView.forceActiveFocus();
+		}
+	}
 
 	function selectAll() {
 		const mgr = folderView.rootWindow ? folderView.rootWindow.selectionManager : null;
@@ -32,17 +43,103 @@ Item {
 		mgr.select_all(paths);
 	}
 
+	function gridColumns() {
+		if (!folderView.config || flowLayout.width <= 0)
+			return 1;
+		const besideIcon = folderView.config.grid_size < 32;
+		const itemWidth = besideIcon ? Kirigami.Units.gridUnit * 10 : folderView.config.grid_size + Kirigami.Units.gridUnit * 3;
+		const gap = flowLayout.spacing;
+		return Math.max(1, Math.floor((flowLayout.width + gap) / (itemWidth + gap)));
+	}
+
+	function updateFocusItems() {
+		const fm = folderView.focusManager;
+		if (!fm || !folderView.activeFocus || !folderView.directory)
+			return;
+		const paths = folderView.directory.get_all_paths();
+		if (paths.length === 0) {
+			fm.clear();
+			return;
+		}
+		fm.set_items(paths, folderView.gridColumns());
+	}
+
+	function ensureFocusVisible() {
+		if (!folderView.focusManager || !folderView.focusManager.focus_active)
+			return;
+		const item = itemRepeater.itemAt(folderView.focusManager.focused_index);
+		if (!item)
+			return;
+		const top = item.y;
+		const bottom = item.y + item.height;
+		if (top < flickable.contentY)
+			flickable.contentY = top;
+		else if (bottom > flickable.contentY + flickable.height)
+			flickable.contentY = bottom - flickable.height;
+	}
+
+	function openFocused() {
+		const fm = folderView.focusManager;
+		if (!fm || !fm.focus_active || String(fm.focused_path) === "")
+			return;
+		if (folderView.rootWindow && folderView.rootWindow.actionManager)
+			folderView.rootWindow.actionManager.openAction.execute(String(fm.focused_path), itemRepeater.itemAt(fm.focused_index), false);
+	}
+
 	Component.onCompleted: {
 		folderView.forceActiveFocus();
 		Qt.callLater(() => {
+			folderView.forceActiveFocus();
 			if (folderView.config && folderView.directory) {
 				folderView.config.load(folderView.directory.path);
 				folderView.directory.load_directory(folderView.directory.path, !folderView.config.stash_dotfiles);
+				folderView.updateFocusItems();
 			} else {
 				console.error("FolderView: missing directory or config.");
 			}
 		});
 	}
+
+	onActiveFocusChanged: {
+		if (folderView.activeFocus)
+			folderView.updateFocusItems();
+	}
+
+	Connections {
+		target: itemRepeater
+		function onCountChanged() {
+			folderView.updateFocusItems();
+		}
+	}
+
+	Connections {
+		target: flowLayout
+		function onWidthChanged() {
+			if (folderView.activeFocus && folderView.focusManager)
+				folderView.focusManager.set_columns(folderView.gridColumns());
+		}
+	}
+
+	Connections {
+		target: folderView.focusManager
+		function onFocus_changed() {
+			if (folderView.activeFocus)
+				folderView.ensureFocusVisible();
+		}
+		function onAccept_requested() {
+			if (folderView.activeFocus)
+				folderView.openFocused();
+		}
+		function onCancel_requested() {
+			if (!folderView.activeFocus)
+				return;
+			if (folderView.rootWindow && folderView.rootWindow.selectionManager)
+				folderView.rootWindow.selectionManager.exit_selection_mode();
+			if (folderView.focusManager)
+				folderView.focusManager.clear();
+		}
+	}
+
 
 	Timer {
 		interval: 400
@@ -63,6 +160,9 @@ Item {
 				folderView.config.load(folderView.directory.path);
 				folderView.directory.load_directory(folderView.directory.path, !folderView.config.stash_dotfiles);
 			}
+			if (folderView.focusManager)
+				folderView.focusManager.clear();
+			folderView.updateFocusItems();
 			if (folderView.rootWindow && folderView.rootWindow.selectionManager) {
 				folderView.rootWindow.selectionManager.exit_selection_mode();
 			}
@@ -70,6 +170,7 @@ Item {
 
 		function onConfig_changed() {
 			folderView.directory.load_directory(folderView.directory.path, !folderView.config.stash_dotfiles);
+			folderView.updateFocusItems();
 		}
 	}
 
@@ -130,6 +231,8 @@ Item {
 				folderView.forceActiveFocus();
 				if (folderView.rootWindow && folderView.rootWindow.selectionManager)
 					folderView.rootWindow.selectionManager.clear();
+				if (folderView.focusManager)
+					folderView.focusManager.clear();
 			}
 		}
 	}
@@ -244,18 +347,57 @@ Item {
 	// ── Input Shortcuts ───
 	Keys.onPressed: event => {
 		const mgr = folderView.rootWindow ? folderView.rootWindow.selectionManager : null;
-		if (!mgr)
+		const fm = folderView.focusManager;
+		if (!mgr || !fm)
 			return;
 
-		if (event.key === Qt.Key_Space && !mgr.selection_active) {
-			mgr.enter_selection_mode();
+		const shift = (event.modifiers & Qt.ShiftModifier) !== 0;
+
+		switch (event.key) {
+		case Qt.Key_Left:
+		case Qt.Key_Right:
+		case Qt.Key_Up:
+		case Qt.Key_Down: {
+			const direction = event.key === Qt.Key_Left ? "left" : event.key === Qt.Key_Right ? "right" : event.key === Qt.Key_Up ? "up" : "down";
+			fm.move_focus(direction);
+			if (shift && fm.focus_active && String(fm.focused_path) !== "")
+				mgr.toggle_selection(String(fm.focused_path), fm.focused_index);
 			event.accepted = true;
-		} else if (event.key === Qt.Key_Escape && mgr.selection_active) {
-			mgr.exit_selection_mode();
+			break;
+		}
+		case Qt.Key_Home:
+			fm.focus_first();
 			event.accepted = true;
-		} else if (event.key === Qt.Key_A && (event.modifiers & Qt.ControlModifier)) {
-			folderView.selectAll();
+			break;
+		case Qt.Key_End:
+			fm.focus_last();
 			event.accepted = true;
+			break;
+		case Qt.Key_Space:
+			if (fm.focus_active && String(fm.focused_path) !== "") {
+				mgr.toggle_selection(String(fm.focused_path), fm.focused_index);
+				event.accepted = true;
+			}
+			break;
+		case Qt.Key_Return:
+		case Qt.Key_Enter:
+			if (!mgr.selection_active && fm.focus_active && String(fm.focused_path) !== "") {
+				folderView.openFocused();
+				event.accepted = true;
+			}
+			break;
+		case Qt.Key_Escape:
+			if (mgr.selection_active)
+				mgr.exit_selection_mode();
+			fm.clear();
+			event.accepted = true;
+			break;
+		case Qt.Key_A:
+			if (event.modifiers & Qt.ControlModifier) {
+				folderView.selectAll();
+				event.accepted = true;
+			}
+			break;
 		}
 	}
 
@@ -284,6 +426,8 @@ Item {
 				folderView.forceActiveFocus();
 				if (folderView.rootWindow && folderView.rootWindow.selectionManager)
 					folderView.rootWindow.selectionManager.clear();
+				if (folderView.focusManager)
+					folderView.focusManager.clear();
 			}
 		}
 
@@ -308,6 +452,9 @@ Item {
 
 					gridSize: folderView.config.grid_size
 					selectionActive: selectionManager ? selectionManager.selection_active : false
+					focusActive: folderView.activeFocus
+					focusBorderSource: folderView.focusBorderSource
+					isFocused: folderView.focusManager ? (folderView.focusManager.focus_active && String(folderView.focusManager.focused_path) === String(path)) : false
 					isSelected: selectionManager ? (function () {
 							try {
 								return !!JSON.parse(selectionManager.selected_paths)[path];
@@ -315,6 +462,12 @@ Item {
 								return false;
 							}
 						})() : false
+
+					onFocusRequested: p => {
+						folderView.forceActiveFocus();
+						if (folderView.focusManager)
+							folderView.focusManager.set_focus_path(p);
+					}
 
 					onSelectionToggled: (p, idx) => {
 						folderView.forceActiveFocus();

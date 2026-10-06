@@ -13,6 +13,7 @@ Kirigami.ApplicationWindow {
 	flags: directory.config.native_titlebar ? Qt.Window : Qt.Window | Qt.FramelessWindowHint
 
 	property alias selectionManager: selectionManager
+	property alias focusManager: focusManager
 	property alias dragDropHandler: dragDropHandler
 	property alias dropValidator: dropValidator
 	property alias fileManager: fileManager
@@ -39,6 +40,18 @@ Kirigami.ApplicationWindow {
 
 	SelectionManager {
 		id: selectionManager
+	}
+
+	FocusManager {
+		id: focusManager
+		window: root
+	}
+
+	Timer {
+		interval: 90
+		running: true
+		repeat: true
+		onTriggered: focusManager.poll_gamepad()
 	}
 
 	ActionManager {
