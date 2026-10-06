@@ -346,66 +346,6 @@ Module {
 		}
 	}
 	Component {
-		name: "Directory"
-		prototype: "QObject"
-		exports: ["Hishell/Directory 1.0"]
-		exportMetaObjectRevisions: [256]
-
-		Property { name: "config"; type: "QVariant"; isReadonly: true }
-		Property { name: "title"; type: "string"; isReadonly: true }
-		Property { name: "icon"; type: "string"; isReadonly: true }
-		Property { name: "has_meta"; type: "bool"; isReadonly: true }
-		Property { name: "path"; type: "string" }
-		Signal { name: "config_changed" }
-		Signal { name: "path_changed" }
-		Signal { name: "requestExecutePrompt" }
-		Method {
-			name: "execute_file"
-			type: "void"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "open_path"
-			type: "void"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "go_up"
-			type: "void"
-		}
-		Method {
-			name: "open_in_new_window"
-			type: "void"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "poll_thumbnails"
-			type: "void"
-		}
-		Method {
-			name: "set_config"
-			type: "void"
-			Parameter { name: "section"; type: "string" }
-			Parameter { name: "key"; type: "string" }
-			Parameter { name: "value"; type: "string" }
-			Parameter { name: "local"; type: "bool" }
-		}
-		Method {
-			name: "reload"
-			type: "void"
-		}
-		Method {
-			name: "get_all_paths"
-			type: "QVariantList"
-		}
-		Method {
-			name: "load_directory"
-			type: "void"
-			Parameter { name: "path"; type: "string" }
-			Parameter { name: "include_hidden"; type: "bool" }
-		}
-	}
-	Component {
 		name: "FocusManager"
 		prototype: "QObject"
 		exports: ["Hishell/FocusManager 1.0"]
@@ -473,6 +413,66 @@ Module {
 			name: "border_source"
 			type: "string"
 			Parameter { name: "color"; type: "string" }
+		}
+	}
+	Component {
+		name: "Directory"
+		prototype: "QObject"
+		exports: ["Hishell/Directory 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Property { name: "config"; type: "QVariant"; isReadonly: true }
+		Property { name: "title"; type: "string"; isReadonly: true }
+		Property { name: "icon"; type: "string"; isReadonly: true }
+		Property { name: "has_meta"; type: "bool"; isReadonly: true }
+		Property { name: "path"; type: "string" }
+		Signal { name: "config_changed" }
+		Signal { name: "path_changed" }
+		Signal { name: "requestExecutePrompt" }
+		Method {
+			name: "execute_file"
+			type: "void"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "open_path"
+			type: "void"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "go_up"
+			type: "void"
+		}
+		Method {
+			name: "open_in_new_window"
+			type: "void"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "poll_thumbnails"
+			type: "void"
+		}
+		Method {
+			name: "set_config"
+			type: "void"
+			Parameter { name: "section"; type: "string" }
+			Parameter { name: "key"; type: "string" }
+			Parameter { name: "value"; type: "string" }
+			Parameter { name: "local"; type: "bool" }
+		}
+		Method {
+			name: "reload"
+			type: "void"
+		}
+		Method {
+			name: "get_all_paths"
+			type: "QVariantList"
+		}
+		Method {
+			name: "load_directory"
+			type: "void"
+			Parameter { name: "path"; type: "string" }
+			Parameter { name: "include_hidden"; type: "bool" }
 		}
 	}
 }

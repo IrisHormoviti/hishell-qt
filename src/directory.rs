@@ -476,19 +476,34 @@ pub fn get_icon(path: &str) -> String {
 	}
 }
 
+fn icon_source(icon: String, base: &Path) -> String {
+	let path = if icon.starts_with('/') {
+		PathBuf::from(&icon)
+	} else if icon.contains('/') {
+		base.join(&icon)
+	} else {
+		return icon;
+	};
+
+	match std::fs::canonicalize(&path) {
+		Ok(resolved) => format!("file://{}", resolved.to_string_lossy()),
+		Err(_) => icon,
+	}
+}
+
 pub fn get_folder_icon(path: &str) -> String {
 	let path_buf = Path::new(path);
 	let abs_path = std::fs::canonicalize(path_buf).unwrap_or_else(|_| path_buf.to_path_buf());
 
 	if let Some(icon) = config::get_image(&abs_path, "DISPLAY", "Icon") {
 		if !icon.is_empty() {
-			return icon;
+			return icon_source(icon, &abs_path);
 		}
 	}
 
 	let dot_directory = abs_path.join(".directory");
 	if let Some(icon) = crate::desktop_entry::get_icon(&dot_directory) {
-		return icon;
+		return icon_source(icon, &abs_path);
 	}
 
 	if let Some(home) = dirs::home_dir().and_then(|h| std::fs::canonicalize(h).ok()) {

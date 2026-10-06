@@ -11,3 +11,5 @@
 - In selection mode, expects the accept/Enter key to toggle the focused item's selection (like Space) instead of opening it. Confidence: 0.55
 - Expects controller/gamepad input to be routed to popup UI (menus, context menus, dialogs) while a popup is open — popups should take over navigation when they appear instead of the controller continuing to drive the background view. Confidence: 0.6
 - Prefers adopting a mature, well-established library/dependency (e.g. a standard game-input crate like `gilrs` with SDL controller mapping) over maintaining hand-rolled low-level implementations when a subsystem gets complicated. Confidence: 0.5
+- This project follows a no-committed-tests convention: temporary local tests are acceptable for verifying a fix, but they must be removed before finishing (relying on build/format checks plus a timed runtime run instead). Confidence: 0.6
+- Expects the agent not to terminate processes it did not start — verify ownership (e.g. via `/proc`, parent shell, cmdline) before killing, and leave the user's own running app instances untouched. Confidence: 0.55
