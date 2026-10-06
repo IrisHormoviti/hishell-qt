@@ -2,6 +2,8 @@ name: Bundle
 
 on:
   push:
+    branches:
+      - master
     tags:
       - "v*"
   workflow_dispatch:
@@ -22,6 +24,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Enable universe repository
+        run: sudo add-apt-repository universe -y
+
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
@@ -39,9 +44,8 @@ jobs:
             qml6-module-qtquick-layouts \
             qml6-module-qtquick-window \
             kirigami2-dev \
-            qml6-module-org-kde-kirigami \
-            libkf6kirigami2-dev \
-            bsdtar \
+            qml-module-org-kde-kirigami2 \
+            libarchive-tools \
             imagemagick \
             ffmpegthumbnailer \
             patchelf
