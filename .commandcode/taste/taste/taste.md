@@ -1,0 +1,13 @@
+# Taste
+- Expects the agent to read the project's guidance file (e.g. `AGENTS.md`) before starting a task and to follow its conventions. Confidence: 0.65
+- Prefers reusable UI graphics stored as standalone SVG asset files in a theme directory (e.g. `theme/default/`) rather than drawn inline in QML. Confidence: 0.6
+- Prefers interactive UI highlights (e.g. focus borders) to use the theme accent color rather than arbitrary colors. Confidence: 0.55
+- Prefers KDE Frameworks (KF6) libraries for KDE desktop integration rather than reimplementing desktop logic (e.g. wants KApplicationTrader/KIO for app launching and MIME associations). Confidence: 0.75
+- Prefers using standard freedesktop/XDG desktop portals when available (e.g. `org.freedesktop.portal.OpenURI`/`OpenFile` for launching files) and keeping custom implementations only as a fallback for when the portal is unavailable or fails. Confidence: 0.7
+- Expects features to follow freedesktop/XDG standards (e.g. writing defaults to `~/.config/mimeapps.list` via standard mechanisms so both KDE and GLib honor them) rather than custom or desktop-specific formats. Confidence: 0.65
+- Prefers the focus indicator/border to appear only from directional navigation (keyboard arrows / d-pad / stick), not from mouse clicks — mouse interaction should not show focus. Confidence: 0.6
+- Prefers controller/gamepad actions to target the currently focused element (e.g. the context-menu button opens the menu for the focused item) rather than the mouse/cursor position. Confidence: 0.55
+- Prefers action labels/menu items to be specific and informative, reflecting the actual target (e.g. "Open with <AppName>" naming the system default application and its icon) rather than a generic "Open". Confidence: 0.6
+- In selection mode, expects the accept/Enter key to toggle the focused item's selection (like Space) instead of opening it. Confidence: 0.55
+- Expects controller/gamepad input to be routed to popup UI (menus, context menus, dialogs) while a popup is open — popups should take over navigation when they appear instead of the controller continuing to drive the background view. Confidence: 0.6
+- Prefers adopting a mature, well-established library/dependency (e.g. a standard game-input crate like `gilrs` with SDL controller mapping) over maintaining hand-rolled low-level implementations when a subsystem gets complicated. Confidence: 0.5

@@ -1,26 +1,12 @@
+use gilrs::{Axis, Button, EventType, Gilrs};
 use once_cell::sync::Lazy;
-use std::fs::File;
-use std::io::Read;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-const DEADZONE: i16 = 16000;
 const REPEAT: Duration = Duration::from_millis(160);
-const RECONNECT: Duration = Duration::from_secs(2);
-
-const AXIS_X: usize = 0;
-const AXIS_Y: usize = 1;
-const AXIS_HAT_X: usize = 6;
-const AXIS_HAT_Y: usize = 7;
-
-const BUTTON_ACCEPT: usize = 0;
-const BUTTON_CANCEL: usize = 1;
-const BUTTON_DPAD_UP: usize = 11;
-const BUTTON_DPAD_DOWN: usize = 12;
-const BUTTON_DPAD_LEFT: usize = 13;
-const BUTTON_DPAD_RIGHT: usize = 14;
+const STICK_THRESHOLD: f32 = 0.35;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Input {
@@ -30,6 +16,7 @@ pub enum Input {
 	Right,
 	Accept,
 	Cancel,
+	Menu,
 }
 
 impl Input {
@@ -41,16 +28,19 @@ impl Input {
 			Input::Right => "right",
 			Input::Accept => "accept",
 			Input::Cancel => "cancel",
+			Input::Menu => "menu",
 		}
 	}
 }
 
 #[derive(Default)]
 struct State {
-	axes: [i16; 16],
-	axis_rest: [i16; 16],
-	axis_seen: [bool; 16],
-	buttons: [bool; 32],
+	dpad_up: bool,
+	dpad_down: bool,
+	dpad_left: bool,
+	dpad_right: bool,
+	stick_x: f32,
+	stick_y: f32,
 }
 
 static STATE: Lazy<Mutex<State>> = Lazy::new(|| Mutex::new(State::default()));
@@ -59,37 +49,40 @@ static REPEAT_STATE: Lazy<Mutex<(Option<Input>, Instant)>> =
 	Lazy::new(|| Mutex::new((None, Instant::now())));
 static STARTED: AtomicBool = AtomicBool::new(false);
 
-/// Starts the background reader for the first available joystick device.
-/// Safe to call once; later calls are ignored.
+/// Starts the gilrs event pump. gilrs normalises controllers through the SDL
+/// mapping database, so d-pads, sticks and face buttons mean the same thing
+/// regardless of the controller or the mode it is connected in.
 pub fn init() {
 	if STARTED.swap(true, Ordering::SeqCst) {
 		return;
 	}
 
 	thread::spawn(|| {
-		let mut announced = false;
-		loop {
-			if let Some((mut device, path)) = open_device() {
-				if !announced {
-					println!("gamepad: reading {}", path);
-					announced = true;
-				}
-				if let Ok(mut state) = STATE.lock() {
-					*state = State::default();
-				}
-
-				let mut buffer = [0u8; 8];
-				while device.read_exact(&mut buffer).is_ok() {
-					apply(&buffer);
-				}
+		let mut gilrs = match Gilrs::new() {
+			Ok(gilrs) => gilrs,
+			Err(error) => {
+				println!("gamepad: unavailable ({})", error);
+				return;
 			}
-			thread::sleep(RECONNECT);
+		};
+		println!("gamepad: ready");
+		snapshot(&gilrs);
+
+		loop {
+			if let Some(event) = gilrs.next_event_blocking(Some(Duration::from_millis(200)))
+				&& let EventType::ButtonPressed(button, _) = event.event
+				&& let Some(input) = button_input(button)
+				&& let Ok(mut queue) = QUEUE.lock()
+			{
+				queue.push(input);
+			}
+			snapshot(&gilrs);
 		}
 	});
 }
 
 /// Non-blocking read of the next navigation input. Held directions repeat
-/// after a short delay; button presses are edge-triggered.
+/// after a short delay; buttons are edge-triggered.
 pub fn poll() -> Option<Input> {
 	if let Ok(mut queue) = QUEUE.lock()
 		&& !queue.is_empty()
@@ -118,80 +111,71 @@ pub fn poll() -> Option<Input> {
 	}
 }
 
-fn open_device() -> Option<(File, String)> {
-	for index in 0..8 {
-		let path = format!("/dev/input/js{}", index);
-		if let Ok(file) = File::open(&path) {
-			return Some((file, path));
+fn snapshot(gilrs: &Gilrs) {
+	let mut state = State::default();
+
+	for (_, gamepad) in gilrs.gamepads() {
+		if !gamepad.is_connected() {
+			continue;
+		}
+		state.dpad_up |= gamepad.is_pressed(Button::DPadUp);
+		state.dpad_down |= gamepad.is_pressed(Button::DPadDown);
+		state.dpad_left |= gamepad.is_pressed(Button::DPadLeft);
+		state.dpad_right |= gamepad.is_pressed(Button::DPadRight);
+
+		let x = gamepad.value(Axis::LeftStickX);
+		let y = gamepad.value(Axis::LeftStickY);
+		if x.abs() > state.stick_x.abs() {
+			state.stick_x = x;
+		}
+		if y.abs() > state.stick_y.abs() {
+			state.stick_y = y;
 		}
 	}
-	None
+
+	if let Ok(mut current) = STATE.lock() {
+		*current = state;
+	}
 }
 
-fn apply(buffer: &[u8; 8]) {
-	let value = i16::from_ne_bytes([buffer[4], buffer[5]]);
-	let kind = buffer[6];
-	let number = buffer[7] as usize;
-	let init = kind & 0x80 != 0;
-
-	let mut state = match STATE.lock() {
-		Ok(state) => state,
-		Err(_) => return,
-	};
-
-	match kind & 0x7f {
-		0x02 => {
-			if number < state.axes.len() {
-				if init || !state.axis_seen[number] {
-					state.axis_rest[number] = value;
-					state.axis_seen[number] = true;
-				}
-				state.axes[number] = value;
-			}
-		}
-		0x01 => {
-			if number < state.buttons.len() {
-				state.buttons[number] = value != 0;
-			}
-			if !init && value != 0 {
-				let input = match number {
-					BUTTON_ACCEPT => Some(Input::Accept),
-					BUTTON_CANCEL => Some(Input::Cancel),
-					_ => None,
-				};
-				if let Some(input) = input
-					&& let Ok(mut queue) = QUEUE.lock()
-				{
-					queue.push(input);
-				}
-			}
-		}
-		_ => {}
+fn button_input(button: Button) -> Option<Input> {
+	match button {
+		Button::South => Some(Input::Accept),
+		Button::East => Some(Input::Cancel),
+		Button::North | Button::Start => Some(Input::Menu),
+		_ => None,
 	}
 }
 
 fn held_direction() -> Option<Input> {
 	let state = STATE.lock().ok()?;
 
-	let mut x = axis_sign(state.axes[AXIS_X] - state.axis_rest[AXIS_X]);
-	if x == 0 {
-		x = axis_sign(state.axes[AXIS_HAT_X] - state.axis_rest[AXIS_HAT_X]);
-	}
-	let mut y = axis_sign(state.axes[AXIS_Y] - state.axis_rest[AXIS_Y]);
-	if y == 0 {
-		y = axis_sign(state.axes[AXIS_HAT_Y] - state.axis_rest[AXIS_HAT_Y]);
-	}
+	let mut x: i32 = 0;
+	let mut y: i32 = 0;
 
-	if state.buttons[BUTTON_DPAD_LEFT] {
+	if state.dpad_left {
 		x -= 1;
 	}
-	if state.buttons[BUTTON_DPAD_RIGHT] {
+	if state.dpad_right {
 		x += 1;
 	}
-	if state.buttons[BUTTON_DPAD_UP] {
+	if state.dpad_up {
 		y -= 1;
 	}
-	if state.buttons[BUTTON_DPAD_DOWN] {
+	if state.dpad_down {
+		y += 1;
+	}
+
+	if state.stick_x < -STICK_THRESHOLD {
+		x -= 1;
+	}
+	if state.stick_x > STICK_THRESHOLD {
+		x += 1;
+	}
+	if state.stick_y < -STICK_THRESHOLD {
+		y -= 1;
+	}
+	if state.stick_y > STICK_THRESHOLD {
 		y += 1;
 	}
 
@@ -202,15 +186,5 @@ fn held_direction() -> Option<Input> {
 		Some(if x < 0 { Input::Left } else { Input::Right })
 	} else {
 		Some(if y < 0 { Input::Up } else { Input::Down })
-	}
-}
-
-fn axis_sign(value: i16) -> i32 {
-	if value > DEADZONE {
-		1
-	} else if value < -DEADZONE {
-		-1
-	} else {
-		0
 	}
 }

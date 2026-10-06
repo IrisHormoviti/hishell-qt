@@ -152,6 +152,18 @@ pub struct Directory {
 		}
 	),
 
+	go_up: qt_method!(
+		pub fn go_up(&mut self) {
+			let current = Path::new(&self.path_str);
+			if let Some(parent) = current.parent() {
+				let parent_str = parent.to_string_lossy().to_string();
+				if !parent_str.is_empty() && parent_str != self.path_str {
+					self.set_path(parent_str);
+				}
+			}
+		}
+	),
+
 	open_in_new_window: qt_method!(
 		pub fn open_in_new_window(&self, path: String) {
 			if let Ok(exe) = std::env::current_exe() {
@@ -510,6 +522,9 @@ pub fn get_folder_icon(path: &str) -> String {
 }
 
 pub fn open_file(path: String) {
+	if crate::kde_bridge::open_with_default(&path) {
+		return;
+	}
 	let _ = Command::new("xdg-open").arg(&path).spawn();
 }
 

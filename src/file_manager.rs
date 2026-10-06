@@ -397,10 +397,50 @@ pub struct FileManager {
 		}
 	),
 
-	open_file_with_dialog: qt_method!(
-		fn open_file_with_dialog(&self, path: String) -> bool {
+	/// Ask the XDG desktop portal to let the user pick an application and launch it.
+	/// Returns false when the portal is unavailable (the built-in dialog should be used).
+	start_portal_open_with: qt_method!(
+		fn start_portal_open_with(&self, path: String) -> bool {
 			let p = clean_path(&path.to_string());
-			crate::portal::open_file_with_portal(Path::new(&p))
+			crate::kde_bridge::portal_open_with(&p)
+		}
+	),
+
+	/// Poll the pending portal request: 0 = finished, 1 = pending, 2 = failed (fall back to the dialog).
+	poll_portal_open_with: qt_method!(
+		fn poll_portal_open_with(&self) -> i32 {
+			crate::kde_bridge::portal_poll()
+		}
+	),
+
+	/// JSON with the default application for the file ({id, name, icon}; empty when none).
+	get_default_app: qt_method!(
+		fn get_default_app(&self, path: String) -> String {
+			let p = clean_path(&path.to_string());
+			crate::kde_bridge::default_app_json(&p)
+		}
+	),
+
+	/// List the applications registered for opening the file (JSON payload for the Open With dialog).
+	get_open_with_apps: qt_method!(
+		fn get_open_with_apps(&self, path: String) -> String {
+			let p = clean_path(&path.to_string());
+			crate::kde_bridge::apps_json(&p)
+		}
+	),
+
+	/// Open the file with a specific application (desktop entry storage id).
+	open_with_app: qt_method!(
+		fn open_with_app(&self, path: String, app_id: String) -> bool {
+			let p = clean_path(&path.to_string());
+			crate::kde_bridge::launch(&app_id, &p)
+		}
+	),
+
+	/// Set the application as the default handler for the file's MIME type (via XDG mimeapps.list).
+	set_default_app: qt_method!(
+		fn set_default_app(&self, mime: String, app_id: String) -> bool {
+			crate::kde_bridge::set_default(&mime, &app_id)
 		}
 	),
 

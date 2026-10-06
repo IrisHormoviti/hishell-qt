@@ -63,9 +63,6 @@ Item {
 	// Emitted on press and hold
 	signal pressHeld(string path, int idx)
 
-	// Emitted when this slot receives a mouse press, to sync keyboard focus
-	signal focusRequested(string path)
-
 	// Emitted before the attached context menu opens.
 	signal contextMenuRequested(string path, int idx)
 
@@ -78,6 +75,21 @@ Item {
 		if (fileSlot.actionManager)
 			fileSlot.actionManager.pasteTargetPath = fileSlot.is_dir ? fileSlot.path : "";
 		fileSlot.contextMenuRequested(fileSlot.path, fileSlot.index);
+	}
+
+	function openContextMenu() {
+		if (fileSlot.actionManager)
+			fileSlot.actionManager.pasteTargetPath = fileSlot.is_dir ? fileSlot.path : "";
+		fileSlot.contextMenuRequested(fileSlot.path, fileSlot.index);
+
+		const menu = ContextMenu.menu;
+		if (!menu)
+			return null;
+		const position = fileSlot.mapToItem(menu.parent, 0, fileSlot.height);
+		menu.x = position.x;
+		menu.y = position.y;
+		menu.open();
+		return menu;
 	}
 
 	implicitWidth: contentLayout.implicitWidth + (fileSlot.labelBesideIcon && fileSlot.showIcon ? Kirigami.Units.largeSpacing * 2 : Kirigami.Units.smallSpacing * 2)
@@ -623,15 +635,12 @@ Item {
 		}
 
 		onPressed: mouse => {
-			if (mouse.button === Qt.LeftButton) {
-				fileSlot.focusRequested(fileSlot.path);
-				if (typeof dragDropHandler !== 'undefined') {
-					mouseArea.isPressAndHoldActive = false;
-					mouseArea.dragInitiated = false;
+			if (mouse.button === Qt.LeftButton && typeof dragDropHandler !== 'undefined') {
+				mouseArea.isPressAndHoldActive = false;
+				mouseArea.dragInitiated = false;
 
-					mouseArea.startX = mouse.x;
-					mouseArea.startY = mouse.y;
-				}
+				mouseArea.startX = mouse.x;
+				mouseArea.startY = mouse.y;
 			}
 		}
 

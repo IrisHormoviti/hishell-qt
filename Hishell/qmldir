@@ -11,3 +11,4 @@ ShellWindow ShellWindow.qml
 WindowOverlay WindowOverlay.qml
 DragTooltip DragTooltip.qml
 ExecuteDialog ExecuteDialog.qml
+OpenWithDialog OpenWithDialog.qml

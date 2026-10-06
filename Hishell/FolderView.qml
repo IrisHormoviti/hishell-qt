@@ -14,6 +14,10 @@ Item {
 	property Config config: directory.config
 	property FocusManager focusManager: folderView.rootWindow ? folderView.rootWindow.focusManager : null
 	readonly property string focusBorderSource: folderView.focusManager ? folderView.focusManager.border_source(Kirigami.Theme.highlightColor.toString()) : ""
+	property bool focusOwned: false
+	property var openMenu: null
+	property string returnFocusPath: ""
+	property string lastPath: ""
 
 	Layout.fillWidth: true
 	Layout.fillHeight: true
@@ -26,7 +30,19 @@ Item {
 		function onActiveChanged() {
 			if (folderView.Window.window.active)
 				folderView.forceActiveFocus();
+			folderView.updateViewFocus();
 		}
+	}
+
+	function updateViewFocus() {
+		const fm = folderView.focusManager;
+		const window = folderView.Window.window;
+		if (!fm)
+			return;
+		// While the window is inactive the controller still drives the file
+		// view; only focus owned elsewhere inside an active window (popups,
+		// dialogs) hands the input over to Qt.
+		fm.view_focused = folderView.activeFocus || !(window && window.active);
 	}
 
 	function selectAll() {
@@ -54,7 +70,7 @@ Item {
 
 	function updateFocusItems() {
 		const fm = folderView.focusManager;
-		if (!fm || !folderView.activeFocus || !folderView.directory)
+		if (!fm || !folderView.directory)
 			return;
 		const paths = folderView.directory.get_all_paths();
 		if (paths.length === 0) {
@@ -62,6 +78,14 @@ Item {
 			return;
 		}
 		fm.set_items(paths, folderView.gridColumns());
+		folderView.focusOwned = true;
+
+		if (folderView.returnFocusPath !== "") {
+			const target = folderView.returnFocusPath;
+			folderView.returnFocusPath = "";
+			fm.set_focus_path(target);
+			Qt.callLater(() => folderView.ensureFocusVisible());
+		}
 	}
 
 	function ensureFocusVisible() {
@@ -86,13 +110,28 @@ Item {
 			folderView.rootWindow.actionManager.openAction.execute(String(fm.focused_path), itemRepeater.itemAt(fm.focused_index), false);
 	}
 
+	// Enter / gamepad accept: toggle the focused item in selection mode, otherwise open it
+	function activateFocused() {
+		const fm = folderView.focusManager;
+		const mgr = folderView.rootWindow ? folderView.rootWindow.selectionManager : null;
+		if (!fm || !fm.focus_active || String(fm.focused_path) === "")
+			return;
+		if (mgr && mgr.selection_active) {
+			mgr.toggle_selection(String(fm.focused_path), fm.focused_index);
+			return;
+		}
+		folderView.openFocused();
+	}
+
 	Component.onCompleted: {
 		folderView.forceActiveFocus();
 		Qt.callLater(() => {
 			folderView.forceActiveFocus();
+			folderView.updateViewFocus();
 			if (folderView.config && folderView.directory) {
 				folderView.config.load(folderView.directory.path);
 				folderView.directory.load_directory(folderView.directory.path, !folderView.config.stash_dotfiles);
+				folderView.lastPath = String(folderView.directory.path);
 				folderView.updateFocusItems();
 			} else {
 				console.error("FolderView: missing directory or config.");
@@ -101,8 +140,11 @@ Item {
 	}
 
 	onActiveFocusChanged: {
-		if (folderView.activeFocus)
+		folderView.updateViewFocus();
+		if (folderView.activeFocus) {
+			folderView.focusOwned = true;
 			folderView.updateFocusItems();
+		}
 	}
 
 	Connections {
@@ -115,7 +157,7 @@ Item {
 	Connections {
 		target: flowLayout
 		function onWidthChanged() {
-			if (folderView.activeFocus && folderView.focusManager)
+			if (folderView.focusOwned && folderView.focusManager)
 				folderView.focusManager.set_columns(folderView.gridColumns());
 		}
 	}
@@ -123,20 +165,38 @@ Item {
 	Connections {
 		target: folderView.focusManager
 		function onFocus_changed() {
-			if (folderView.activeFocus)
+			if (folderView.focusOwned)
 				folderView.ensureFocusVisible();
 		}
 		function onAccept_requested() {
-			if (folderView.activeFocus)
-				folderView.openFocused();
+			if (folderView.focusOwned)
+				folderView.activateFocused();
+		}
+		function onMenu_requested() {
+			if (!folderView.focusOwned || !folderView.focusManager || !folderView.focusManager.focus_active)
+				return;
+			const item = itemRepeater.itemAt(folderView.focusManager.focused_index);
+			if (item)
+				folderView.openMenu = item.openContextMenu();
 		}
 		function onCancel_requested() {
-			if (!folderView.activeFocus)
+			if (!folderView.focusOwned)
 				return;
-			if (folderView.rootWindow && folderView.rootWindow.selectionManager)
-				folderView.rootWindow.selectionManager.exit_selection_mode();
-			if (folderView.focusManager)
-				folderView.focusManager.clear();
+
+			if (folderView.openMenu && folderView.openMenu.visible) {
+				folderView.openMenu.close();
+				folderView.openMenu = null;
+				return;
+			}
+
+			const mgr = folderView.rootWindow ? folderView.rootWindow.selectionManager : null;
+			if (mgr && mgr.selection_active) {
+				mgr.exit_selection_mode();
+				return;
+			}
+
+			if (folderView.rootWindow && folderView.rootWindow.actionManager)
+				folderView.rootWindow.actionManager.goUpAction.trigger();
 		}
 	}
 
@@ -156,6 +216,10 @@ Item {
 		target: folderView.directory
 
 		function onPathChanged() {
+			const previous = folderView.lastPath;
+			folderView.lastPath = String(folderView.directory.path);
+			folderView.returnFocusPath = previous;
+
 			if (folderView.config && folderView.directory) {
 				folderView.config.load(folderView.directory.path);
 				folderView.directory.load_directory(folderView.directory.path, !folderView.config.stash_dotfiles);
@@ -163,6 +227,8 @@ Item {
 			if (folderView.focusManager)
 				folderView.focusManager.clear();
 			folderView.updateFocusItems();
+			if (folderView.focusManager && folderView.focusOwned)
+				folderView.focusManager.enter_focus();
 			if (folderView.rootWindow && folderView.rootWindow.selectionManager) {
 				folderView.rootWindow.selectionManager.exit_selection_mode();
 			}
@@ -381,8 +447,8 @@ Item {
 			break;
 		case Qt.Key_Return:
 		case Qt.Key_Enter:
-			if (!mgr.selection_active && fm.focus_active && String(fm.focused_path) !== "") {
-				folderView.openFocused();
+			if (fm.focus_active && String(fm.focused_path) !== "") {
+				folderView.activateFocused();
 				event.accepted = true;
 			}
 			break;
@@ -452,7 +518,7 @@ Item {
 
 					gridSize: folderView.config.grid_size
 					selectionActive: selectionManager ? selectionManager.selection_active : false
-					focusActive: folderView.activeFocus
+					focusActive: folderView.focusOwned
 					focusBorderSource: folderView.focusBorderSource
 					isFocused: folderView.focusManager ? (folderView.focusManager.focus_active && String(folderView.focusManager.focused_path) === String(path)) : false
 					isSelected: selectionManager ? (function () {
@@ -462,12 +528,6 @@ Item {
 								return false;
 							}
 						})() : false
-
-					onFocusRequested: p => {
-						folderView.forceActiveFocus();
-						if (folderView.focusManager)
-							folderView.focusManager.set_focus_path(p);
-					}
 
 					onSelectionToggled: (p, idx) => {
 						folderView.forceActiveFocus();

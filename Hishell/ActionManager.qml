@@ -20,6 +20,20 @@ Item {
 
 	readonly property bool isFirstSelectedDir: (isSingleSelection && fileManager) ? fileManager.is_directory(firstSelectedPath) : false
 
+	// Default application of the single selected file, used by the Open action
+	readonly property string openAppPath: (isSingleSelection && !isFirstSelectedDir) ? firstSelectedPath : ""
+	readonly property var openApp: {
+		if (openAppPath === "" || !fileManager)
+			return null;
+		try {
+			const info = JSON.parse(fileManager.get_default_app(openAppPath));
+			return info && info.id ? info : null;
+		} catch (e) {
+			return null;
+		}
+	}
+	readonly property string openAppIcon: openApp ? String(openApp.icon) : ""
+
 	readonly property bool isImageSelected: {
 		if (!hasSelection || !fileManager)
 			return false;
@@ -159,9 +173,9 @@ Item {
 	property alias openAction: openAction
 	Action {
 		id: openAction
-		text: qsTr("Open")
-		icon.name: "open-link"
-		shortcut: "Return"
+		text: actionManager.openApp ? qsTr("Open with %1").arg(actionManager.openApp.name) : qsTr("Open")
+		icon.name: actionManager.openAppIcon !== "" && actionManager.openAppIcon.indexOf("/") === -1 ? actionManager.openAppIcon : "open-link"
+		icon.source: actionManager.openAppIcon.indexOf("/") !== -1 ? actionManager.openAppIcon : ""
 		enabled: actionManager.hasSelection
 
 		function execute(targetPath: string, sourceItem: Item, inNewWindow = false) {
@@ -246,9 +260,8 @@ Item {
 		shortcut: "Ctrl+Alt+O"
 		enabled: actionManager.isSingleSelection
 		onTriggered: {
-			if (actionManager.isSingleSelection && actionManager.fileManager) {
-				actionManager.fileManager.open_file_with_dialog(actionManager.firstSelectedPath);
-			}
+			if (actionManager.isSingleSelection)
+				actionManager.openWith(actionManager.firstSelectedPath);
 		}
 	}
 
@@ -355,8 +368,21 @@ Item {
 	}
 
 	// Folder Group
-	readonly property var folderActionsGroup: [pasteAction, copyPathAction]
+	readonly property var folderActionsGroup: [goUpAction, pasteAction, copyPathAction]
+	property alias goUpAction: goUpAction
 	property string pasteTargetPath: ""
+
+	Action {
+		id: goUpAction
+		text: qsTr("Go Up")
+		icon.name: "go-up-symbolic"
+		shortcut: "Alt+Up"
+		enabled: actionManager.directory && actionManager.directory.path !== "/"
+		onTriggered: {
+			if (actionManager.directory)
+				actionManager.directory.go_up();
+		}
+	}
 
 	function pasteInto(destPath) {
 		const dest = destPath || (actionManager.directory ? actionManager.directory.path : "");
@@ -549,5 +575,44 @@ Item {
 				}
 			}
 		}
+	}
+
+	// Open With: prefer the system chooser through the XDG portal, fall back to the built-in dialog
+	function openWith(filePath) {
+		if (!actionManager.fileManager)
+			return;
+		if (!actionManager.fileManager.start_portal_open_with(filePath)) {
+			actionManager.openOpenWithDialog(filePath);
+			return;
+		}
+		portalOpenWithWatch.filePath = filePath;
+		portalOpenWithWatch.running = true;
+	}
+
+	Timer {
+		id: portalOpenWithWatch
+		property string filePath: ""
+		interval: 250
+		repeat: true
+		onTriggered: {
+			const status = actionManager.fileManager.poll_portal_open_with();
+			if (status === 2) {
+				running = false;
+				actionManager.openOpenWithDialog(filePath);
+			} else if (status === 0) {
+				running = false;
+			}
+		}
+	}
+
+	// Open With Dialog
+	function openOpenWithDialog(filePath) {
+		openWithDialog.filePath = filePath;
+		openWithDialog.open();
+	}
+
+	OpenWithDialog {
+		id: openWithDialog
+		fileManager: actionManager.fileManager
 	}
 }

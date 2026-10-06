@@ -40,10 +40,12 @@ pub struct FocusManager {
 	grid_columns: qt_property!(i32; NOTIFY focus_changed),
 	focus_status: qt_property!(String; NOTIFY focus_changed),
 	window: qt_property!(QVariant),
+	view_focused: qt_property!(bool; NOTIFY focus_changed),
 
 	focus_changed: qt_signal!(),
 	accept_requested: qt_signal!(),
 	cancel_requested: qt_signal!(),
+	menu_requested: qt_signal!(),
 
 	paths: Vec<String>,
 
@@ -102,6 +104,21 @@ pub struct FocusManager {
 			self.focus_active = true;
 			self.focused_index = index;
 			self.focused_path = self.paths[index as usize].clone();
+			self.update_status();
+			self.focus_changed();
+		}
+	),
+
+	enter_focus: qt_method!(
+		fn enter_focus(&mut self) {
+			if self.paths.is_empty() {
+				return;
+			}
+			if self.focused_index < 0 {
+				self.focused_index = 0;
+				self.focused_path = self.paths[0].clone();
+			}
+			self.focus_active = true;
 			self.update_status();
 			self.focus_changed();
 		}
@@ -184,15 +201,25 @@ pub struct FocusManager {
 
 	poll_gamepad: qt_method!(
 		fn poll_gamepad(&mut self) {
-			if let Some(input) = crate::gamepad::poll() {
-				match input {
-					Input::Up | Input::Down | Input::Left | Input::Right => {
-						let direction = String::from(input.as_str());
-						self.move_focus(direction);
-					}
-					Input::Accept => self.accept_requested(),
-					Input::Cancel => self.cancel_requested(),
+			let Some(input) = crate::gamepad::poll() else {
+				return;
+			};
+
+			if !self.view_focused {
+				if let Some(key) = qt_key(input) {
+					crate::kde_bridge::send_key(key);
 				}
+				return;
+			}
+
+			match input {
+				Input::Up | Input::Down | Input::Left | Input::Right => {
+					let direction = String::from(input.as_str());
+					self.move_focus(direction);
+				}
+				Input::Accept => self.accept_requested(),
+				Input::Cancel => self.cancel_requested(),
+				Input::Menu => self.menu_requested(),
 			}
 		}
 	),
@@ -239,5 +266,24 @@ impl FocusManager {
 			serde_json::Value::from(self.grid_columns),
 		);
 		self.focus_status = serde_json::to_string(&status).unwrap_or_default();
+	}
+}
+
+fn qt_key(input: Input) -> Option<i32> {
+	const KEY_ESCAPE: i32 = 0x0100_0000;
+	const KEY_RETURN: i32 = 0x0100_0004;
+	const KEY_LEFT: i32 = 0x0100_0012;
+	const KEY_UP: i32 = 0x0100_0013;
+	const KEY_RIGHT: i32 = 0x0100_0014;
+	const KEY_DOWN: i32 = 0x0100_0015;
+
+	match input {
+		Input::Up => Some(KEY_UP),
+		Input::Down => Some(KEY_DOWN),
+		Input::Left => Some(KEY_LEFT),
+		Input::Right => Some(KEY_RIGHT),
+		Input::Accept => Some(KEY_RETURN),
+		Input::Cancel => Some(KEY_ESCAPE),
+		Input::Menu => None,
 	}
 }

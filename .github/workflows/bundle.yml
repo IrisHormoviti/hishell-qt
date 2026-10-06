@@ -16,9 +16,9 @@ jobs:
       matrix:
         include:
           - arch: x86_64
-            runner: ubuntu-24.04
+            runner: ubuntu-26.04
           - arch: aarch64
-            runner: ubuntu-24.04-arm
+            runner: ubuntu-26.04-arm
 
     steps:
       - name: Checkout
@@ -43,8 +43,10 @@ jobs:
             qml6-module-qtquick-controls \
             qml6-module-qtquick-layouts \
             qml6-module-qtquick-window \
-            kirigami2-dev \
-            qml-module-org-kde-kirigami2 \
+            libkf6service-dev \
+            libkf6kio-dev \
+            libkf6coreaddons-dev \
+            qml6-module-org-kde-kirigami \
             libarchive-tools \
             imagemagick \
             ffmpegthumbnailer \

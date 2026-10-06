@@ -68,6 +68,11 @@ mkdir -p "$DIST_DIR/lib" "$DIST_DIR/qtplugins" "$DIST_DIR/qml"
 
 cp "$TARGET_DIR/$RUST_TARGET/release/hishell-qt" "$DIST_DIR/"
 
+# KService helper, used to rebuild the service database on systems without Plasma
+if [ -x /usr/bin/kbuildsycoca6 ]; then
+	cp /usr/bin/kbuildsycoca6 "$DIST_DIR/"
+fi
+
 # 2. Copy shared library dependencies using ldd (resolves full paths regardless of multiarch layout)
 echo "Collecting dynamic dependencies for $ARCH_NAME..."
 
@@ -91,6 +96,7 @@ copy_deps() {
 }
 
 copy_deps "$DIST_DIR/hishell-qt"
+[ -f "$DIST_DIR/kbuildsycoca6" ] && copy_deps "$DIST_DIR/kbuildsycoca6"
 
 # 3. Copy Qt plugins
 if [ -n "$QT_PLUGIN_DIR" ]; then
@@ -127,6 +133,7 @@ HERE="$(dirname "$(realpath "$0")")"
 export LD_LIBRARY_PATH="$HERE/lib:$LD_LIBRARY_PATH"
 export QT_PLUGIN_PATH="$HERE/qtplugins"
 export QML2_IMPORT_PATH="$HERE/qml"
+export PATH="$HERE:$PATH"
 
 exec "$HERE/hishell-qt" "$@"
 EOF

@@ -1,6 +1,7 @@
 use regex::Regex;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use walkdir::WalkDir;
 
 struct QmlProperty {
@@ -26,11 +27,110 @@ struct QmlComponent {
 	methods: Vec<QmlMethod>,
 }
 
+fn build_kde_bridge() {
+	use std::env;
+
+	let qt_include = env::var("DEP_QT_INCLUDE_PATH")
+		.expect("DEP_QT_INCLUDE_PATH is missing; qttypes must be a dependency");
+	let mut build = cc::Build::new();
+	build.cpp(true).std("c++20").pic(true);
+	for flag in env::var("DEP_QT_COMPILE_FLAGS")
+		.expect("DEP_QT_COMPILE_FLAGS is missing; qttypes must be a dependency")
+		.split_terminator(';')
+	{
+		if !flag.is_empty() && !flag.starts_with("-std=") {
+			build.flag(flag);
+		}
+	}
+	build.include(&qt_include);
+	for module in ["QtCore", "QtGui", "QtDBus"] {
+		let module_dir = Path::new(&qt_include).join(module);
+		if module_dir.is_dir() {
+			build.include(module_dir);
+		}
+	}
+	let out_dir = env::var("OUT_DIR").expect("OUT_DIR is missing");
+	build.include(&out_dir);
+
+	for component in ["KService", "KIO", "KIOCore", "KIOGui", "KCoreAddons"] {
+		let include_dir = format!("/usr/include/KF6/{component}");
+		if !Path::new(&include_dir).is_dir() {
+			panic!(
+				"KDE Frameworks 6 headers not found at {include_dir}.\n\
+				Install the KF6 development packages to build hishell-qt:\n\
+				\u{20} Arch:   sudo pacman -S kservice kio\n\
+				\u{20} Debian: sudo apt install libkf6service-dev libkf6kio-dev libkf6coreaddons-dev\n\
+				\u{20} Fedora: sudo dnf install kf6-kservice-devel kf6-kio-devel kf6-kcoreaddons-devel"
+			);
+		}
+		build.include(&include_dir);
+	}
+
+	let moc = find_moc();
+	let moc_output = format!("{out_dir}/moc_kde_bridge.cpp");
+	let status = Command::new(&moc)
+		.args(["src/kde_bridge.cpp", "-o", &moc_output])
+		.status()
+		.unwrap_or_else(|error| panic!("Failed to run {}: {error}", moc.display()));
+	if !status.success() {
+		panic!("moc failed on src/kde_bridge.cpp");
+	}
+
+	build.file("src/kde_bridge.cpp");
+	build.compile("hishell_kde_bridge");
+
+	for lib in [
+		"KF6Service",
+		"KF6KIOGui",
+		"KF6KIOCore",
+		"KF6CoreAddons",
+		"Qt6DBus",
+	] {
+		println!("cargo:rustc-link-lib={lib}");
+	}
+	println!("cargo:rerun-if-changed=src/kde_bridge.cpp");
+}
+
+fn find_moc() -> PathBuf {
+	if let Ok(moc) = std::env::var("MOC") {
+		let path = PathBuf::from(moc);
+		if path.is_file() {
+			return path;
+		}
+	}
+	if let Ok(output) = Command::new("qmake6")
+		.args(["-query", "QT_INSTALL_LIBEXECS"])
+		.output()
+	{
+		if output.status.success() {
+			let text = String::from_utf8_lossy(&output.stdout);
+			let base = PathBuf::from(text.trim());
+			for candidate in [base.join("moc"), base.join("libexec").join("moc")] {
+				if candidate.is_file() {
+					return candidate;
+				}
+			}
+		}
+	}
+	for candidate in ["/usr/lib/qt6/moc", "/usr/lib/qt6/libexec/moc"] {
+		let path = PathBuf::from(candidate);
+		if path.is_file() {
+			return path;
+		}
+	}
+	panic!(
+		"moc (Qt Meta-Object Compiler) not found. Install the Qt6 development tools \
+		(qt6-base / qt6-base-dev) or set the MOC environment variable"
+	);
+}
+
 fn main() {
 	let output_path = "Hishell/plugins.qmltypes";
 
 	println!("cargo:rerun-if-changed=src/");
 	println!("cargo:rerun-if-changed=build.rs");
+
+	build_kde_bridge();
 
 	// Specifically match structs deriving QObject
 	let struct_re = Regex::new(

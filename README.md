@@ -57,6 +57,7 @@ The settings will be the "general config", a folder config that can will be appl
 - `cmake` >= 3.20
 - `pkg-config`
 - Qt6 development packages for Core, Gui, Qml, and Quick
+- KDE Frameworks 6 development packages for Service, KIO, and CoreAddons (used by the Open With dialog)
 - `gio` executable (`glib2.0-bin` / `glib2`)
 - `xdg-open` (`xdg-utils`)
 - `bsdtar` (`libarchive-tools` / `libarchive`)
@@ -65,19 +66,19 @@ The settings will be the "general config", a folder config that can will be appl
 ### Debian packages
 
 ```bash
-sudo apt install build-essential cmake pkg-config qt6-base-dev qt6-declarative-dev libqt6qml-dev libqt6quick-dev glib2.0-bin xdg-utils libarchive-tools imagemagick
+sudo apt install build-essential cmake pkg-config qt6-base-dev qt6-declarative-dev libqt6qml-dev libqt6quick-dev libkf6service-dev libkf6kio-dev libkf6coreaddons-dev glib2.0-bin xdg-utils libarchive-tools imagemagick
 ```
 
 ### Fedora packages
 
 ```bash
-sudo dnf install @development-tools cmake pkgconfig qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qml-devel qt6-qtquickcontrols2-devel glib2-devel xdg-utils libarchive imagemagick
+sudo dnf install @development-tools cmake pkgconfig qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qml-devel qt6-qtquickcontrols2-devel kf6-kservice-devel kf6-kio-devel kf6-kcoreaddons-devel glib2-devel xdg-utils libarchive imagemagick
 ```
 
 ### Arch packages
 
 ```bash
-sudo pacman -Syu qt6 qt6-declarative cmake pkgconf glib2 xdg-utils libarchive imagemagick
+sudo pacman -Syu qt6 qt6-declarative cmake pkgconf kservice kio glib2 xdg-utils libarchive imagemagick
 ```
 
 ### Build

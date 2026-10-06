@@ -8,8 +8,8 @@ mod file_manager;
 mod focus_manager;
 mod gamepad;
 mod image_utils;
+mod kde_bridge;
 mod path_utils;
-mod portal;
 mod selection_manager;
 mod thumbnailer;
 
@@ -121,6 +121,7 @@ fn main() {
 			"FileSlot.qml",
 			"FolderView.qml",
 			"LayoutEngine.qml",
+			"OpenWithDialog.qml",
 			"ShellContextMenu.qml",
 			"ShellWindow.qml",
 			"WindowOverlay.qml",
