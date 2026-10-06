@@ -1,0 +1,108 @@
+name: Bundle
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  bundle:
+    name: Bundle (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake \
+            libgl-dev \
+            libgl1-mesa-dev \
+            pkg-config \
+            qt6-base-dev \
+            qt6-declarative-dev \
+            libqt6opengl6-dev \
+            qml6-module-qtquick \
+            qml6-module-qtquick-controls \
+            qml6-module-qtquick-layouts \
+            qml6-module-qtquick-window \
+            kirigami2-dev \
+            qml6-module-org-kde-kirigami \
+            libkf6kirigami2-dev \
+            bsdtar \
+            imagemagick \
+            ffmpegthumbnailer \
+            patchelf
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/user_build
+          key: cargo-${{ matrix.arch }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ matrix.arch }}-
+
+      - name: Bundle
+        run: |
+          chmod +x bundle.sh
+          CARGO_TARGET_DIR=target/user_build ./bundle.sh ${{ matrix.arch }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hishell-qt-${{ matrix.arch }}
+          path: dist/hishell-qt-${{ matrix.arch }}/
+          retention-days: 30
+
+  release:
+    name: Create Release
+    needs: bundle
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download x86_64 bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: hishell-qt-x86_64
+          path: dist/hishell-qt-x86_64
+
+      - name: Download aarch64 bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: hishell-qt-aarch64
+          path: dist/hishell-qt-aarch64
+
+      - name: Create tarballs
+        run: |
+          cd dist
+          tar -czf hishell-qt-x86_64.tar.gz hishell-qt-x86_64/
+          tar -czf hishell-qt-aarch64.tar.gz hishell-qt-aarch64/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/hishell-qt-x86_64.tar.gz
+            dist/hishell-qt-aarch64.tar.gz
+          generate_release_notes: true

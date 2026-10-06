@@ -421,6 +421,7 @@ Item {
 		hoverEnabled: true
 		acceptedButtons: Qt.LeftButton | Qt.MiddleButton
 		pressAndHoldInterval: 300
+		cursorShape: Qt.PointingHandCursor
 
 		drag.target: localDragTarget
 		drag.axis: Drag.XAndYAxis

@@ -428,10 +428,10 @@ pub struct FileManager {
 	get_home_directory: qt_method!(
 		pub fn get_home_directory(&self) -> String {
 			dirs::home_dir()
-			.map(|path| path.to_string_lossy().into_owned())
-			.unwrap_or_default()
+				.map(|path| path.to_string_lossy().into_owned())
+				.unwrap_or_default()
 		}
-	)
+	),
 }
 
 fn move_item(src: &Path, dst: &Path) -> bool {

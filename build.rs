@@ -45,10 +45,7 @@ fn main() {
 	.unwrap();
 
 	// Match signals defined inside qt_signal!(...)
-	let signal_re = Regex::new(
-		r"([a-zA-Z0-9_]+)\s*:\s*qt_signal!\s*\(",
-	)
-	.unwrap();
+	let signal_re = Regex::new(r"([a-zA-Z0-9_]+)\s*:\s*qt_signal!\s*\(").unwrap();
 
 	// Specifically match methods defined inside qt_method!(...)
 	let method_re = Regex::new(
@@ -117,13 +114,15 @@ fn main() {
 		for cap in method_re.captures_iter(&content) {
 			let name = cap[1].to_string();
 			let raw_args = cap.get(2).map_or("", |m| m.as_str());
-			let return_type = cap.get(3).map_or("void".to_string(), |m| match m.as_str().trim() {
-				"QString" | "String" => "string".to_string(),
-				"bool" => "bool".to_string(),
-				"i32" | "u32" => "int".to_string(),
-				"f64" | "f32" => "double".to_string(),
-				other => other.to_string(),
-			});
+			let return_type = cap
+				.get(3)
+				.map_or("void".to_string(), |m| match m.as_str().trim() {
+					"QString" | "String" => "string".to_string(),
+					"bool" => "bool".to_string(),
+					"i32" | "u32" => "int".to_string(),
+					"f64" | "f32" => "double".to_string(),
+					other => other.to_string(),
+				});
 
 			let mut args = Vec::new();
 			let cleaned_args = raw_args.replace('\n', " ").replace('\t', " ");
@@ -167,10 +166,7 @@ fn main() {
 		qmltypes.push_str("\tComponent {\n");
 		qmltypes.push_str(&format!("\t\tname: \"{}\"\n", comp.name));
 		qmltypes.push_str("\t\tprototype: \"QObject\"\n");
-		qmltypes.push_str(&format!(
-			"\t\texports: [\"Hishell/{} 1.0\"]\n",
-			comp.name
-		));
+		qmltypes.push_str(&format!("\t\texports: [\"Hishell/{} 1.0\"]\n", comp.name));
 		qmltypes.push_str("\t\texportMetaObjectRevisions: [256]\n\n");
 
 		for prop in comp.properties {
@@ -188,10 +184,7 @@ fn main() {
 		}
 
 		for signal in comp.signals {
-			qmltypes.push_str(&format!(
-				"\t\tSignal {{ name: \"{}\" }}\n",
-				signal.name
-			));
+			qmltypes.push_str(&format!("\t\tSignal {{ name: \"{}\" }}\n", signal.name));
 		}
 
 		for method in comp.methods {

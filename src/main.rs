@@ -104,67 +104,38 @@ fn main() {
 	qmetaobject::qml_register_type::<PathUtils>(IMPORT_NAME, 1, 0, PATHUTILS_STR);
 	qmetaobject::qml_register_type::<SelectionManager>(IMPORT_NAME, 1, 0, SELECTIONMANAGER_STR);
 
-	let main_qml_path = std::path::Path::new("Hishell/ShellWindow.qml");
+	qmetaobject::qrc!(load_qml_resources,
+		"Hishell" as "Hishell" {
+			"qmldir",
+			"plugins.qmltypes",
+			"ActionGroupMenu.qml",
+			"ActionManager.qml",
+			"DragTooltip.qml",
+			"ExecuteDialog.qml",
+			"FileSlot.qml",
+			"FolderView.qml",
+			"LayoutEngine.qml",
+			"ShellContextMenu.qml",
+			"ShellWindow.qml",
+			"WindowOverlay.qml",
+			"toolkit/qmldir" as "toolkit/qmldir",
+			"toolkit/MenuBar.qml" as "toolkit/MenuBar.qml",
+			"toolkit/PathBar.qml" as "toolkit/PathBar.qml",
+			"toolkit/Spacer.qml" as "toolkit/Spacer.qml",
+			"toolkit/ViewMenu.qml" as "toolkit/ViewMenu.qml",
+			"toolkit/WindowControl.qml" as "toolkit/WindowControl.qml",
+		}
+	);
+
+	load_qml_resources();
 
 	let mut engine = QmlEngine::new();
 	engine.set_property(
 		"initialPath".into(),
 		QVariant::from(QString::from(initial_path.as_str())),
 	);
-	let find_qml = || -> Option<std::path::PathBuf> {
-		let cwd = std::env::current_dir().ok();
-		if let Some(c) = cwd {
-			let p = c.join(main_qml_path);
-			if p.exists() {
-				return Some(std::fs::canonicalize(&p).unwrap_or_else(|_| p.clone()));
-			}
-		}
-
-		if let Ok(mut dir) = std::env::current_exe().and_then(|e| {
-			e.parent()
-				.map(|p| p.to_path_buf())
-				.ok_or(std::io::Error::new(std::io::ErrorKind::Other, "no parent"))
-		}) {
-			for _ in 0..6 {
-				let candidate = dir.join(main_qml_path);
-				if candidate.exists() {
-					return Some(
-						std::fs::canonicalize(candidate)
-							.unwrap_or_else(|_| dir.join(main_qml_path)),
-					);
-				}
-				if let Some(p) = dir.parent() {
-					dir = p.to_path_buf();
-				} else {
-					break;
-				}
-			}
-		}
-
-		let sys_candidates = [
-			std::path::PathBuf::from("/usr/share/hishell-qt").join(main_qml_path),
-			std::path::PathBuf::from("/usr/share/hishell-qt").join(main_qml_path),
-			std::path::PathBuf::from("/usr/share/qml/hishell-qt").join(main_qml_path),
-		];
-		for c in sys_candidates.iter() {
-			if c.exists() {
-				return Some(std::fs::canonicalize(c).unwrap_or_else(|_| c.clone()));
-			}
-		}
-
-		None
-	};
-
-	if let Some(qml_path) = find_qml() {
-		println!("loading QML from {}", qml_path.display());
-		if let Some(root_dir) = qml_path.parent().and_then(|p| p.parent()) {
-			engine.add_import_path(root_dir.to_string_lossy().to_string().into());
-		}
-		engine.load_file(qml_path.to_string_lossy().to_string().into());
-	} else {
-		engine.add_import_path(".".into());
-		engine.load_file(main_qml_path.to_string_lossy().to_string().into());
-	}
+	engine.add_import_path("qrc:///".into());
+	engine.load_file("qrc:///Hishell/ShellWindow.qml".into());
 
 	engine.exec();
 }
