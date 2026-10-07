@@ -313,18 +313,10 @@ fn generate_thumbnail(src: &Path, size: u32) -> Result<(), String> {
 }
 
 fn try_desktop_icon(src: &Path, dst: &Path, size: u32) -> Result<bool, String> {
-	let s = std::fs::read_to_string(src).map_err(|e| format!("desktop read: {}", e))?;
-	let mut icon_name: Option<String> = None;
-	for line in s.lines() {
-		let l = line.trim();
-		if l.starts_with("Icon=") {
-			icon_name = Some(l[5..].trim().to_string());
-			break;
-		}
-	}
-	let icon_name = match icon_name {
-		Some(i) => i,
-		None => return Ok(false),
+	let entry = crate::desktop_entry::read(src);
+	let icon_name = match entry.icon {
+		Some(i) if !i.trim().is_empty() => i,
+		_ => return Ok(false),
 	};
 
 	// If the icon is an absolute path or relative path that exists, use it

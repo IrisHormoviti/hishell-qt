@@ -98,7 +98,7 @@ fn normalize_path(path: &Path, current_dir: &str) -> PathBuf {
 	result
 }
 
-fn launch_application_entry(path: &Path) -> bool {
+fn launch_desktop_entry(path: &Path) -> bool {
 	match crate::desktop_entry::launch(path) {
 		Some(Ok(())) => true,
 		Some(Err(error)) => {
@@ -106,6 +106,16 @@ fn launch_application_entry(path: &Path) -> bool {
 			true
 		}
 		None => false,
+	}
+}
+
+pub fn is_execute_target(path: &Path) -> bool {
+	if crate::config::entry_path(path).is_some() {
+		crate::desktop_entry::is_action_entry(path)
+	} else if path.is_file() {
+		is_executable(&path.to_string_lossy())
+	} else {
+		false
 	}
 }
 
@@ -152,29 +162,34 @@ pub struct Directory {
 		}
 	),
 
+	is_execute_target: qt_method!(
+		pub fn is_execute_target(&self, path: String) -> bool {
+			is_execute_target(Path::new(&path))
+		}
+	),
+
+	is_link: qt_method!(
+		pub fn is_link(&self, path: String) -> bool {
+			crate::desktop_entry::is_link(Path::new(&path))
+		}
+	),
+
+	execute_action: qt_method!(
+		pub fn execute_action(&mut self, path: String) {
+			let path_buf = Path::new(&path);
+			if crate::desktop_entry::is_action_entry(path_buf) {
+				launch_desktop_entry(path_buf);
+			} else if is_executable(&path) {
+				self.requestExecutePrompt(path);
+			}
+		}
+	),
+
 	open_path: qt_method!(
 		pub fn open_path(&mut self, path: String) {
 			let path_buf = Path::new(&path);
-			if path_buf.is_dir() {
-				if launch_application_entry(&path_buf.join(".directory")) {
-					return;
-				}
-			} else if path_buf
-				.extension()
-				.and_then(|ext| ext.to_str())
-				.is_some_and(|ext| ext.eq_ignore_ascii_case("desktop"))
-			{
-				if launch_application_entry(path_buf) {
-					return;
-				}
-			}
-
 			if path_buf.is_file() {
-				if is_executable(&path) {
-					self.requestExecutePrompt(path);
-				} else {
-					open_file(path);
-				}
+				open_file(path);
 			} else {
 				self.set_path(path);
 			}
@@ -195,20 +210,6 @@ pub struct Directory {
 
 	open_in_new_window: qt_method!(
 		pub fn open_in_new_window(&self, path: String) {
-			let path_buf = Path::new(&path);
-			if path_buf.is_dir() {
-				if launch_application_entry(&path_buf.join(".directory")) {
-					return;
-				}
-			} else if path_buf
-				.extension()
-				.and_then(|ext| ext.to_str())
-				.is_some_and(|ext| ext.eq_ignore_ascii_case("desktop"))
-				&& launch_application_entry(path_buf)
-			{
-				return;
-			}
-
 			if let Ok(exe) = std::env::current_exe() {
 				let _ = Command::new(exe).arg(&path).spawn();
 			}
@@ -734,19 +735,10 @@ fn time_ms(time: Option<SystemTime>) -> u64 {
 }
 
 pub fn get_item_title(path: &Path) -> String {
-	if path
-		.extension()
-		.and_then(|ext| ext.to_str())
-		.is_some_and(|ext| ext.eq_ignore_ascii_case("desktop"))
-	{
-		if let Some(name) = config::get_entry_string(path, "Name").filter(|name| !name.is_empty()) {
+	if crate::config::entry_path(path).is_some() {
+		let entry = crate::desktop_entry::read(path);
+		if let Some(name) = entry.name.filter(|name| !name.is_empty()) {
 			return name;
-		}
-	}
-
-	if let Some(config_title) = config::get_string(path, "Desktop Entry", "Name") {
-		if !config_title.is_empty() {
-			return config_title;
 		}
 	}
 
@@ -756,55 +748,56 @@ pub fn get_item_title(path: &Path) -> String {
 }
 
 pub fn get_icon(path: &str) -> String {
-	if Path::new(path).is_dir() {
-		return get_folder_icon(path);
-	} else {
-		if Path::new(path)
-			.extension()
-			.and_then(|ext| ext.to_str())
-			.is_some_and(|ext| ext.eq_ignore_ascii_case("desktop"))
-		{
-			if let Some(icon) = config::get_entry_image(Path::new(path), "Icon") {
-				if !icon.is_empty() {
-					return icon_source(icon, Path::new(path).parent().unwrap_or(Path::new(".")));
-				}
-			}
+	let path_buf = Path::new(path);
+	let is_dir = path_buf.is_dir();
+
+	if let Some(icon) = config::get_entry_image(path_buf, "Icon") {
+		if !icon.is_empty() {
+			return icon_source(icon, config::base_dir(path_buf));
 		}
-
-		// Prefer system icons via `gio` when available, caching per-extension or per-mime.
-		let mime = from_path(path)
-			.first_or_octet_stream()
-			.essence_str()
-			.to_string();
-		let key = if let Some(ext) = Path::new(path).extension().and_then(|e| e.to_str()) {
-			format!("ext:{}", ext.to_lowercase())
-		} else {
-			format!("mime:{}", mime)
-		};
-
-		if let Some(cached) = ICON_CACHE.lock().unwrap().get(&key) {
-			return cached.clone();
-		}
-
-		if let Some(icon) = query_gio_icon(path) {
-			ICON_CACHE.lock().unwrap().insert(key.clone(), icon.clone());
-			return icon;
-		}
-
-		// fallback: map common mime types to generic icons
-		let icon = if mime.starts_with("image/") {
-			"image-x-generic".to_string()
-		} else if mime.starts_with("video/") {
-			"video-x-generic".to_string()
-		} else if mime.starts_with("text/") {
-			"text-x-generic".to_string()
-		} else {
-			"text-x-generic".to_string()
-		};
-
-		ICON_CACHE.lock().unwrap().insert(key, icon.clone());
-		icon
 	}
+
+	if is_dir {
+		return get_folder_icon(path);
+	}
+
+	if crate::desktop_entry::is_link(path_buf) {
+		return "open-link".to_string();
+	}
+
+	// Prefer system icons via `gio` when available, caching per-extension or per-mime.
+	let mime = from_path(path)
+		.first_or_octet_stream()
+		.essence_str()
+		.to_string();
+	let key = if let Some(ext) = Path::new(path).extension().and_then(|e| e.to_str()) {
+		format!("ext:{}", ext.to_lowercase())
+	} else {
+		format!("mime:{}", mime)
+	};
+
+	if let Some(cached) = ICON_CACHE.lock().unwrap().get(&key) {
+		return cached.clone();
+	}
+
+	if let Some(icon) = query_gio_icon(path) {
+		ICON_CACHE.lock().unwrap().insert(key.clone(), icon.clone());
+		return icon;
+	}
+
+	// fallback: map common mime types to generic icons
+	let icon = if mime.starts_with("image/") {
+		"image-x-generic".to_string()
+	} else if mime.starts_with("video/") {
+		"video-x-generic".to_string()
+	} else if mime.starts_with("text/") {
+		"text-x-generic".to_string()
+	} else {
+		"text-x-generic".to_string()
+	};
+
+	ICON_CACHE.lock().unwrap().insert(key, icon.clone());
+	icon
 }
 
 fn icon_source(icon: String, base: &Path) -> String {

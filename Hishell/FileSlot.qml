@@ -714,8 +714,8 @@ Item {
 			} else if (mouse.modifiers & Qt.ControlModifier) {
 				fileSlot.selectionToggled(fileSlot.path, fileSlot.index);
 			} else {
-				if (fileSlot.actionManager && fileSlot.actionManager.openAction)
-					fileSlot.actionManager.openAction.execute(fileSlot.path, fileSlot, false);
+				if (fileSlot.actionManager)
+					fileSlot.actionManager.activatePath(fileSlot.path, fileSlot);
 			}
 		}
 	}

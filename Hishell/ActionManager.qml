@@ -168,7 +168,55 @@ Item {
 	}
 
 	// Open Group
-	readonly property var openGroup: [openAction, openWithAction, openWindowAction]
+	readonly property var openGroup: executeAction.available
+		? [executeAction, openAction, openWithAction, openWindowAction]
+		: [openAction, openWithAction, openWindowAction]
+
+	function activatePath(path: string, sourceItem: Item) {
+		if (directory && directory.is_execute_target(path))
+			executeAction.execute(path, sourceItem);
+		else
+			openAction.execute(path, sourceItem, false);
+	}
+
+	readonly property bool isSelectedLink: actionManager.hasSelection
+		&& actionManager.selectedPathList.length === 1
+		&& actionManager.directory
+		&& actionManager.directory.is_link(actionManager.firstSelectedPath)
+
+	property alias executeAction: executeAction
+	Action {
+		id: executeAction
+		text: actionManager.isSelectedLink ? qsTr("Open &Link") : qsTr("&Execute")
+		icon.name: actionManager.isSelectedLink ? "open-link" : "system-run"
+		readonly property bool available: actionManager.hasSelection
+			&& actionManager.selectedPathList.every(path => actionManager.directory.is_execute_target(path))
+		enabled: available
+
+		function execute(targetPath: string, sourceItem: Item) {
+			const paths = targetPath !== "" ? [targetPath] : actionManager.selectedPathList;
+			for (let i = 0; i < paths.length; i++) {
+				const path = paths[i];
+				if (!actionManager.directory.is_execute_target(path))
+					continue;
+				if (sourceItem) {
+					const globalPos = sourceItem.mapToItem(actionManager, 0, 0);
+					sourceItem.contentLayout.grabToImage(result => {
+						externalOpenAnimation.x = globalPos.x;
+						externalOpenAnimation.y = globalPos.y;
+						externalOpenAnimation.width = sourceItem.width;
+						externalOpenAnimation.height = sourceItem.height;
+						externalOpenImage.source = result.url;
+						externalOpenAnimation.visible = true;
+						externalOpenAnimationEffect.restart();
+					});
+				}
+				actionManager.directory.execute_action(path);
+			}
+		}
+
+		onTriggered: execute("", null)
+	}
 
 	property alias openAction: openAction
 	Action {

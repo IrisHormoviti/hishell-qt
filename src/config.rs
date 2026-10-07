@@ -1,18 +1,83 @@
 use crate::config_parser::{ConfigError, ConfigParser, ConfigValue, ParseOutput};
 use qmetaobject::prelude::*;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-/// Loads and combines the default config with a folder's `.directory` config,
+/// Returns the config / desktop entry file associated with a given path.
+/// - For a directory, this is `<path>/.directory`.
+/// - For a `.desktop` file (or `.directory` file), this is the file itself.
+/// - Otherwise, returns None.
+fn has_desktop_entry_header(path: &Path) -> bool {
+	use std::io::Read;
+	if let Ok(mut file) = std::fs::File::open(path) {
+		let mut buf = [0u8; 512];
+		if let Ok(n) = file.read(&mut buf) {
+			let slice = &buf[..n];
+			let text = String::from_utf8_lossy(slice);
+			for line in text.lines() {
+				let trimmed = line.trim_start_matches('\u{feff}').trim();
+				if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with(';') {
+					continue;
+				}
+				return trimmed == "[Desktop Entry]";
+			}
+		}
+	}
+	false
+}
+
+pub fn entry_path(path: &Path) -> Option<PathBuf> {
+	if path.is_dir() {
+		Some(path.join(".directory"))
+	} else if path
+		.extension()
+		.and_then(|ext| ext.to_str())
+		.is_some_and(|ext| {
+			ext.eq_ignore_ascii_case("desktop")
+				|| ext.eq_ignore_ascii_case("directory")
+				|| ext.eq_ignore_ascii_case("cfg")
+		}) || path
+		.file_name()
+		.and_then(|n| n.to_str())
+		.is_some_and(|n| n.eq_ignore_ascii_case(".directory"))
+	{
+		Some(path.to_path_buf())
+	} else if path.is_file() && has_desktop_entry_header(path) {
+		Some(path.to_path_buf())
+	} else {
+		None
+	}
+}
+
+/// Returns the base directory for resolving relative paths (icons, wallpapers, working dir)
+/// associated with a given path.
+/// - For a directory, this is the directory itself.
+/// - For a file, this is its parent directory (or current directory if none).
+pub fn base_dir(path: &Path) -> &Path {
+	if path.is_dir() {
+		path
+	} else {
+		path.parent().unwrap_or(Path::new("."))
+	}
+}
+
+/// Loads and combines the default config with a target path's desktop entry / `.directory` config,
 /// keeping track of which file each value came from and any load errors.
 pub fn load_path_checked(path: &Path) -> ParseOutput {
-	let meta_path = path.join(".directory");
-	load_with_override(&meta_path)
+	let Some(override_path) = entry_path(path) else {
+		return ParseOutput {
+			sections: HashMap::new(),
+			origins: HashMap::new(),
+			errors: Vec::new(),
+		};
+	};
+	load_with_override(&override_path)
 }
 
 /// Loads desktop-entry metadata with the same defaults and validation as folder configs.
+#[allow(dead_code)]
 pub fn load_entry_checked(path: &Path) -> ParseOutput {
-	load_with_override(path)
+	load_path_checked(path)
 }
 
 fn load_with_override(override_path: &Path) -> ParseOutput {
@@ -29,7 +94,7 @@ fn load_with_override(override_path: &Path) -> ParseOutput {
 }
 
 pub fn load_entry(path: &Path) -> HashMap<String, ConfigValue> {
-	let mut load = load_entry_checked(path);
+	let mut load = load_path_checked(path);
 	let mut errors = std::mem::take(&mut load.errors);
 	errors.extend(validate_values(&load.sections, &load.origins));
 	for error in errors {
@@ -70,6 +135,7 @@ const EXPECTED_KEYS: &[(&str, &str, ExpectedKind)] = &[
 	("Desktop Entry", "Comment", ExpectedKind::Str),
 	("Desktop Entry", "Type", ExpectedKind::Str),
 	("Desktop Entry", "Exec", ExpectedKind::Str),
+	("Desktop Entry", "URL", ExpectedKind::Str),
 	("Desktop Entry", "Icon", ExpectedKind::Str),
 	("Desktop Entry", "DynamicIcon", ExpectedKind::Str),
 	("Desktop Entry", "Terminal", ExpectedKind::Bool),
@@ -221,6 +287,7 @@ pub fn get_string(path: &Path, section: &str, key: &str) -> Option<String> {
 	}
 }
 
+#[allow(dead_code)]
 pub fn get_entry_string(path: &Path, key: &str) -> Option<String> {
 	entry_string(&load_entry(path), key)
 }
@@ -228,14 +295,14 @@ pub fn get_entry_string(path: &Path, key: &str) -> Option<String> {
 /// Resolves an image for a given folder path from its config.
 pub fn get_image(path: &Path, section: &str, key: &str) -> Option<String> {
 	if let Some(icon) = get_string(path, section, key) {
-		return resolve_image(path, &icon);
+		return resolve_image(base_dir(path), &icon);
 	}
 	None
 }
 
 pub fn get_entry_image(path: &Path, key: &str) -> Option<String> {
 	let icon = entry_string(&load_entry(path), key)?;
-	resolve_image(path.parent().unwrap_or(Path::new(".")), &icon)
+	resolve_image(base_dir(path), &icon)
 }
 
 fn resolve_image(path: &Path, icon: &str) -> Option<String> {
@@ -482,7 +549,7 @@ impl Config {
 
 	pub fn _set(&mut self, path: &Path, section: &str, key: &str, value: &str, local: bool) {
 		let file_path = if local {
-			path.join(".directory")
+			entry_path(path).unwrap_or_else(|| path.join(".directory"))
 		} else {
 			dirs::config_dir()
 				.map(|mut p| {

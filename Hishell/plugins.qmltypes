@@ -435,6 +435,21 @@ Module {
 			Parameter { name: "path"; type: "string" }
 		}
 		Method {
+			name: "is_execute_target"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "is_link"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "execute_action"
+			type: "void"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
 			name: "open_path"
 			type: "void"
 			Parameter { name: "path"; type: "string" }

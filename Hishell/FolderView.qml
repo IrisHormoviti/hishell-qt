@@ -361,7 +361,7 @@ Item {
 		if (!fm || !fm.focus_active || String(fm.focused_path) === "")
 			return;
 		if (folderView.rootWindow && folderView.rootWindow.actionManager)
-			folderView.rootWindow.actionManager.openAction.execute(String(fm.focused_path), itemRepeater.itemAt(fm.focused_index), false);
+			folderView.rootWindow.actionManager.activatePath(String(fm.focused_path), itemRepeater.itemAt(fm.focused_index));
 	}
 
 	// Enter / gamepad accept: toggle the focused item in selection mode, otherwise open it
