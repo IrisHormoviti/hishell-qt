@@ -129,7 +129,18 @@ impl ConfigParser {
 						if current_section.is_some() {
 							let key = line[..idx].trim().to_string();
 							let val_str = line[idx + 1..].trim();
-							section_map.insert(key, Self::parse_value(val_str));
+							let value = if current_section.as_deref() == Some("Desktop Entry")
+								&& key == "Exec"
+							{
+								ConfigValue::String(if val_str == "\"\"" {
+									String::new()
+								} else {
+									val_str.to_string()
+								})
+							} else {
+								Self::parse_value(val_str)
+							};
+							section_map.insert(key, value);
 						} else {
 							errors.push(ConfigError {
 								file: Some(path_str.clone()),

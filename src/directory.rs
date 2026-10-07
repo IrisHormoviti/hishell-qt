@@ -98,6 +98,17 @@ fn normalize_path(path: &Path, current_dir: &str) -> PathBuf {
 	result
 }
 
+fn launch_application_entry(path: &Path) -> bool {
+	match crate::desktop_entry::launch(path) {
+		Some(Ok(())) => true,
+		Some(Err(error)) => {
+			eprintln!("{error}");
+			true
+		}
+		None => false,
+	}
+}
+
 #[derive(Default, Clone)]
 pub struct FileItem {
 	pub name: String,
@@ -144,6 +155,20 @@ pub struct Directory {
 	open_path: qt_method!(
 		pub fn open_path(&mut self, path: String) {
 			let path_buf = Path::new(&path);
+			if path_buf.is_dir() {
+				if launch_application_entry(&path_buf.join(".directory")) {
+					return;
+				}
+			} else if path_buf
+				.extension()
+				.and_then(|ext| ext.to_str())
+				.is_some_and(|ext| ext.eq_ignore_ascii_case("desktop"))
+			{
+				if launch_application_entry(path_buf) {
+					return;
+				}
+			}
+
 			if path_buf.is_file() {
 				if is_executable(&path) {
 					self.requestExecutePrompt(path);
@@ -170,6 +195,20 @@ pub struct Directory {
 
 	open_in_new_window: qt_method!(
 		pub fn open_in_new_window(&self, path: String) {
+			let path_buf = Path::new(&path);
+			if path_buf.is_dir() {
+				if launch_application_entry(&path_buf.join(".directory")) {
+					return;
+				}
+			} else if path_buf
+				.extension()
+				.and_then(|ext| ext.to_str())
+				.is_some_and(|ext| ext.eq_ignore_ascii_case("desktop"))
+				&& launch_application_entry(path_buf)
+			{
+				return;
+			}
+
 			if let Ok(exe) = std::env::current_exe() {
 				let _ = Command::new(exe).arg(&path).spawn();
 			}
@@ -324,33 +363,6 @@ impl Directory {
 						)
 					})
 					.unwrap_or((0, 0, 0));
-
-				// If this is a .desktop file, prefer the Icon= value from the desktop entry
-				if let Some(ext) = Path::new(&p).extension().and_then(|e| e.to_str()) {
-					if ext.eq_ignore_ascii_case("desktop") {
-						if let Some(desktop_icon) = crate::desktop_entry::get_icon(Path::new(&p)) {
-							// If the icon looks like a path, prefer an absolute/relative file if it exists
-							if desktop_icon.contains('/') {
-								let candidate = if desktop_icon.starts_with('/') {
-									std::path::PathBuf::from(&desktop_icon)
-								} else {
-									Path::new(&p)
-										.parent()
-										.unwrap_or(Path::new("/"))
-										.join(&desktop_icon)
-								};
-								if candidate.exists() {
-									icon = format!("file://{}", candidate.to_string_lossy());
-								} else {
-									icon = desktop_icon;
-								}
-							} else {
-								// treat as theme icon name
-								icon = desktop_icon;
-							}
-						}
-					}
-				}
 
 				// enqueue thumbnail generation for images/videos and use cached thumbnail if available
 				if !is_dir {
@@ -722,6 +734,16 @@ fn time_ms(time: Option<SystemTime>) -> u64 {
 }
 
 pub fn get_item_title(path: &Path) -> String {
+	if path
+		.extension()
+		.and_then(|ext| ext.to_str())
+		.is_some_and(|ext| ext.eq_ignore_ascii_case("desktop"))
+	{
+		if let Some(name) = config::get_entry_string(path, "Name").filter(|name| !name.is_empty()) {
+			return name;
+		}
+	}
+
 	if let Some(config_title) = config::get_string(path, "Desktop Entry", "Name") {
 		if !config_title.is_empty() {
 			return config_title;
@@ -737,6 +759,18 @@ pub fn get_icon(path: &str) -> String {
 	if Path::new(path).is_dir() {
 		return get_folder_icon(path);
 	} else {
+		if Path::new(path)
+			.extension()
+			.and_then(|ext| ext.to_str())
+			.is_some_and(|ext| ext.eq_ignore_ascii_case("desktop"))
+		{
+			if let Some(icon) = config::get_entry_image(Path::new(path), "Icon") {
+				if !icon.is_empty() {
+					return icon_source(icon, Path::new(path).parent().unwrap_or(Path::new(".")));
+				}
+			}
+		}
+
 		// Prefer system icons via `gio` when available, caching per-extension or per-mime.
 		let mime = from_path(path)
 			.first_or_octet_stream()

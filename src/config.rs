@@ -6,6 +6,16 @@ use std::path::Path;
 /// Loads and combines the default config with a folder's `.directory` config,
 /// keeping track of which file each value came from and any load errors.
 pub fn load_path_checked(path: &Path) -> ParseOutput {
+	let meta_path = path.join(".directory");
+	load_with_override(&meta_path)
+}
+
+/// Loads desktop-entry metadata with the same defaults and validation as folder configs.
+pub fn load_entry_checked(path: &Path) -> ParseOutput {
+	load_with_override(path)
+}
+
+fn load_with_override(override_path: &Path) -> ParseOutput {
 	let default_cfg = Path::new("config/default.cfg");
 	let global_cfg = dirs::config_dir()
 		.map(|mut p| {
@@ -14,9 +24,30 @@ pub fn load_path_checked(path: &Path) -> ParseOutput {
 			p
 		})
 		.unwrap_or_else(|| std::path::PathBuf::from("config/default.cfg"));
-	let meta_path = path.join(".directory");
-	let paths: Vec<&Path> = vec![default_cfg, global_cfg.as_path(), meta_path.as_path()];
+	let paths: Vec<&Path> = vec![default_cfg, global_cfg.as_path(), override_path];
 	ConfigParser::parse_files(&paths)
+}
+
+pub fn load_entry(path: &Path) -> HashMap<String, ConfigValue> {
+	let mut load = load_entry_checked(path);
+	let mut errors = std::mem::take(&mut load.errors);
+	errors.extend(validate_values(&load.sections, &load.origins));
+	for error in errors {
+		eprintln!("{}", error.message);
+	}
+	load.sections.remove("Desktop Entry").unwrap_or_default()
+}
+
+pub fn string_value(value: &ConfigValue) -> Option<String> {
+	match value {
+		ConfigValue::String(value) => Some(value.clone()),
+		ConfigValue::Number(value) => Some(value.to_string()),
+		_ => None,
+	}
+}
+
+pub fn entry_string(values: &HashMap<String, ConfigValue>, key: &str) -> Option<String> {
+	values.get(key).and_then(string_value)
 }
 
 /// Loads and combines the default config with a folder's `.directory` config.
@@ -36,7 +67,13 @@ enum ExpectedKind {
 /// Every key the `Config` object reads, with the kind of value it expects.
 const EXPECTED_KEYS: &[(&str, &str, ExpectedKind)] = &[
 	("Desktop Entry", "Name", ExpectedKind::Str),
+	("Desktop Entry", "Comment", ExpectedKind::Str),
+	("Desktop Entry", "Type", ExpectedKind::Str),
+	("Desktop Entry", "Exec", ExpectedKind::Str),
 	("Desktop Entry", "Icon", ExpectedKind::Str),
+	("Desktop Entry", "DynamicIcon", ExpectedKind::Str),
+	("Desktop Entry", "Terminal", ExpectedKind::Bool),
+	("Desktop Entry", "NoDisplay", ExpectedKind::Bool),
 	("Layout", "Top", ExpectedKind::Array),
 	("Layout", "Middle", ExpectedKind::Array),
 	("Layout", "Bottom", ExpectedKind::Array),
@@ -62,7 +99,11 @@ const EXPECTED_KEYS: &[(&str, &str, ExpectedKind)] = &[
 		"ScrollDirection",
 		ExpectedKind::StrEnum(&["VERTICAL", "HORIZONTAL"]),
 	),
-	("Folder View", "ViewMode", ExpectedKind::StrEnum(&["GRID", "LIST"])),
+	(
+		"Folder View",
+		"ViewMode",
+		ExpectedKind::StrEnum(&["GRID", "LIST"]),
+	),
 	(
 		"Folder View",
 		"Sort",
@@ -180,30 +221,47 @@ pub fn get_string(path: &Path, section: &str, key: &str) -> Option<String> {
 	}
 }
 
+pub fn get_entry_string(path: &Path, key: &str) -> Option<String> {
+	entry_string(&load_entry(path), key)
+}
+
 /// Resolves an image for a given folder path from its config.
 pub fn get_image(path: &Path, section: &str, key: &str) -> Option<String> {
 	if let Some(icon) = get_string(path, section, key) {
-		let rel = path.join(&icon);
-		let is_path = icon.contains('/') || icon.starts_with('.');
-
-		if rel.exists() {
-			return Some(rel.to_string_lossy().to_string());
-		}
-
-		if is_path {
-			let extensions = ["png", "svg", "jpg", "jpeg", "bmp", "avif", "webp"];
-			for ext in extensions {
-				let candidate = rel.with_extension(ext);
-				if candidate.exists() {
-					return Some(candidate.to_string_lossy().to_string());
-				}
-			}
-			return Some(String::new());
-		} else {
-			return Some(icon);
-		}
+		return resolve_image(path, &icon);
 	}
 	None
+}
+
+pub fn get_entry_image(path: &Path, key: &str) -> Option<String> {
+	let icon = entry_string(&load_entry(path), key)?;
+	resolve_image(path.parent().unwrap_or(Path::new(".")), &icon)
+}
+
+fn resolve_image(path: &Path, icon: &str) -> Option<String> {
+	if icon.is_empty() {
+		return Some(String::new());
+	}
+
+	let rel = path.join(icon);
+	let is_path = icon.contains('/') || icon.starts_with('.');
+
+	if rel.exists() {
+		return Some(rel.to_string_lossy().to_string());
+	}
+
+	if is_path {
+		let extensions = ["png", "svg", "jpg", "jpeg", "bmp", "avif", "webp"];
+		for ext in extensions {
+			let candidate = rel.with_extension(ext);
+			if candidate.exists() {
+				return Some(candidate.to_string_lossy().to_string());
+			}
+		}
+		return Some(String::new());
+	}
+
+	Some(icon.to_string())
 }
 
 #[derive(QObject, Default)]
@@ -375,13 +433,19 @@ impl Config {
 		self.center_focus = get_bool("Folder Navigation", "CenterFocus", false);
 		self.smooth_scrolling = get_bool("Folder Navigation", "SmoothScrolling", true);
 
-		self.view_mode = match get_str("Folder View", "ViewMode", "GRID").to_uppercase().as_str() {
+		self.view_mode = match get_str("Folder View", "ViewMode", "GRID")
+			.to_uppercase()
+			.as_str()
+		{
 			"GRID" => 0,
 			"LIST" => 1,
 			_ => 0,
 		};
 
-		self.sort = match get_str("Folder View", "Sort", "NEWEST").to_uppercase().as_str() {
+		self.sort = match get_str("Folder View", "Sort", "NEWEST")
+			.to_uppercase()
+			.as_str()
+		{
 			"NEWEST" => 0,
 			"OLDEST" => 1,
 			"ALPHABETICAL" => 2,
@@ -410,7 +474,8 @@ impl Config {
 
 		self.stash_shown = get_bool("Folder View", "StashShown", false);
 		self.stash_dotfiles = get_bool("Folder View", "StashDotFiles", true);
-		self.free_placement_positions = get_json("Folder View", "FreePlacementPositions", "{}").into();
+		self.free_placement_positions =
+			get_json("Folder View", "FreePlacementPositions", "{}").into();
 
 		self.config_changed();
 	}

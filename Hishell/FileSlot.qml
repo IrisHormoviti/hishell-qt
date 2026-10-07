@@ -19,7 +19,7 @@ Item {
 	property FileManager fileManager: window ? window.fileManager : null
 
 	property string icon: fileManager ? fileManager.get_icon(path) : ""
-	property string title
+	required property string title
 	property int gridSize: 64
 	property bool labelBesideIcon: gridSize < 32
 	property bool fixedWidth: true
