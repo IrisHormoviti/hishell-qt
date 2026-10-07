@@ -8,11 +8,40 @@ Menu {
 	required property var directory
 	property var config: directory ? directory.config : null
 	property bool isLocal: directory ? directory.has_meta : false
+	readonly property bool hasFreePlacementPositions: {
+		if (!viewMenu.config)
+			return false;
+		try {
+			const positions = JSON.parse(viewMenu.config.free_placement_positions);
+			return !!positions && Object.keys(positions).length > 0;
+		} catch (e) {
+			return false;
+		}
+	}
 	visible: false
 	height: contentHeight
 
 	title: qsTr("&View")
 	popupType: Popup.Native
+
+	function setSort(value) {
+		if (viewMenu.directory) {
+			viewMenu.directory.set_config("VIEW", "Sort", value, viewMenu.isLocal);
+			viewMenu.directory.reload();
+		}
+	}
+
+	function setViewMode(value) {
+		if (viewMenu.directory) {
+			viewMenu.directory.set_config("VIEW", "ViewMode", value, viewMenu.isLocal);
+			viewMenu.directory.reload();
+		}
+	}
+
+	function resetFreePlacement() {
+		if (viewMenu.directory)
+			viewMenu.directory.reset_free_positions();
+	}
 
 	ButtonGroup {
 		id: viewModeGroup
@@ -100,6 +129,7 @@ Menu {
 				ToolTip.visible: hovered
 				ButtonGroup.group: viewModeGroup
 				objectName: "GRID"
+				onClicked: viewMenu.setViewMode("GRID")
 			}
 			ToolButton {
 				icon.name: "view-list-details"
@@ -110,6 +140,7 @@ Menu {
 				ToolTip.visible: hovered
 				ButtonGroup.group: viewModeGroup
 				objectName: "LIST"
+				onClicked: viewMenu.setViewMode("LIST")
 			}
 		}
 	}
@@ -126,6 +157,7 @@ Menu {
 			ButtonGroup.group: sortGroup
 			checked: viewMenu.config ? viewMenu.config.sort === 0 : false
 			objectName: "NEWEST"
+			onTriggered: viewMenu.setSort("NEWEST")
 		}
 		MenuItem {
 			text: qsTr("Oldest")
@@ -133,6 +165,7 @@ Menu {
 			ButtonGroup.group: sortGroup
 			checked: viewMenu.config ? viewMenu.config.sort === 1 : false
 			objectName: "OLDEST"
+			onTriggered: viewMenu.setSort("OLDEST")
 		}
 		Menu {
 			title: qsTr("Which date...")
@@ -165,6 +198,7 @@ Menu {
 			ButtonGroup.group: sortGroup
 			checked: viewMenu.config ? viewMenu.config.sort === 2 : false
 			objectName: "ALPHABETICAL"
+			onTriggered: viewMenu.setSort("ALPHABETICAL")
 		}
 		Menu {
 			title: qsTr("Which name...")
@@ -182,6 +216,22 @@ Menu {
 				checked: viewMenu.config ? viewMenu.config.sort_alpha_mode === 1 : false
 				objectName: "FILENAMES"
 			}
+		}
+		MenuSeparator {}
+		MenuItem {
+			text: qsTr("Free Placement")
+			checkable: true
+			ButtonGroup.group: sortGroup
+			checked: viewMenu.config ? viewMenu.config.sort === 3 : false
+			enabled: viewMenu.isLocal
+			objectName: "FREE"
+			onTriggered: viewMenu.setSort("FREE")
+		}
+		MenuItem {
+			text: qsTr("Reset Manual Placement")
+			icon.name: "edit-reset"
+			enabled: viewMenu.hasFreePlacementPositions
+			onTriggered: viewMenu.resetFreePlacement()
 		}
 	}
 

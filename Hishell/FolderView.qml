@@ -23,6 +23,11 @@ Item {
 	property int paneCount: 1
 	property SelectionManager selectionManager: selectionManagerImpl
 
+	// Free-placement drop target (empty slot under the cursor during a
+	// reposition drag). -1 means "no active target".
+	property int freeDropCol: -1
+	property int freeDropRow: -1
+
 	// Selection state is owned per view so selection mode and the selection
 	// toolbar stay inside the pane instead of the whole window.
 	SelectionManager {
@@ -130,9 +135,48 @@ Item {
 			return Math.max(0, (view - natural) / 2);
 		}
 
+		function computeFreeLayout(width, height) {
+			const freeCfg = cfg;
+			const json = folderView.directory.free_layout(
+				freeCfg.free_placement_positions,
+				freeCfg.grid_lines,
+				horizontal,
+				width,
+				height,
+				itemWidth,
+				itemHeight,
+				gap
+			);
+			try {
+				return JSON.parse(json);
+			} catch (e) {
+				return {
+					columns: 1,
+					rows: 1,
+					slots: [],
+					naturalWidth: itemWidth,
+					naturalHeight: itemHeight
+				};
+			}
+		}
+
 		function measure(insetX, insetY) {
 			const width = viewWidth - insetX;
 			const height = viewHeight - insetY;
+			if (cfg && cfg.sort === 3 && cfg.view_mode === 0) {
+				const free = computeFreeLayout(width, height);
+				return {
+					width: width,
+					height: height,
+					stride: horizontal ? free.rows : free.columns,
+					columns: free.columns,
+					rows: free.rows,
+					naturalWidth: free.naturalWidth,
+					naturalHeight: free.naturalHeight,
+					slots: free.slots,
+					free: true
+				};
+			}
 			const lines = cfg ? cfg.grid_lines : 0;
 			const viewMain = horizontal ? height : width;
 			const itemMain = horizontal ? itemHeight : itemWidth;
@@ -195,20 +239,40 @@ Item {
 			offsetX: alignOffset(cfg ? cfg.grid_horizontal_align : 0, metrics.width, metrics.naturalWidth),
 			offsetY: alignOffset(cfg ? cfg.grid_vertical_align : 0, metrics.height, metrics.naturalHeight),
 			contentWidth: Math.max(viewWidth, metrics.naturalWidth + insetX),
-			contentHeight: Math.max(viewHeight, metrics.naturalHeight + insetY)
+			contentHeight: Math.max(viewHeight, metrics.naturalHeight + insetY),
+			free: metrics.free === true,
+			slots: metrics.slots ? metrics.slots : []
 		};
 	}
 
 	readonly property int gridStride: folderView.gridMetrics.stride
 
+	readonly property bool freeDropActive: folderView.freeDropCol >= 0 && folderView.freeDropRow >= 0 && folderView.gridMetrics.free
+
+	readonly property real freeDropX: {
+		const metrics = folderView.gridMetrics;
+		return metrics.offsetX + folderView.freeDropCol * (metrics.itemWidth + metrics.gap);
+	}
+
+	readonly property real freeDropY: {
+		const metrics = folderView.gridMetrics;
+		return metrics.offsetY + folderView.freeDropRow * (metrics.itemHeight + metrics.gap);
+	}
+
 	function gridSlotX(index) {
 		const metrics = folderView.gridMetrics;
+		if (metrics.free && metrics.slots && metrics.slots[index]) {
+			return metrics.offsetX + metrics.slots[index].c * (metrics.itemWidth + metrics.gap);
+		}
 		const column = metrics.horizontal ? Math.floor(index / metrics.rows) : index % metrics.columns;
 		return metrics.offsetX + column * (metrics.itemWidth + metrics.gap);
 	}
 
 	function gridSlotY(index) {
 		const metrics = folderView.gridMetrics;
+		if (metrics.free && metrics.slots && metrics.slots[index]) {
+			return metrics.offsetY + metrics.slots[index].r * (metrics.itemHeight + metrics.gap);
+		}
 		const row = metrics.horizontal ? index % metrics.rows : Math.floor(index / metrics.columns);
 		return metrics.offsetY + row * (metrics.itemHeight + metrics.gap);
 	}
@@ -562,6 +626,71 @@ Item {
 		return window.dropValidator.is_drop_valid(targetPath, sourcePaths);
 	}
 
+	// In free placement mode a drop of items that already live in this folder
+	// repositions them instead of moving them into a child.
+	function isFreeRepositionDrop(sourcePaths) {
+		const cfg = folderView.config;
+		if (!cfg || cfg.sort !== 3 || cfg.view_mode !== 0 || !sourcePaths || sourcePaths.length === 0)
+			return false;
+		const dirPath = String(folderView.directory.path);
+		for (let i = 0; i < sourcePaths.length; i++) {
+			const sp = String(sourcePaths[i]);
+			const sep = sp.lastIndexOf("/");
+			if (sep < 0 || sp.substring(0, sep) !== dirPath)
+				return false;
+		}
+		return true;
+	}
+
+	function updateFreeDropTarget(x, y) {
+		const metrics = folderView.gridMetrics;
+		if (!metrics.free) {
+			folderView.freeDropCol = -1;
+			folderView.freeDropRow = -1;
+			return;
+		}
+		const local = bgDropArea.mapToItem(gridContent, x, y);
+		let col = Math.round((local.x - metrics.offsetX) / (metrics.itemWidth + metrics.gap));
+		let row = Math.round((local.y - metrics.offsetY) / (metrics.itemHeight + metrics.gap));
+		folderView.freeDropCol = Math.max(0, Math.min(metrics.columns - 1, col));
+		folderView.freeDropRow = Math.max(0, Math.min(metrics.rows - 1, row));
+	}
+
+	function repositionDroppedItems(drop) {
+		const cfg = folderView.config;
+		if (!cfg || cfg.sort !== 3 || cfg.view_mode !== 0)
+			return false;
+		const metrics = folderView.gridMetrics;
+		if (!metrics.free || !metrics.slots)
+			return false;
+		const handler = folderView.rootWindow ? folderView.rootWindow.dragDropHandler : null;
+		if (!handler || !handler.drag_source_paths || handler.drag_source_paths.length === 0)
+			return false;
+
+		const dirPath = String(folderView.directory.path);
+		const local = bgDropArea.mapToItem(gridContent, drop.x, drop.y);
+		let col = Math.round((local.x - metrics.offsetX) / (metrics.itemWidth + metrics.gap));
+		let row = Math.round((local.y - metrics.offsetY) / (metrics.itemHeight + metrics.gap));
+		col = Math.max(0, Math.min(metrics.columns - 1, col));
+		row = Math.max(0, Math.min(metrics.rows - 1, row));
+
+		let moved = false;
+		let placed = 0;
+		for (let i = 0; i < handler.drag_source_paths.length; i++) {
+			const sp = String(handler.drag_source_paths[i]);
+			const sep = sp.lastIndexOf("/");
+			if (sep < 0 || sp.substring(0, sep) !== dirPath)
+				continue;
+			const name = sp.substring(sep + 1);
+			const c = col + (placed % metrics.columns);
+			const r = row + Math.floor((col + placed) / metrics.columns);
+			folderView.directory.set_free_position(name, c, r);
+			moved = true;
+			placed++;
+		}
+		return moved;
+	}
+
 	// Active Drop Highlight Border
 	Rectangle {
 		anchors.fill: parent
@@ -607,6 +736,17 @@ Item {
 				sourcePaths = drag.urls;
 			}
 
+			if (folderView.isFreeRepositionDrop(sourcePaths)) {
+				folderView.updateFreeDropTarget(drag.x, drag.y);
+				bgDropArea.isHovered = false;
+				if (typeof dragHandler !== 'undefined' && dragHandler) {
+					dragHandler.reposition_active = true;
+					dragHandler.tooltip_active = true;
+				}
+				drag.accept();
+				return;
+			}
+
 			if (!folderView.isDropValid(folderView.directory.path, sourcePaths)) {
 				bgDropArea.isHovered = false;
 				if (typeof dragHandler !== 'undefined' && dragHandler)
@@ -626,14 +766,27 @@ Item {
 
 		onExited: {
 			bgDropArea.isHovered = false;
-			if (typeof dragHandler !== 'undefined' && dragHandler)
+			folderView.freeDropCol = -1;
+			folderView.freeDropRow = -1;
+			if (typeof dragHandler !== 'undefined' && dragHandler) {
 				dragHandler.tooltip_active = false;
+				dragHandler.reposition_active = false;
+			}
 		}
 
 		onDropped: drop => {
 			bgDropArea.isHovered = false;
-			if (typeof dragHandler !== 'undefined' && dragHandler)
+			folderView.freeDropCol = -1;
+			folderView.freeDropRow = -1;
+			if (typeof dragHandler !== 'undefined' && dragHandler) {
 				dragHandler.tooltip_active = false;
+				dragHandler.reposition_active = false;
+			}
+
+			if (folderView.repositionDroppedItems(drop)) {
+				drop.accept();
+				return;
+			}
 
 			let uris = "";
 			if (typeof dragHandler !== 'undefined' && dragHandler && dragHandler.drag_uris && dragHandler.drag_uris.length > 0) {
@@ -661,6 +814,7 @@ Item {
 
 		active: dragHandler ? dragHandler.tooltip_active : false
 		action: dragHandler ? dragHandler.drag_action : "copy"
+		reposition: dragHandler ? dragHandler.reposition_active : false
 		cursorX: dragHandler ? dragHandler.drag_cursor_x + 16 : 0
 		cursorY: dragHandler ? dragHandler.drag_cursor_y + 16 : 0
 	}
@@ -785,6 +939,21 @@ Item {
 			z: 1
 			width: flickable.contentWidth
 			height: flickable.contentHeight
+
+			Rectangle {
+				id: freeDropHighlight
+				z: 0
+				visible: folderView.freeDropActive
+				width: folderView.gridMetrics.itemWidth
+				height: folderView.gridMetrics.itemHeight
+				x: folderView.freeDropX
+				y: folderView.freeDropY
+				radius: Kirigami.Units.cornerRadius
+				color: Kirigami.Theme.focusColor
+				opacity: 0.35
+				border.color: Kirigami.Theme.highlightColor
+				border.width: 2
+			}
 
 			Repeater {
 				id: itemRepeater

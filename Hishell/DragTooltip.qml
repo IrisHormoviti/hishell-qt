@@ -12,7 +12,8 @@ Item {
 	visible: active && opacity > 0
 	opacity: active ? 1.0 : 0.0
 
-	property string action: "copy" // "copy", "move", "link"
+	property string action: "copy" // "copy", "move", "link", "reposition"
+	property bool reposition: false
 	property bool active: false
 	property real cursorX: 0
 	property real cursorY: 0
@@ -44,6 +45,8 @@ Item {
 
 			Kirigami.Icon {
 				source: {
+					if (tooltipRoot.reposition)
+						return "transform-move";
 					switch (tooltipRoot.action) {
 						case "move":
 							return "edit-cut";
@@ -59,6 +62,8 @@ Item {
 
 			Label {
 				text: {
+					if (tooltipRoot.reposition)
+						return qsTr("Reposition");
 					switch (tooltipRoot.action) {
 						case "move":
 							return qsTr("Move");

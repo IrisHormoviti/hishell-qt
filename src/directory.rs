@@ -8,6 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config;
 use crate::config::Config;
@@ -104,6 +105,9 @@ pub struct FileItem {
 	pub path: String,
 	pub is_dir: bool,
 	pub icon: String,
+	pub modified: u64,
+	pub created: u64,
+	pub accessed: u64,
 }
 
 #[derive(QObject, Default)]
@@ -202,6 +206,30 @@ pub struct Directory {
 		}
 	),
 
+	set_free_position: qt_method!(
+		pub fn set_free_position(&mut self, name: String, col: i32, row: i32) {
+			let path = self.path_str.clone();
+			self.config
+				.pinned()
+				.borrow_mut()
+				.set_free_position(Path::new(&path), &name, col, row);
+			self.config_changed();
+			self.reload();
+		}
+	),
+
+	reset_free_positions: qt_method!(
+		pub fn reset_free_positions(&mut self) {
+			let path = self.path_str.clone();
+			self.config
+				.pinned()
+				.borrow_mut()
+				.reset_free_positions(Path::new(&path));
+			self.config_changed();
+			self.reload();
+		}
+	),
+
 	reload: qt_method!(
 		pub fn reload(&mut self) {
 			let path = self.path_str.clone();
@@ -218,6 +246,32 @@ pub struct Directory {
 				list.push(QString::from(item.path.as_str()).into());
 			}
 			list
+		}
+	),
+
+	free_layout: qt_method!(
+		pub fn free_layout(
+			&self,
+			positions_json: String,
+			lines: i32,
+			horizontal: bool,
+			view_width: f64,
+			view_height: f64,
+			item_width: f64,
+			item_height: f64,
+			gap: f64,
+		) -> String {
+			Self::compute_free_layout(
+				&self.items,
+				&positions_json,
+				lines,
+				horizontal,
+				view_width,
+				view_height,
+				item_width,
+				item_height,
+				gap,
+			)
 		}
 	),
 
@@ -246,6 +300,17 @@ impl Directory {
 				let title = get_item_title(&entry_path);
 				let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
 				let mut icon = get_icon(&p);
+
+				let (modified, created, accessed) = entry
+					.metadata()
+					.map(|meta| {
+						(
+							time_ms(meta.modified().ok()),
+							time_ms(meta.created().ok()),
+							time_ms(meta.accessed().ok()),
+						)
+					})
+					.unwrap_or((0, 0, 0));
 
 				// If this is a .desktop file, prefer the Icon= value from the desktop entry
 				if let Some(ext) = Path::new(&p).extension().and_then(|e| e.to_str()) {
@@ -323,14 +388,51 @@ impl Directory {
 					path: p,
 					is_dir,
 					icon,
+					modified,
+					created,
+					accessed,
 				});
 			}
 		}
 
-		self.items
-			.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then(a.name.cmp(&b.name)));
+		self.sort_items();
 
 		self.end_reset_model();
+	}
+
+	fn sort_items(&mut self) {
+		let (sort, date_mode, alpha_mode) = {
+			let pinned = self.config.pinned();
+			let config = pinned.borrow();
+			(config.sort, config.sort_date_mode, config.sort_alpha_mode)
+		};
+
+		let date_key = |item: &FileItem| match date_mode {
+			1 => item.created,
+			2 => item.accessed,
+			_ => item.modified,
+		};
+		let name_key = |item: &FileItem| match alpha_mode {
+			1 => item.name.to_lowercase(),
+			_ => item.title.to_lowercase(),
+		};
+
+		match sort {
+			0 => self.items.sort_by(|a, b| {
+				date_key(b)
+					.cmp(&date_key(a))
+					.then_with(|| name_key(a).cmp(&name_key(b)))
+			}),
+			1 => self.items.sort_by(|a, b| {
+				date_key(a)
+					.cmp(&date_key(b))
+					.then_with(|| name_key(a).cmp(&name_key(b)))
+			}),
+			2 => self.items.sort_by(|a, b| name_key(a).cmp(&name_key(b))),
+			_ => self
+				.items
+				.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then(a.name.cmp(&b.name))),
+		}
 	}
 
 	pub fn get_path(&self) -> String {
@@ -390,6 +492,182 @@ impl Directory {
 	pub fn get_title(&self) -> String {
 		get_item_title(Path::new(&self.path_str))
 	}
+
+	/// Compute grid coordinates for every item in free placement mode.
+	#[allow(clippy::too_many_arguments)]
+	pub fn compute_free_layout(
+		items: &[FileItem],
+		positions_json: &str,
+		lines: i32,
+		horizontal: bool,
+		view_width: f64,
+		view_height: f64,
+		item_width: f64,
+		item_height: f64,
+		gap: f64,
+	) -> String {
+		let count = items.len();
+		if count == 0 {
+			return serde_json::json!({
+				"columns": 0,
+				"rows": 0,
+				"slots": [],
+				"naturalWidth": view_width.max(0.0),
+				"naturalHeight": view_height.max(0.0),
+			})
+			.to_string();
+		}
+
+		let mut positions: HashMap<String, (i32, i32)> = HashMap::new();
+		if let Ok(value) = serde_json::from_str::<serde_json::Value>(positions_json)
+			&& let Some(obj) = value.as_object()
+		{
+			for (name, pos) in obj {
+				if let Some(arr) = pos.as_array() {
+					let col = arr.get(0).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+					let row = arr.get(1).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+					positions.insert(name.clone(), (col, row));
+				}
+			}
+		}
+
+		let item_main = if horizontal { item_height } else { item_width };
+		let view_main = if horizontal { view_height } else { view_width };
+		let auto_stride = (((view_main + gap) / (item_main + gap)).floor() as i32).max(1);
+
+		let mut min_cols = 1;
+		let mut min_rows = 1;
+		for item in items {
+			if let Some(&(col, row)) = positions.get(&item.name) {
+				min_cols = min_cols.max(col + 1);
+				min_rows = min_rows.max(row + 1);
+			}
+		}
+
+		let cross_fill =
+			|view: f64, item: f64| -> i32 { (((view + gap) / (item + gap)).floor() as i32).max(1) };
+
+		let (columns, rows) = if horizontal {
+			let rows = if lines > 0 {
+				lines
+			} else {
+				auto_stride.max(min_rows)
+			}
+			.max(1);
+			let mut cols = ((count as f64 / rows as f64).ceil() as i32).max(min_cols);
+			cols = cols.max(cross_fill(view_width, item_width));
+			(cols.max(1), rows)
+		} else {
+			let cols = if lines > 0 {
+				lines
+			} else {
+				auto_stride.max(min_cols)
+			}
+			.max(1);
+			let mut rows = ((count as f64 / cols as f64).ceil() as i32).max(min_rows);
+			rows = rows.max(cross_fill(view_height, item_height));
+			(cols, rows.max(1))
+		};
+
+		let columns = columns.max(1);
+		let rows = rows.max(1);
+
+		let mut occupied = vec![vec![false; columns as usize]; rows as usize];
+		let mut slots = vec![(0i32, 0i32); count];
+
+		for (i, item) in items.iter().enumerate() {
+			let Some(&(mut col, mut row)) = positions.get(&item.name) else {
+				continue;
+			};
+			col = col.clamp(0, columns - 1);
+			row = row.clamp(0, rows - 1);
+			if occupied[row as usize][col as usize] {
+				let (c, r) = nearest_available(&occupied, columns, rows, col, row);
+				col = c;
+				row = r;
+			}
+			occupied[row as usize][col as usize] = true;
+			slots[i] = (col, row);
+		}
+
+		for (i, item) in items.iter().enumerate() {
+			if positions.contains_key(&item.name) {
+				continue;
+			}
+			let (col, row) = first_available(&occupied, columns, rows, horizontal);
+			occupied[row as usize][col as usize] = true;
+			slots[i] = (col, row);
+		}
+
+		let natural_width = columns as f64 * item_width + (columns - 1) as f64 * gap;
+		let natural_height = rows as f64 * item_height + (rows - 1) as f64 * gap;
+
+		let slots_json: Vec<serde_json::Value> = slots
+			.iter()
+			.map(|&(c, r)| serde_json::json!({ "c": c, "r": r }))
+			.collect();
+
+		serde_json::json!({
+			"columns": columns,
+			"rows": rows,
+			"slots": slots_json,
+			"naturalWidth": natural_width,
+			"naturalHeight": natural_height,
+		})
+		.to_string()
+	}
+}
+
+fn first_available(
+	occupied: &[Vec<bool>],
+	columns: i32,
+	rows: i32,
+	horizontal: bool,
+) -> (i32, i32) {
+	if horizontal {
+		for col in 0..columns {
+			for row in 0..rows {
+				if !occupied[row as usize][col as usize] {
+					return (col, row);
+				}
+			}
+		}
+	} else {
+		for row in 0..rows {
+			for col in 0..columns {
+				if !occupied[row as usize][col as usize] {
+					return (col, row);
+				}
+			}
+		}
+	}
+	(0, 0)
+}
+
+fn nearest_available(
+	occupied: &[Vec<bool>],
+	columns: i32,
+	rows: i32,
+	col: i32,
+	row: i32,
+) -> (i32, i32) {
+	let mut best = (0, 0);
+	let mut best_dist = i64::MAX;
+	for r in 0..rows {
+		for c in 0..columns {
+			if occupied[r as usize][c as usize] {
+				continue;
+			}
+			let dr = (r - row) as i64;
+			let dc = (c - col) as i64;
+			let dist = dr.abs() + dc.abs();
+			if dist < best_dist {
+				best_dist = dist;
+				best = (c, r);
+			}
+		}
+	}
+	best
 }
 
 impl QAbstractListModel for Directory {
@@ -422,6 +700,12 @@ impl QAbstractListModel for Directory {
 		map.insert(0x0104, "title".into());
 		map
 	}
+}
+
+fn time_ms(time: Option<SystemTime>) -> u64 {
+	time.and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+		.map(|d| d.as_millis() as u64)
+		.unwrap_or(0)
 }
 
 pub fn get_item_title(path: &Path) -> String {

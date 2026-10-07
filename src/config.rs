@@ -83,8 +83,7 @@ pub struct Config {
 	pub sort_alpha_mode: qt_property!(u8; NOTIFY config_changed),
 	pub stash_shown: qt_property!(bool; NOTIFY config_changed),
 	pub stash_dotfiles: qt_property!(bool; NOTIFY config_changed),
-	pub arbitrary_placement: qt_property!(bool; NOTIFY config_changed),
-	pub arbitrary_positions: qt_property!(String; NOTIFY config_changed),
+	pub free_placement_positions: qt_property!(String; NOTIFY config_changed),
 
 	config_changed: qt_signal!(),
 
@@ -215,6 +214,7 @@ impl Config {
 			"NEWEST" => 0,
 			"OLDEST" => 1,
 			"ALPHABETICAL" => 2,
+			"FREE" => 3,
 			_ => 0,
 		};
 
@@ -239,7 +239,7 @@ impl Config {
 
 		self.stash_shown = get_bool("VIEW", "StashShown", false);
 		self.stash_dotfiles = get_bool("VIEW", "StashDotFiles", true);
-		self.arbitrary_positions = get_json("VIEW", "ArbitraryPlacementPositions", "{}").into();
+		self.free_placement_positions = get_json("VIEW", "FreePlacementPositions", "{}").into();
 
 		self.config_changed();
 	}
@@ -260,5 +260,48 @@ impl Config {
 		crate::config_parser::ConfigParser::set_value(&file_path, section, key, value);
 
 		self._load(path);
+	}
+
+	/// Record a manually placed item coordinate (column, row) in the folder's
+	/// `.meta` config under `FreePlacementPositions`.
+	pub fn set_free_position(&mut self, path: &Path, name: &str, col: i32, row: i32) {
+		let mut positions = self.parse_free_positions();
+		positions.insert(name.to_string(), (col, row));
+		self.write_free_positions(path, &positions);
+	}
+
+	/// Erase all manually placed coordinates for this folder.
+	pub fn reset_free_positions(&mut self, path: &Path) {
+		self.write_free_positions(path, &HashMap::new());
+	}
+
+	fn parse_free_positions(&self) -> HashMap<String, (i32, i32)> {
+		let mut map = HashMap::new();
+		let Ok(value) =
+			serde_json::from_str::<serde_json::Value>(&self.free_placement_positions.to_string())
+		else {
+			return map;
+		};
+		let Some(obj) = value.as_object() else {
+			return map;
+		};
+		for (name, pos) in obj {
+			let Some(arr) = pos.as_array() else {
+				continue;
+			};
+			let col = arr.get(0).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+			let row = arr.get(1).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+			map.insert(name.clone(), (col, row));
+		}
+		map
+	}
+
+	fn write_free_positions(&mut self, path: &Path, positions: &HashMap<String, (i32, i32)>) {
+		let mut obj = serde_json::Map::new();
+		for (name, (col, row)) in positions {
+			obj.insert(name.clone(), serde_json::json!([col, row]));
+		}
+		let json = serde_json::Value::Object(obj).to_string();
+		self._set(path, "VIEW", "FreePlacementPositions", &json, true);
 	}
 }

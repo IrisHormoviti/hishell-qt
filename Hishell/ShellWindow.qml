@@ -62,6 +62,7 @@ Kirigami.ApplicationWindow {
 	DragTooltip {
 		active: dragDropHandler.tooltip_active && dragDropHandler.Drag.active
 		action: dragDropHandler.drag_action
+		reposition: dragDropHandler.reposition_active
 		cursorX: dragDropHandler.drag_cursor_x + 16
 		cursorY: dragDropHandler.drag_cursor_y + 16
 	}

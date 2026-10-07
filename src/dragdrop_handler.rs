@@ -48,6 +48,7 @@ pub struct DragDropHandler {
 	drag_cursor_x: qt_property!(f64; NOTIFY drag_cursor_changed),
 	drag_cursor_y: qt_property!(f64; NOTIFY drag_cursor_changed),
 	tooltip_active: qt_property!(bool; WRITE set_tooltip_active NOTIFY tooltip_active_changed),
+	reposition_active: qt_property!(bool; WRITE set_reposition_active NOTIFY reposition_active_changed),
 	active_dragged_paths: qt_property!(QVariantList; WRITE set_active_dragged_paths NOTIFY active_dragged_paths_changed),
 	drag_icon_width: qt_property!(f64),
 	drag_icon_height: qt_property!(f64),
@@ -63,6 +64,7 @@ pub struct DragDropHandler {
 	drag_action_changed: qt_signal!(),
 	drag_cursor_changed: qt_signal!(),
 	tooltip_active_changed: qt_signal!(),
+	reposition_active_changed: qt_signal!(),
 	active_dragged_paths_changed: qt_signal!(),
 
 	track_mouse_shake: qt_method!(
@@ -129,6 +131,8 @@ pub struct DragDropHandler {
 			self.active_dragged_paths_changed();
 			self.tooltip_active = false;
 			self.tooltip_active_changed();
+			self.reposition_active = false;
+			self.reposition_active_changed();
 			self.set_shake_positions(&[]);
 		}
 	),
@@ -161,6 +165,8 @@ pub struct DragDropHandler {
 			self.active_dragged_paths_changed();
 			self.tooltip_active = true;
 			self.tooltip_active_changed();
+			self.reposition_active = false;
+			self.reposition_active_changed();
 		}
 	),
 
@@ -170,6 +176,8 @@ pub struct DragDropHandler {
 			self.active_dragged_paths_changed();
 			self.tooltip_active = false;
 			self.tooltip_active_changed();
+			self.reposition_active = false;
+			self.reposition_active_changed();
 			self.drag_icon_width = 0.0;
 			self.drag_icon_height = 0.0;
 		}
@@ -181,6 +189,13 @@ impl DragDropHandler {
 		if self.tooltip_active != val {
 			self.tooltip_active = val;
 			self.tooltip_active_changed();
+		}
+	}
+
+	pub fn set_reposition_active(&mut self, val: bool) {
+		if self.reposition_active != val {
+			self.reposition_active = val;
+			self.reposition_active_changed();
 		}
 	}
 
