@@ -441,6 +441,17 @@ impl Config {
 		self.write_free_positions(path, &positions);
 	}
 
+	/// Move a saved coordinate to a new filename after a rename, keeping the
+	/// manually placed item in position.
+	pub fn rename_free_position(&mut self, path: &Path, old_name: &str, new_name: &str) {
+		let mut positions = self.parse_free_positions();
+		let Some(position) = positions.remove(old_name) else {
+			return;
+		};
+		positions.insert(new_name.to_string(), position);
+		self.write_free_positions(path, &positions);
+	}
+
 	/// Erase all manually placed coordinates for this folder.
 	pub fn reset_free_positions(&mut self, path: &Path) {
 		self.write_free_positions(path, &HashMap::new());

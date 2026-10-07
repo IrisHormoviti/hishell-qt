@@ -101,149 +101,6 @@ Module {
 		}
 	}
 	Component {
-		name: "FileManager"
-		prototype: "QObject"
-		exports: ["Hishell/FileManager 1.0"]
-		exportMetaObjectRevisions: [256]
-
-		Method {
-			name: "copy_file"
-			type: "bool"
-			Parameter { name: "source"; type: "string" }
-			Parameter { name: "dest"; type: "string" }
-		}
-		Method {
-			name: "duplicate_file"
-			type: "bool"
-			Parameter { name: "source"; type: "string" }
-		}
-		Method {
-			name: "new_folder"
-			type: "bool"
-			Parameter { name: "parent"; type: "string" }
-		}
-		Method {
-			name: "new_text_file"
-			type: "bool"
-			Parameter { name: "parent"; type: "string" }
-		}
-		Method {
-			name: "create_link"
-			type: "bool"
-			Parameter { name: "source"; type: "string" }
-			Parameter { name: "dest"; type: "string" }
-		}
-		Method {
-			name: "trash_file"
-			type: "bool"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "delete_file"
-			type: "bool"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "rename_file"
-			type: "bool"
-			Parameter { name: "path"; type: "string" }
-			Parameter { name: "new_name"; type: "string" }
-		}
-		Method {
-			name: "copy_paths_to_clipboard"
-			type: "bool"
-			Parameter { name: "paths_newline"; type: "string" }
-		}
-		Method {
-			name: "cut_paths_to_clipboard"
-			type: "bool"
-			Parameter { name: "paths_newline"; type: "string" }
-		}
-		Method {
-			name: "paste_from_clipboard"
-			type: "bool"
-			Parameter { name: "dest_dir"; type: "string" }
-		}
-		Method {
-			name: "get_mime_type"
-			type: "string"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "get_text_content"
-			type: "string"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "process_uris_action"
-			type: "bool"
-			Parameter { name: "dest_dir"; type: "string" }
-			Parameter { name: "uris_newline"; type: "string" }
-			Parameter { name: "action"; type: "string" }
-		}
-		Method {
-			name: "open_file"
-			type: "bool"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "get_icon"
-			type: "string"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "start_portal_open_with"
-			type: "bool"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "poll_portal_open_with"
-			type: "int"
-		}
-		Method {
-			name: "get_default_app"
-			type: "string"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "get_open_with_apps"
-			type: "string"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "open_with_app"
-			type: "bool"
-			Parameter { name: "path"; type: "string" }
-			Parameter { name: "app_id"; type: "string" }
-		}
-		Method {
-			name: "set_default_app"
-			type: "bool"
-			Parameter { name: "mime"; type: "string" }
-			Parameter { name: "app_id"; type: "string" }
-		}
-		Method {
-			name: "rotate_image"
-			type: "bool"
-			Parameter { name: "path"; type: "string" }
-			Parameter { name: "degrees"; type: "int" }
-		}
-		Method {
-			name: "is_image_file"
-			type: "bool"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "is_directory"
-			type: "bool"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "get_home_directory"
-			type: "string"
-		}
-	}
-	Component {
 		name: "FocusManager"
 		prototype: "QObject"
 		exports: ["Hishell/FocusManager 1.0"]
@@ -416,6 +273,149 @@ Module {
 		}
 	}
 	Component {
+		name: "FileManager"
+		prototype: "QObject"
+		exports: ["Hishell/FileManager 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Method {
+			name: "copy_file"
+			type: "bool"
+			Parameter { name: "source"; type: "string" }
+			Parameter { name: "dest"; type: "string" }
+		}
+		Method {
+			name: "duplicate_file"
+			type: "bool"
+			Parameter { name: "source"; type: "string" }
+		}
+		Method {
+			name: "new_folder"
+			type: "bool"
+			Parameter { name: "parent"; type: "string" }
+		}
+		Method {
+			name: "new_text_file"
+			type: "bool"
+			Parameter { name: "parent"; type: "string" }
+		}
+		Method {
+			name: "create_link"
+			type: "bool"
+			Parameter { name: "source"; type: "string" }
+			Parameter { name: "dest"; type: "string" }
+		}
+		Method {
+			name: "trash_file"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "delete_file"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "rename_file"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+			Parameter { name: "new_name"; type: "string" }
+		}
+		Method {
+			name: "copy_paths_to_clipboard"
+			type: "bool"
+			Parameter { name: "paths_newline"; type: "string" }
+		}
+		Method {
+			name: "cut_paths_to_clipboard"
+			type: "bool"
+			Parameter { name: "paths_newline"; type: "string" }
+		}
+		Method {
+			name: "paste_from_clipboard"
+			type: "bool"
+			Parameter { name: "dest_dir"; type: "string" }
+		}
+		Method {
+			name: "get_mime_type"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "get_text_content"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "process_uris_action"
+			type: "bool"
+			Parameter { name: "dest_dir"; type: "string" }
+			Parameter { name: "uris_newline"; type: "string" }
+			Parameter { name: "action"; type: "string" }
+		}
+		Method {
+			name: "open_file"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "get_icon"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "start_portal_open_with"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "poll_portal_open_with"
+			type: "int"
+		}
+		Method {
+			name: "get_default_app"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "get_open_with_apps"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "open_with_app"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+			Parameter { name: "app_id"; type: "string" }
+		}
+		Method {
+			name: "set_default_app"
+			type: "bool"
+			Parameter { name: "mime"; type: "string" }
+			Parameter { name: "app_id"; type: "string" }
+		}
+		Method {
+			name: "rotate_image"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+			Parameter { name: "degrees"; type: "int" }
+		}
+		Method {
+			name: "is_image_file"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "is_directory"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "get_home_directory"
+			type: "string"
+		}
+	}
+	Component {
 		name: "Directory"
 		prototype: "QObject"
 		exports: ["Hishell/Directory 1.0"]
@@ -470,6 +470,12 @@ Module {
 		Method {
 			name: "reset_free_positions"
 			type: "void"
+		}
+		Method {
+			name: "rename_free_position"
+			type: "void"
+			Parameter { name: "old_name"; type: "string" }
+			Parameter { name: "new_name"; type: "string" }
 		}
 		Method {
 			name: "reload"

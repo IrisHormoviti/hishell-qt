@@ -230,6 +230,19 @@ pub struct Directory {
 		}
 	),
 
+	rename_free_position: qt_method!(
+		pub fn rename_free_position(&mut self, old_name: String, new_name: String) {
+			let path = self.path_str.clone();
+			self.config.pinned().borrow_mut().rename_free_position(
+				Path::new(&path),
+				&old_name,
+				&new_name,
+			);
+			self.config_changed();
+			self.reload();
+		}
+	),
+
 	reload: qt_method!(
 		pub fn reload(&mut self) {
 			let path = self.path_str.clone();

@@ -1,7 +1,11 @@
 #include <KApplicationTrader>
 #include <KIO/ApplicationLauncherJob>
+#include <KIO/CopyJob>
+#include <KIO/Job>
 #include <KService>
 #include <QCoreApplication>
+#include <QEventLoop>
+#include <QFileInfo>
 #include <QDBusConnection>
 #include <QDBusMessage>
 #include <QDBusObjectPath>
@@ -177,6 +181,32 @@ const char *hishell_default_app(const char *path)
 		}
 	}
 	g_result = QJsonDocument(app).toJson(QJsonDocument::Compact);
+	return g_result.constData();
+}
+
+// Rename (move) a local file to newName within the same directory using KIO,
+// so the operation goes through the same error reporting as other KDE apps.
+// Returns an empty string on success, otherwise the job's error message.
+const char *hishell_rename(const char *path, const char *newName)
+{
+	const QString filePath = QString::fromUtf8(path);
+	const QString name = QString::fromUtf8(newName);
+	if (filePath.isEmpty() || name.isEmpty()) {
+		g_result = QStringLiteral("Invalid path or name.").toUtf8();
+		return g_result.constData();
+	}
+
+	const QUrl src = QUrl::fromLocalFile(filePath);
+	QUrl dest = src.adjusted(QUrl::RemoveFilename);
+	dest.setPath(QUrl::fromLocalFile(QFileInfo(filePath).absolutePath() + QLatin1Char('/') + name).path());
+
+	KIO::CopyJob *job = KIO::move(src, dest, KIO::HideProgressInfo);
+	QEventLoop loop;
+	QObject::connect(job, &KJob::finished, &loop, &QEventLoop::quit);
+	job->start();
+	loop.exec();
+
+	g_result = job->error() == KJob::NoError ? QByteArray() : job->errorString().toUtf8();
 	return g_result.constData();
 }
 }

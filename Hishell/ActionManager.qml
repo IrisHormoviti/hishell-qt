@@ -525,23 +525,37 @@ Item {
 		property string filePath: ""
 		property string originalName: ""
 		property string newName: ""
+		property string errorText: ""
+
+		function applyRename() {
+			var trimmed = renameDialog.newName.trim();
+			if (trimmed.length === 0 || trimmed === renameDialog.originalName) {
+				renameDialog.accept();
+				return;
+			}
+			var status = {
+				ok: true,
+				error: ""
+			};
+			if (actionManager.fileManager)
+				status = JSON.parse(actionManager.fileManager.rename_file(renameDialog.filePath, trimmed));
+			if (!status.ok) {
+				renameDialog.errorText = status.error;
+				renameField.forceActiveFocus();
+				return;
+			}
+			renameDialog.accept();
+			if (actionManager.selectionManager)
+				actionManager.selectionManager.clear();
+			if (actionManager.directory)
+				actionManager.directory.rename_free_position(renameDialog.originalName, trimmed);
+		}
 
 		title: qsTr("Rename")
-		standardButtons: Dialog.Ok | Dialog.Cancel
 		modal: true
 		anchors.centerIn: parent
-		onAccepted: {
-			var trimmed = renameDialog.newName.trim();
-			if (trimmed.length > 0 && trimmed !== renameDialog.originalName) {
-				if (actionManager.fileManager)
-					actionManager.fileManager.rename_file(renameDialog.filePath, trimmed);
-				if (actionManager.selectionManager)
-					actionManager.selectionManager.clear();
-				if (actionManager.directory)
-					actionManager.directory.reload();
-			}
-		}
 		onOpened: {
+			renameDialog.errorText = "";
 			renameField.text = renameDialog.originalName;
 			renameField.forceActiveFocus();
 		}
@@ -558,9 +572,13 @@ Item {
 				Layout.fillWidth: true
 				Layout.minimumWidth: 320
 				text: renameDialog.newName
-				onTextChanged: renameDialog.newName = text
-				Keys.onReturnPressed: renameDialog.accept()
-				Keys.onEnterPressed: renameDialog.accept()
+				onTextChanged: {
+					renameDialog.newName = text;
+					renameDialog.errorText = "";
+				}
+				onAccepted: renameDialog.applyRename()
+				Keys.onReturnPressed: renameDialog.applyRename()
+				Keys.onEnterPressed: renameDialog.applyRename()
 				Keys.onEscapePressed: renameDialog.reject()
 				Component.onCompleted: {
 					var dot = text.lastIndexOf(".");
@@ -572,6 +590,31 @@ Item {
 						Qt.callLater(function () {
 							renameField.selectAll();
 						});
+				}
+			}
+
+			Label {
+				id: renameError
+				visible: renameDialog.errorText.length > 0
+				text: renameDialog.errorText
+				color: Kirigami.Theme.negativeTextColor
+				wrapMode: Text.WordWrap
+				Layout.fillWidth: true
+			}
+
+			RowLayout {
+				Layout.alignment: Qt.AlignRight
+				spacing: Kirigami.Units.smallSpacing
+
+				Button {
+					text: qsTr("OK")
+					highlighted: true
+					onClicked: renameDialog.applyRename()
+				}
+
+				Button {
+					text: qsTr("Cancel")
+					onClicked: renameDialog.reject()
 				}
 			}
 		}

@@ -9,6 +9,10 @@ use trash;
 static INTERNAL_CLIPBOARD: Lazy<Mutex<Option<(Vec<String>, bool)>>> =
 	Lazy::new(|| Mutex::new(None));
 
+fn rename_status(ok: bool, error: &str) -> String {
+	serde_json::json!({ "ok": ok, "error": error }).to_string()
+}
+
 fn clean_path(s: &str) -> String {
 	let trimmed = s.trim();
 	let raw = trimmed.strip_prefix("file://").unwrap_or(trimmed);
@@ -202,17 +206,30 @@ pub struct FileManager {
 	),
 
 	/// Rename (move) a file or directory to a new name within the same parent.
+	/// Returns a JSON status object: `{"ok":bool,"error":string}`.
 	rename_file: qt_method!(
-		fn rename_file(&self, path: String, new_name: String) -> bool {
+		fn rename_file(&self, path: String, new_name: String) -> String {
 			let p = clean_path(&path.to_string());
-			let n = new_name.to_string();
+			let n = new_name.trim().to_string();
 			let src = Path::new(&p);
 			let parent = match src.parent() {
-				Some(p) => p,
-				None => return false,
+				Some(parent) => parent,
+				None => return rename_status(false, "Invalid path."),
 			};
+			if n.is_empty() {
+				return rename_status(false, "Name cannot be empty.");
+			}
+			if n.contains('/') {
+				return rename_status(false, "A name cannot contain \"/\".");
+			}
 			let dest = parent.join(&n);
-			fs::rename(src, dest).is_ok()
+			if dest.exists() && dest != src {
+				return rename_status(false, "A file with that name already exists.");
+			}
+			match crate::kde_bridge::rename(&p, &n) {
+				Ok(()) => rename_status(true, ""),
+				Err(error) => rename_status(false, error.as_str()),
+			}
 		}
 	),
 

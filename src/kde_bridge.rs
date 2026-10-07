@@ -8,6 +8,7 @@ unsafe extern "C" {
 	fn hishell_open_with_launch(storage_id: *const c_char, path: *const c_char) -> bool;
 	fn hishell_open_with_default(path: *const c_char) -> bool;
 	fn hishell_default_app(path: *const c_char) -> *const c_char;
+	fn hishell_rename(path: *const c_char, new_name: *const c_char) -> *const c_char;
 	fn hishell_portal_open_with(path: *const c_char) -> bool;
 	fn hishell_portal_poll() -> i32;
 	fn hishell_send_key(key: i32) -> bool;
@@ -92,6 +93,24 @@ pub fn default_app_json(path: &str) -> String {
 	unsafe { CStr::from_ptr(json) }
 		.to_string_lossy()
 		.into_owned()
+}
+
+/// Rename a local file to `new_name` within its directory via KIO.
+/// Returns `Ok(())` on success, otherwise the job's error message.
+pub fn rename(path: &str, new_name: &str) -> Result<(), String> {
+	let (Ok(path), Ok(new_name)) = (CString::new(path), CString::new(new_name)) else {
+		return Err(String::from("Invalid path or name."));
+	};
+	let error = unsafe { hishell_rename(path.as_ptr(), new_name.as_ptr()) };
+	if error.is_null() {
+		return Err(String::from("Rename failed."));
+	}
+	let message = unsafe { CStr::from_ptr(error) }.to_string_lossy();
+	if message.is_empty() {
+		Ok(())
+	} else {
+		Err(message.into_owned())
+	}
 }
 
 pub fn portal_open_with(path: &str) -> bool {
