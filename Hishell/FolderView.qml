@@ -1027,118 +1027,128 @@ Item {
 
 	// ── Selection Toolbar ───
 
-	Rectangle {
-		id: selectionBar
-		z: 2
+	Rectangle {id: selectionBar
+	z: 2
 
-		anchors.left: parent.left
-		anchors.right: parent.right
-		anchors.bottom: parent.bottom
-		anchors.margins: 4
-		anchors.bottomMargin: 4
+	anchors.left: parent.left
+	anchors.right: parent.right
+	anchors.bottom: parent.bottom
+	anchors.margins: Kirigami.Units.mediumSpacing
 
-		readonly property bool selectionActive: folderView.selectionManager ? folderView.selectionManager.selection_active : false
+	readonly property bool selectionActive: folderView.selectionManager ? folderView.selectionManager.selection_active : false
 
-		// Width the row needs to show the buttons with their labels. Below it
-		// the labels are dropped so the buttons stay reachable in a narrow pane.
-		readonly property bool compact: selectionBar.width < selectionBar.expandedMinWidth
-		readonly property real expandedMinWidth: {
-			const spacing = Kirigami.Units.smallSpacing;
-			const pad = Kirigami.Units.smallSpacing * 2;
-			const icon = Kirigami.Units.iconSizes.small;
-			const margins = Kirigami.Units.largeSpacing + Kirigami.Units.smallSpacing;
-			const safety = Kirigami.Units.gridUnit * 2;
-			const label = Math.max(countMetrics.width, Kirigami.Units.gridUnit * 4);
-			const selectAll = Math.max(icon, selectAllMetrics.width) + pad;
-			const deselectAll = Math.max(icon, deselectAllMetrics.width) + pad;
-			return margins + icon + spacing + label + spacing + selectAll + spacing + deselectAll + safety;
+	// the labels are dropped so the buttons stay reachable in a narrow pane.
+	readonly property bool compact: selectionBar.width < Kirigami.Units.largeSpacing * 50
+
+	height: selectionBar.selectionActive ? 48 : 0
+	visible: selectionBar.selectionActive
+	radius: 6
+
+	Kirigami.Theme.colorSet: Kirigami.Theme.Header
+	color: Kirigami.Theme.backgroundColor
+
+	MouseArea {
+		anchors.fill: parent
+		acceptedButtons: Qt.AllButtons
+		onClicked: mouse => {
+			mouse.accepted = true;
 		}
-
-		height: selectionBar.selectionActive ? 48 : 0
-		visible: selectionBar.selectionActive
-		radius: 6
-
-		Kirigami.Theme.colorSet: Kirigami.Theme.Header
-		color: Kirigami.Theme.backgroundColor
-
-		TextMetrics {
-			id: countMetrics
-			font: countLabel.font
-			text: countLabel.text
-		}
-
-		TextMetrics {
-			id: selectAllMetrics
-			font: selectAllButton.font
-			text: selectAllButton.text
-		}
-
-		TextMetrics {
-			id: deselectAllMetrics
-			font: deselectAllButton.font
-			text: deselectAllButton.text
-		}
-
-		Kirigami.Separator {
-			anchors.top: parent.top
-			anchors.left: parent.left
-			anchors.right: parent.right
-		}
-
-		Behavior on height {
-			NumberAnimation {
-				duration: 180
-				easing.type: Easing.OutCubic
-			}
-		}
-
-		RowLayout {
-			anchors.fill: parent
-			anchors.leftMargin: Kirigami.Units.largeSpacing
-			anchors.rightMargin: Kirigami.Units.smallSpacing
-			spacing: Kirigami.Units.smallSpacing
-
-			Kirigami.Icon {
-				source: "checkmark"
-				Layout.preferredWidth: Kirigami.Units.iconSizes.small
-				Layout.preferredHeight: Kirigami.Units.iconSizes.small
-			}
-
-			Label {
-				id: countLabel
-				text: {
-					const n = folderView.selectionManager ? folderView.selectionManager.selected_count : 0;
-					return n === 1 ? qsTr("1 item selected") : qsTr("%1 items selected").arg(n);
-				}
-				font.weight: Font.Medium
-				elide: Text.ElideRight
-				Layout.fillWidth: true
-				Layout.minimumWidth: selectionBar.compact ? 0 : countMetrics.width
-			}
-
-			ToolButton {
-				id: selectAllButton
-				text: qsTr("Select All")
-				icon.name: "edit-select-all"
-				display: selectionBar.compact ? AbstractButton.IconOnly : AbstractButton.TextUnderIcon
-				ToolTip.text: qsTr("Select All")
-				ToolTip.visible: hovered
-				flat: true
-				onClicked: folderView.selectAll()
-			}
-
-			ToolButton {
-				id: deselectAllButton
-				text: qsTr("Deselect All")
-				icon.name: "edit-select-none"
-				display: selectionBar.compact ? AbstractButton.IconOnly : AbstractButton.TextUnderIcon
-				ToolTip.text: qsTr("Deselect All")
-				ToolTip.visible: hovered
-				flat: true
-				onClicked: folderView.selectionManager.deselect_all()
-			}
+		onPressed: mouse => {
+			mouse.accepted = true;
 		}
 	}
+
+	TextMetrics {
+		id: countMetrics
+		font: countLabel.font
+		text: countLabel.text
+	}
+
+	TextMetrics {
+		id: selectAllMetrics
+		font: selectAllButton.font
+		text: selectAllButton.text
+	}
+
+	TextMetrics {
+		id: deselectAllMetrics
+		font: deselectAllButton.font
+		text: deselectAllButton.text
+	}
+
+	Kirigami.Separator {
+		anchors.top: parent.top
+		anchors.left: parent.left
+		anchors.right: parent.right
+	}
+
+	Behavior on height {
+		NumberAnimation {
+			duration: 180
+			easing.type: Easing.OutCubic
+		}
+	}
+
+	RowLayout {
+		anchors.fill: parent
+		anchors.leftMargin: Kirigami.Units.largeSpacing
+		anchors.rightMargin: Kirigami.Units.smallSpacing
+		spacing: Kirigami.Units.smallSpacing
+
+		CheckBox {
+			id: selectAllCheckbox
+			checked: folderView.selectionManager.selected_count > 0 && folderView.selectionManager.selected_count === itemRepeater.count
+			tristate: folderView.selectionManager.selected_count > 0 && folderView.selectionManager.selected_count < itemRepeater.count
+			checkState: tristate ? Qt.PartiallyChecked : (checked ? Qt.Checked : Qt.Unchecked)
+			Layout.preferredWidth: Kirigami.Units.iconSizes.smallSpacing
+			Layout.preferredHeight: Kirigami.Units.iconSizes.smallSpacing
+			onClicked: {
+				if (folderView.selectionManager.selected_count === itemRepeater.count) {
+					folderView.selectionManager.deselect_all();
+				} else {
+					folderView.selectAll();
+				}
+			}
+		}
+
+		Label {
+			property string countText: folderView.selectionManager.selected_count + " " + (
+				selectionBar.compact
+					? ""
+					: (folderView.selectionManager.selected_count > 1
+						? qsTr("items selected")
+						: qsTr("item selected"))
+			)
+			id: countLabel
+			text: countText
+			font.weight: Font.Medium
+			elide: Text.ElideRight
+			Layout.fillWidth: true
+			Layout.minimumWidth: selectionBar.compact ? 0 : countMetrics.width
+		}
+
+		// ToolButton {
+		// 	id: selectAllButton
+		// 	text: qsTr("Select All")
+		// 	icon.name: "edit-select-all"
+		// 	display: selectionBar.compact ? AbstractButton.IconOnly : AbstractButton.TextUnderIcon
+		// 	ToolTip.text: qsTr("Select All")
+		// 	ToolTip.visible: hovered
+		// 	flat: true
+		// 	onClicked: folderView.selectAll()
+		// }
+
+		ToolButton {
+			id: deselectAllButton
+			text: qsTr("Deselect")
+			icon.name: "edit-select-none"
+			display: selectionBar.compact ? AbstractButton.IconOnly : AbstractButton.TextUnderIcon
+			ToolTip.text: qsTr("Deselect")
+			ToolTip.visible: hovered
+			flat: true
+			onClicked: folderView.selectionManager.deselect_all()
+		}
+	}}
 
 	ExecuteDialog {
 		id: execDialog

@@ -35,6 +35,9 @@ Item {
 	property bool selectionActive: false
 	property bool isSelected: false
 
+	// Used for when this item is open in another view
+	property bool isActive: false
+
 	// Focus state passed from FolderView (independent of selection)
 	property bool focusActive: false
 	property bool isFocused: false
@@ -210,6 +213,7 @@ Item {
 			}
 			textFormat: Text.StyledText
 			font.italic: fileSlot.is_symlink
+			font.bold: fileSlot.isActive
 			color: Kirigami.Theme.textColor
 			wrapMode: Text.Wrap
 			maximumLineCount: 2
@@ -222,11 +226,12 @@ Item {
 	// ── Selection ──
 
 	Rectangle {
+		z: -1
 		anchors.fill: parent
-		anchors.margins: 2
+		anchors.margins: isSelected ? Kirigami.Units.smallSpacing : 0
 		radius: Kirigami.Units.cornerRadius
 		color: Kirigami.Theme.highlightColor
-		opacity: fileSlot.isSelected ? 0.25 : 0.0
+		opacity: (fileSlot.isSelected ? 0.25 : 0.0) || (fileSlot.isActive ? 0.5 : 0.0)
 		Behavior on opacity {
 			NumberAnimation {
 				duration: fileSlot.animationDuration
@@ -237,7 +242,7 @@ Item {
 
 	Rectangle {
 		anchors.fill: parent
-		anchors.margins: 2
+		anchors.margins: Kirigami.Units.smallSpacing
 		radius: Kirigami.Units.cornerRadius
 		color: "transparent"
 		border.color: Kirigami.Theme.highlightColor
@@ -648,6 +653,7 @@ Item {
 		}
 
 		onPressed: mouse => {
+
 			if (mouse.button === Qt.LeftButton && typeof dragDropHandler !== 'undefined') {
 				mouseArea.isPressAndHoldActive = false;
 				mouseArea.dragInitiated = false;

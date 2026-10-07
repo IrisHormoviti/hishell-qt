@@ -82,7 +82,7 @@ RowLayout {
         id: breadcrumbList
         Layout.fillWidth: true
         Layout.preferredHeight: Kirigami.Units.gridUnit * 2
-        
+
         orientation: ListView.Horizontal
         interactive: true
         spacing: Kirigami.Units.smallSpacing
@@ -123,7 +123,7 @@ RowLayout {
                 index: delegateRoot.index
                 gridSize: Kirigami.Units.iconSizes.smallMedium
                 labelBesideIcon: true
-                isSelected: delegateRoot.index === pathBar.segments.length - 1
+                isActive: delegateRoot.index === pathBar.segments.length - 1
                 fixedWidth: false
 
                 Layout.preferredWidth: implicitWidth
