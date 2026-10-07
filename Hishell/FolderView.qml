@@ -19,9 +19,42 @@ Item {
 	property var openMenu: null
 	property string returnFocusPath: ""
 	property string lastPath: ""
+	property int paneId: -1
+	property int paneCount: 1
+	property SelectionManager selectionManager: selectionManagerImpl
 
-	Layout.fillWidth: true
+	// Selection state is owned per view so selection mode and the selection
+	// toolbar stay inside the pane instead of the whole window.
+	SelectionManager {
+		id: selectionManagerImpl
+	}
+
+	readonly property size gridItemSize: {
+		const iconSize = folderView.config ? folderView.config.grid_size : 64;
+		if (iconSize < 32)
+			return Qt.size(Kirigami.Units.gridUnit * 10, Kirigami.Units.gridUnit * 2);
+		return Qt.size(iconSize + Kirigami.Units.gridUnit * 3, iconSize + Kirigami.Units.gridUnit * 3);
+	}
+
+	// Width the pane needs for its fixed grid block: the block, its scrollbar inset
+	// and the view margins; -1 lets the pane take a fill share of the layout instead.
+	readonly property real preferredGridWidth: {
+		const cfg = folderView.config;
+		if (!cfg || folderView.paneCount <= 1 || cfg.scroll_horizontal || cfg.grid_lines <= 0 || cfg.grid_horizontal_align === 0)
+			return -1;
+
+		const size = folderView.gridItemSize;
+		const gap = Kirigami.Units.mediumSpacing;
+		const naturalWidth = cfg.grid_lines * size.width + (cfg.grid_lines - 1) * gap;
+		const rows = Math.max(1, Math.ceil(itemRepeater.count / cfg.grid_lines));
+		const naturalHeight = rows * size.height + (rows - 1) * gap;
+		const scrollBar = naturalHeight > flickable.height ? verticalScrollBar.width + gap : 0;
+		return naturalWidth + scrollBar + 2 * gap;
+	}
+
+	Layout.fillWidth: folderView.preferredGridWidth <= 0
 	Layout.fillHeight: true
+	Layout.preferredWidth: folderView.preferredGridWidth
 
 	focus: true
 	activeFocusOnTab: true
@@ -38,16 +71,31 @@ Item {
 	function updateViewFocus() {
 		const fm = folderView.focusManager;
 		const window = folderView.Window.window;
-		if (!fm)
+		if (!fm || folderView.paneId <= 0)
 			return;
 		// While the window is inactive the controller still drives the file
-		// view; only focus owned elsewhere inside an active window (popups,
+		// views; only focus owned elsewhere inside an active window (popups,
 		// dialogs) hands the input over to Qt.
-		fm.view_focused = folderView.activeFocus || !(window && window.active);
+		fm.set_pane_keyboard(folderView.paneId, folderView.activeFocus || !(window && window.active));
 	}
 
+	// Panes are compared spatially so the focus can be moved between them.
+	function updateGeometry() {
+		const fm = folderView.focusManager;
+		const window = folderView.Window.window;
+		if (!fm || folderView.paneId <= 0 || !window || !window.contentItem)
+			return;
+		const position = folderView.mapToItem(window.contentItem, 0, 0);
+		fm.set_pane_geometry(folderView.paneId, position.x, position.y, folderView.width, folderView.height);
+	}
+
+	onXChanged: folderView.updateGeometry()
+	onYChanged: folderView.updateGeometry()
+	onWidthChanged: folderView.updateGeometry()
+	onHeightChanged: folderView.updateGeometry()
+
 	function selectAll() {
-		const mgr = folderView.rootWindow ? folderView.rootWindow.selectionManager : null;
+		const mgr = folderView.selectionManager;
 		if (!mgr)
 			return;
 		let paths = [];
@@ -67,10 +115,8 @@ Item {
 		const viewWidth = flickable.width;
 		const viewHeight = flickable.height;
 		const gap = Kirigami.Units.mediumSpacing;
-		const iconSize = cfg ? cfg.grid_size : 64;
-		const besideIcon = iconSize < 32;
-		const itemWidth = besideIcon ? Kirigami.Units.gridUnit * 10 : iconSize + Kirigami.Units.gridUnit * 3;
-		const itemHeight = besideIcon ? Kirigami.Units.gridUnit * 2 : iconSize + Kirigami.Units.gridUnit * 3;
+		const itemWidth = folderView.gridItemSize.width;
+		const itemHeight = folderView.gridItemSize.height;
 		const barWidth = verticalScrollBar.width;
 		const barHeight = horizontalScrollBar.height;
 		const barInsetX = barWidth + gap;
@@ -169,29 +215,30 @@ Item {
 
 	function updateFocusItems() {
 		const fm = folderView.focusManager;
-		if (!fm || !folderView.directory)
+		if (!fm || !folderView.directory || folderView.paneId <= 0)
 			return;
 		const paths = folderView.directory.get_all_paths();
 		if (paths.length === 0) {
-			fm.clear();
+			fm.clear_pane(folderView.paneId);
 			return;
 		}
-		fm.set_horizontal(folderView.horizontalScroll);
-		fm.set_items(paths, folderView.gridStride);
+		fm.set_pane_horizontal(folderView.paneId, folderView.horizontalScroll);
+		fm.set_pane_items(folderView.paneId, paths, folderView.gridStride);
 		folderView.focusOwned = true;
 
 		if (folderView.returnFocusPath !== "") {
 			const target = folderView.returnFocusPath;
 			folderView.returnFocusPath = "";
-			if (fm.set_focus_path(target))
+			if (fm.set_pane_focus_path(folderView.paneId, target))
 				Qt.callLater(() => folderView.ensureFocusVisible());
 		}
 	}
 
 	function ensureFocusVisible() {
-		if (!folderView.focusManager || !folderView.focusManager.focus_active)
+		const fm = folderView.focusManager;
+		if (!fm || !fm.focus_active || fm.current_pane !== folderView.paneId)
 			return;
-		const item = itemRepeater.itemAt(folderView.focusManager.focused_index);
+		const item = itemRepeater.itemAt(fm.focused_index);
 		if (!item)
 			return;
 
@@ -251,7 +298,7 @@ Item {
 	// Enter / gamepad accept: toggle the focused item in selection mode, otherwise open it
 	function activateFocused() {
 		const fm = folderView.focusManager;
-		const mgr = folderView.rootWindow ? folderView.rootWindow.selectionManager : null;
+		const mgr = folderView.selectionManager;
 		if (!fm || !fm.focus_active || String(fm.focused_path) === "")
 			return;
 		if (mgr && mgr.selection_active) {
@@ -261,11 +308,43 @@ Item {
 		folderView.openFocused();
 	}
 
+	// Context menu for the focused item, shared by the gamepad menu button and
+	// the Menu key.
+	function openFocusedMenu() {
+		const fm = folderView.focusManager;
+		if (!folderView.focusOwned || !fm || !fm.focus_active || fm.current_pane !== folderView.paneId)
+			return;
+		const item = itemRepeater.itemAt(fm.focused_index);
+		if (item)
+			folderView.openMenu = item.openContextMenu();
+	}
+
+	// Context menu for the folder being viewed, opened by the gamepad start
+	// button.
+	function openDirectoryMenu() {
+		if (folderView.rootWindow)
+			folderView.rootWindow.actionManager.pasteTargetPath = "";
+		const menu = ContextMenu.menu;
+		if (!menu)
+			return;
+		const position = folderView.mapToItem(menu.parent, 0, 0);
+		menu.x = position.x;
+		menu.y = position.y;
+		menu.open();
+		folderView.openMenu = menu;
+	}
+
 	Component.onCompleted: {
-		folderView.forceActiveFocus();
 		Qt.callLater(() => {
-			folderView.forceActiveFocus();
+			const window = folderView.Window.window;
+			// The layout creates one view after another; only the first one
+			// claims the keyboard, the rest leave it alone.
+			if (!window || !window.activeFocusItem)
+				folderView.forceActiveFocus();
+			if (folderView.focusManager)
+				folderView.paneId = folderView.focusManager.register_pane();
 			folderView.updateViewFocus();
+			folderView.updateGeometry();
 			if (folderView.config && folderView.directory) {
 				folderView.config.load(folderView.directory.path);
 				folderView.directory.load_directory(folderView.directory.path, !folderView.config.stash_dotfiles);
@@ -277,11 +356,35 @@ Item {
 		});
 	}
 
+	Component.onDestruction: {
+		if (folderView.rootWindow && folderView.rootWindow.selectionManager === folderView.selectionManager)
+			folderView.rootWindow.selectionManager = null;
+		if (folderView.focusManager && folderView.paneId > 0)
+			folderView.focusManager.release_pane(folderView.paneId);
+	}
+
 	onActiveFocusChanged: {
 		folderView.updateViewFocus();
 		if (folderView.activeFocus) {
 			folderView.focusOwned = true;
+			// Adopt this view's selection when it is focused, but never let an
+			// empty pane take the actions over: opening a popup can bounce the
+			// focus to a sibling pane and would otherwise clear them.
+			if (folderView.rootWindow && folderView.selectionManager.selection_active)
+				folderView.rootWindow.selectionManager = folderView.selectionManager;
+			if (folderView.focusManager && folderView.paneId > 0)
+				folderView.focusManager.activate_pane(folderView.paneId);
 			folderView.updateFocusItems();
+		}
+	}
+
+	// A selection is only ever made in the view the input went to, so point the
+	// window at this view's manager whenever its selection changes.
+	Connections {
+		target: folderView.selectionManager
+		function onSelection_changed() {
+			if (folderView.rootWindow)
+				folderView.rootWindow.selectionManager = folderView.selectionManager;
 		}
 	}
 
@@ -292,30 +395,49 @@ Item {
 		}
 	}
 
+
+
+
+
+
+
 	onGridStrideChanged: {
-		if (folderView.focusOwned && folderView.focusManager)
-			folderView.focusManager.set_columns(folderView.gridStride);
+		if (folderView.focusOwned && folderView.focusManager && folderView.paneId > 0)
+			folderView.focusManager.set_pane_columns(folderView.paneId, folderView.gridStride);
 	}
 
 	Connections {
 		target: folderView.focusManager
 		function onFocus_changed() {
-			if (folderView.focusOwned)
+			const fm = folderView.focusManager;
+			// Follow the cursor when it moves into this pane, but never take the
+			// keyboard back from an open popup.
+			if (fm && fm.view_focused && fm.current_pane === folderView.paneId && !folderView.activeFocus)
+				folderView.forceActiveFocus();
+			if (folderView.focusOwned && fm && fm.current_pane === folderView.paneId)
 				folderView.ensureFocusVisible();
 		}
 		function onAccept_requested() {
-			if (folderView.focusOwned)
+			if (folderView.focusOwned && folderView.focusManager.current_pane === folderView.paneId)
 				folderView.activateFocused();
 		}
 		function onMenu_requested() {
-			if (!folderView.focusOwned || !folderView.focusManager || !folderView.focusManager.focus_active)
+			folderView.openFocusedMenu();
+		}
+		function onSelect_requested() {
+			if (!folderView.focusOwned || folderView.focusManager.current_pane !== folderView.paneId)
 				return;
-			const item = itemRepeater.itemAt(folderView.focusManager.focused_index);
-			if (item)
-				folderView.openMenu = item.openContextMenu();
+			const fm = folderView.focusManager;
+			const mgr = folderView.selectionManager;
+			if (mgr && fm && fm.focus_active && String(fm.focused_path) !== "")
+				mgr.toggle_selection(String(fm.focused_path), fm.focused_index);
+		}
+		function onDirectory_menu_requested() {
+			if (folderView.focusOwned && folderView.focusManager.current_pane === folderView.paneId)
+				folderView.openDirectoryMenu();
 		}
 		function onCancel_requested() {
-			if (!folderView.focusOwned)
+			if (!folderView.focusOwned || folderView.focusManager.current_pane !== folderView.paneId)
 				return;
 
 			if (folderView.openMenu && folderView.openMenu.visible) {
@@ -324,7 +446,7 @@ Item {
 				return;
 			}
 
-			const mgr = folderView.rootWindow ? folderView.rootWindow.selectionManager : null;
+			const mgr = folderView.selectionManager;
 			if (mgr && mgr.selection_active) {
 				mgr.exit_selection_mode();
 				return;
@@ -360,13 +482,12 @@ Item {
 				folderView.directory.load_directory(folderView.directory.path, !folderView.config.stash_dotfiles);
 			}
 			if (folderView.focusManager)
-				folderView.focusManager.clear();
+				folderView.focusManager.clear_pane(folderView.paneId);
 			// Entering a folder leaves the focus inactive, so no border shows
 			// until the next directional input; a restored target activates it.
 			folderView.updateFocusItems();
-			if (folderView.rootWindow && folderView.rootWindow.selectionManager) {
-				folderView.rootWindow.selectionManager.exit_selection_mode();
-			}
+			if (folderView.selectionManager)
+				folderView.selectionManager.exit_selection_mode();
 		}
 
 		function onConfig_changed() {
@@ -430,10 +551,9 @@ Item {
 		onClicked: mouse => {
 			if (mouse.button === Qt.LeftButton) {
 				folderView.forceActiveFocus();
-				if (folderView.rootWindow && folderView.rootWindow.selectionManager)
-					folderView.rootWindow.selectionManager.clear();
+				folderView.selectionManager.clear();
 				if (folderView.focusManager)
-					folderView.focusManager.clear();
+					folderView.focusManager.clear_pane(folderView.paneId);
 			}
 		}
 	}
@@ -547,7 +667,7 @@ Item {
 
 	// ── Input Shortcuts ───
 	Keys.onPressed: event => {
-		const mgr = folderView.rootWindow ? folderView.rootWindow.selectionManager : null;
+		const mgr = folderView.selectionManager;
 		const fm = folderView.focusManager;
 		if (!mgr || !fm)
 			return;
@@ -590,7 +710,7 @@ Item {
 		case Qt.Key_Escape:
 			if (mgr.selection_active)
 				mgr.exit_selection_mode();
-			fm.clear();
+			fm.clear_pane(folderView.paneId);
 			event.accepted = true;
 			break;
 		case Qt.Key_A:
@@ -654,10 +774,9 @@ Item {
 			acceptedButtons: Qt.LeftButton
 			onClicked: mouse => {
 				folderView.forceActiveFocus();
-				if (folderView.rootWindow && folderView.rootWindow.selectionManager)
-					folderView.rootWindow.selectionManager.clear();
+				folderView.selectionManager.clear();
 				if (folderView.focusManager)
-					folderView.focusManager.clear();
+					folderView.focusManager.clear_pane(folderView.paneId);
 			}
 		}
 
@@ -672,7 +791,7 @@ Item {
 				model: folderView.directory
 
 				delegate: FileSlot {
-					property SelectionManager selectionManager: folderView.rootWindow ? folderView.rootWindow.selectionManager : null
+					property SelectionManager selectionManager: folderView.selectionManager
 					actionManager: folderView.rootWindow ? folderView.rootWindow.actionManager : null
 					fileManager: folderView.rootWindow ? folderView.rootWindow.fileManager : null
 
@@ -684,7 +803,7 @@ Item {
 
 					gridSize: folderView.config.grid_size
 					selectionActive: selectionManager ? selectionManager.selection_active : false
-					focusActive: folderView.focusOwned
+					focusActive: folderView.focusOwned && folderView.focusManager && folderView.focusManager.current_pane === folderView.paneId
 					focusBorderSource: folderView.focusBorderSource
 					isFocused: folderView.focusManager ? (folderView.focusManager.focus_active && String(folderView.focusManager.focused_path) === String(path)) : false
 					isSelected: selectionManager ? (function () {
@@ -749,12 +868,47 @@ Item {
 		anchors.margins: 4
 		anchors.bottomMargin: 4
 
-		height: (folderView.rootWindow && folderView.rootWindow.selectionManager && folderView.rootWindow.selectionManager.selection_active) ? 48 : 0
-		visible: folderView.rootWindow && folderView.rootWindow.selectionManager && folderView.rootWindow.selectionManager.selection_active
+		readonly property bool selectionActive: folderView.selectionManager ? folderView.selectionManager.selection_active : false
+
+		// Width the row needs to show the buttons with their labels. Below it
+		// the labels are dropped so the buttons stay reachable in a narrow pane.
+		readonly property bool compact: selectionBar.width < selectionBar.expandedMinWidth
+		readonly property real expandedMinWidth: {
+			const spacing = Kirigami.Units.smallSpacing;
+			const pad = Kirigami.Units.smallSpacing * 2;
+			const icon = Kirigami.Units.iconSizes.small;
+			const margins = Kirigami.Units.largeSpacing + Kirigami.Units.smallSpacing;
+			const safety = Kirigami.Units.gridUnit * 2;
+			const label = Math.max(countMetrics.width, Kirigami.Units.gridUnit * 4);
+			const selectAll = Math.max(icon, selectAllMetrics.width) + pad;
+			const deselectAll = Math.max(icon, deselectAllMetrics.width) + pad;
+			return margins + icon + spacing + label + spacing + selectAll + spacing + deselectAll + safety;
+		}
+
+		height: selectionBar.selectionActive ? 48 : 0
+		visible: selectionBar.selectionActive
 		radius: 6
 
 		Kirigami.Theme.colorSet: Kirigami.Theme.Header
 		color: Kirigami.Theme.backgroundColor
+
+		TextMetrics {
+			id: countMetrics
+			font: countLabel.font
+			text: countLabel.text
+		}
+
+		TextMetrics {
+			id: selectAllMetrics
+			font: selectAllButton.font
+			text: selectAllButton.text
+		}
+
+		TextMetrics {
+			id: deselectAllMetrics
+			font: deselectAllButton.font
+			text: deselectAllButton.text
+		}
 
 		Kirigami.Separator {
 			anchors.top: parent.top
@@ -782,17 +936,22 @@ Item {
 			}
 
 			Label {
+				id: countLabel
 				text: {
-					const n = (folderView.rootWindow && folderView.rootWindow.selectionManager) ? folderView.rootWindow.selectionManager.selected_count : 0;
+					const n = folderView.selectionManager ? folderView.selectionManager.selected_count : 0;
 					return n === 1 ? qsTr("1 item selected") : qsTr("%1 items selected").arg(n);
 				}
 				font.weight: Font.Medium
+				elide: Text.ElideRight
 				Layout.fillWidth: true
+				Layout.minimumWidth: selectionBar.compact ? 0 : countMetrics.width
 			}
 
 			ToolButton {
+				id: selectAllButton
 				text: qsTr("Select All")
 				icon.name: "edit-select-all"
+				display: selectionBar.compact ? AbstractButton.IconOnly : AbstractButton.TextUnderIcon
 				ToolTip.text: qsTr("Select All")
 				ToolTip.visible: hovered
 				flat: true
@@ -800,13 +959,14 @@ Item {
 			}
 
 			ToolButton {
+				id: deselectAllButton
 				text: qsTr("Deselect All")
 				icon.name: "edit-select-none"
+				display: selectionBar.compact ? AbstractButton.IconOnly : AbstractButton.TextUnderIcon
 				ToolTip.text: qsTr("Deselect All")
 				ToolTip.visible: hovered
 				flat: true
-				onClicked: if (folderView.rootWindow && folderView.rootWindow.selectionManager)
-					folderView.rootWindow.selectionManager.deselect_all()
+				onClicked: folderView.selectionManager.deselect_all()
 			}
 		}
 	}

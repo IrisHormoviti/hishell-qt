@@ -144,6 +144,8 @@ fn main() {
 	engine.add_import_path("qrc:///".into());
 	engine.load_file("qrc:///Hishell/ShellWindow.qml".into());
 
+	kde_bridge::hook_menu_key();
+
 	gamepad::init();
 
 	engine.exec();

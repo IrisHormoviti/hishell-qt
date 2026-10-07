@@ -91,35 +91,35 @@ Item {
 	readonly property var menuGroups: [
 		{
 			id: "open",
-			title: qsTr("Open"),
+			title: qsTr("&Open"),
 			actions: openGroup,
 			contexts: ["items"],
 			submenu: false
 		},
 		{
 			id: "edit",
-			title: qsTr("Edit"),
+			title: qsTr("&Edit"),
 			actions: editGroup,
 			contexts: ["items"],
 			submenu: false
 		},
 		{
 			id: "image",
-			title: qsTr("Image"),
+			title: qsTr("&Image"),
 			actions: imageGroup,
 			contexts: ["files"],
 			submenu: false
 		},
 		{
 			id: "new",
-			title: qsTr("New"),
+			title: qsTr("&New"),
 			actions: newActionsGroup,
 			contexts: ["directory"],
 			submenu: true
 		},
 		{
 			id: "directory",
-			title: qsTr("Folder"),
+			title: qsTr("&Folder"),
 			actions: folderActionsGroup,
 			contexts: ["directory", "folders"],
 			submenu: false
@@ -173,7 +173,7 @@ Item {
 	property alias openAction: openAction
 	Action {
 		id: openAction
-		text: actionManager.openApp ? qsTr("Open with %1").arg(actionManager.openApp.name) : qsTr("Open")
+		text: actionManager.openApp ? qsTr("O&pen with %1").arg(actionManager.openApp.name) : qsTr("O&pen")
 		icon.name: actionManager.openAppIcon !== "" && actionManager.openAppIcon.indexOf("/") === -1 ? actionManager.openAppIcon : "open-link"
 		icon.source: actionManager.openAppIcon.indexOf("/") !== -1 ? actionManager.openAppIcon : ""
 		enabled: actionManager.hasSelection
@@ -236,7 +236,7 @@ Item {
 	property alias openWindowAction: openWindowAction
 	Action {
 		id: openWindowAction
-		text: qsTr("Open in Window")
+		text: qsTr("Open in Win&dow")
 		icon.name: "window-new-symbolic"
 		shortcut: "Ctrl+N"
 		enabled: actionManager.hasSelection
@@ -255,7 +255,7 @@ Item {
 	property alias openWithAction: openWithAction
 	Action {
 		id: openWithAction
-		text: qsTr("Open With...")
+		text: qsTr("Open &With...")
 		icon.name: "system-run"
 		shortcut: "Ctrl+Alt+O"
 		enabled: actionManager.isSingleSelection
@@ -270,7 +270,7 @@ Item {
 
 	Action {
 		id: copyAction
-		text: qsTr("Copy")
+		text: qsTr("&Copy")
 		icon.name: "edit-copy"
 		shortcut: "Ctrl+C"
 		enabled: actionManager.hasSelection
@@ -283,7 +283,7 @@ Item {
 
 	Action {
 		id: cutAction
-		text: qsTr("Cut")
+		text: qsTr("C&ut")
 		icon.name: "edit-cut"
 		shortcut: "Ctrl+X"
 		enabled: actionManager.hasSelection
@@ -296,7 +296,7 @@ Item {
 
 	Action {
 		id: duplicateAction
-		text: qsTr("Duplicate")
+		text: qsTr("&Duplicate")
 		icon.name: "edit-copy"
 		shortcut: "Ctrl+D"
 		enabled: actionManager.hasSelection
@@ -314,7 +314,7 @@ Item {
 
 	Action {
 		id: linkAction
-		text: qsTr("Create Link")
+		text: qsTr("Create &Link")
 		icon.name: "edit-link"
 		shortcut: "Ctrl+Shift+L"
 		enabled: actionManager.hasSelection
@@ -336,7 +336,7 @@ Item {
 
 	Action {
 		id: renameAction
-		text: qsTr("Rename")
+		text: qsTr("&Rename")
 		icon.name: "edit-rename"
 		shortcut: "F2"
 		enabled: actionManager.isSingleSelection
@@ -349,7 +349,7 @@ Item {
 
 	Action {
 		id: trashAction
-		text: qsTr("Trash")
+		text: qsTr("&Trash")
 		icon.name: "user-trash"
 		shortcut: "Delete"
 		enabled: actionManager.hasSelection
@@ -374,7 +374,7 @@ Item {
 
 	Action {
 		id: goUpAction
-		text: qsTr("Go Up")
+		text: qsTr("Go &Up")
 		icon.name: "go-up-symbolic"
 		shortcut: "Alt+Up"
 		enabled: actionManager.directory && actionManager.directory.path !== "/"
@@ -398,7 +398,7 @@ Item {
 		id: pasteAction
 		text: {
 			const name = actionManager.pasteTargetPath.substring(actionManager.pasteTargetPath.lastIndexOf("/") + 1);
-			return name.length > 0 ? qsTr("Paste into %1").arg(name) : qsTr("Paste");
+			return name.length > 0 ? qsTr("&Paste into %1").arg(name) : qsTr("&Paste");
 		}
 		icon.name: "edit-paste"
 		shortcut: "Ctrl+V"
@@ -410,7 +410,7 @@ Item {
 
 	Action {
 		id: copyPathAction
-		text: "Copy Path"
+		text: "&Copy Path"
 		icon.name: "edit-copy-path-symbolic"
 		shortcut: "Ctrl+Alt+C"
 		enabled: true
@@ -448,7 +448,7 @@ Item {
 
 	Action {
 		id: newFolderAction
-		text: qsTr("New Folder")
+		text: qsTr("New Fo&lder")
 		icon.name: "folder-add"
 		shortcut: "Ctrl+Shift+N"
 		onTriggered: {
@@ -461,7 +461,7 @@ Item {
 
 	Action {
 		id: newTextFileAction
-		text: qsTr("New Text File")
+		text: qsTr("New &Text File")
 		icon.name: "text-plain"
 		shortcut: "Alt+Shift+N"
 		onTriggered: {
@@ -477,7 +477,7 @@ Item {
 
 	Action {
 		id: rotateClockwiseAction
-		text: qsTr("Rotate Clockwise")
+		text: qsTr("Rotate &Clockwise")
 		icon.name: "object-rotate-right"
 		shortcut: "Ctrl+R"
 		enabled: actionManager.isImageSelected
@@ -495,7 +495,7 @@ Item {
 
 	Action {
 		id: rotateCounterClockwiseAction
-		text: qsTr("Rotate Counter-Clockwise")
+		text: qsTr("Rotate Counter-Clock&wise")
 		icon.name: "object-rotate-left"
 		shortcut: "Ctrl+Shift+R"
 		enabled: actionManager.isImageSelected

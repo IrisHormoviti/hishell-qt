@@ -425,44 +425,77 @@ Module {
 		Property { name: "focus_status"; type: "string"; isReadonly: true }
 		Property { name: "window"; type: "QVariant"; isReadonly: true }
 		Property { name: "view_focused"; type: "bool"; isReadonly: true }
+		Property { name: "current_pane"; type: "int"; isReadonly: true }
 		Signal { name: "focus_changed" }
 		Signal { name: "accept_requested" }
 		Signal { name: "cancel_requested" }
 		Signal { name: "menu_requested" }
+		Signal { name: "select_requested" }
+		Signal { name: "directory_menu_requested" }
 		Method {
-			name: "set_items"
+			name: "register_pane"
+			type: "int"
+		}
+		Method {
+			name: "release_pane"
 			type: "void"
+			Parameter { name: "id"; type: "int" }
+		}
+		Method {
+			name: "set_pane_items"
+			type: "void"
+			Parameter { name: "id"; type: "int" }
 			Parameter { name: "paths"; type: "QVariantList" }
 			Parameter { name: "columns"; type: "int" }
 		}
 		Method {
-			name: "set_columns"
+			name: "set_pane_columns"
 			type: "void"
+			Parameter { name: "id"; type: "int" }
 			Parameter { name: "columns"; type: "int" }
 		}
 		Method {
-			name: "set_horizontal"
+			name: "set_pane_horizontal"
 			type: "void"
+			Parameter { name: "id"; type: "int" }
 			Parameter { name: "horizontal"; type: "bool" }
 		}
 		Method {
-			name: "set_focus_index"
+			name: "set_pane_geometry"
 			type: "void"
-			Parameter { name: "index"; type: "int" }
+			Parameter { name: "id"; type: "int" }
+			Parameter { name: "x"; type: "double" }
+			Parameter { name: "y"; type: "double" }
+			Parameter { name: "width"; type: "double" }
+			Parameter { name: "height"; type: "double" }
 		}
 		Method {
-			name: "enter_focus"
+			name: "set_pane_keyboard"
 			type: "void"
+			Parameter { name: "id"; type: "int" }
+			Parameter { name: "keyboard"; type: "bool" }
 		}
 		Method {
-			name: "set_focus_path"
+			name: "activate_pane"
+			type: "void"
+			Parameter { name: "id"; type: "int" }
+		}
+		Method {
+			name: "set_pane_focus_path"
 			type: "bool"
+			Parameter { name: "id"; type: "int" }
 			Parameter { name: "path"; type: "string" }
 		}
 		Method {
-			name: "move_focus"
-			type: "bool"
-			Parameter { name: "direction"; type: "string" }
+			name: "set_pane_active"
+			type: "void"
+			Parameter { name: "id"; type: "int" }
+			Parameter { name: "active"; type: "bool" }
+		}
+		Method {
+			name: "clear_pane"
+			type: "void"
+			Parameter { name: "id"; type: "int" }
 		}
 		Method {
 			name: "focus_first"
@@ -473,8 +506,9 @@ Module {
 			type: "void"
 		}
 		Method {
-			name: "clear"
-			type: "void"
+			name: "move_focus"
+			type: "bool"
+			Parameter { name: "direction"; type: "string" }
 		}
 		Method {
 			name: "poll_gamepad"

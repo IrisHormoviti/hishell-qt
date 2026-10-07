@@ -11,7 +11,7 @@ Menu {
 	visible: false
 	height: contentHeight
 
-	title: qsTr("View")
+	title: qsTr("&View")
 	popupType: Popup.Native
 
 	ButtonGroup {

@@ -49,6 +49,9 @@ RowLayout {
 							if ("directory" in obj) {
 								obj.directory = Qt.binding(() => layoutEngine.directory);
 							}
+							if ("paneCount" in obj) {
+								obj.paneCount = layoutEngine.layoutItems.length;
+							}
 
 							if (isPath) {
 								const customDir = Qt.createQmlObject('import Hishell; Directory {}', obj);

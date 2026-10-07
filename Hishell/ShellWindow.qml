@@ -12,7 +12,9 @@ Kirigami.ApplicationWindow {
 
 	flags: directory.config.native_titlebar ? Qt.Window : Qt.Window | Qt.FramelessWindowHint
 
-	property alias selectionManager: selectionManager
+	// Selection state lives in the folder views; this points at the manager of
+	// the view that last took focus so the window actions operate on it.
+	property SelectionManager selectionManager: null
 	property alias focusManager: focusManager
 	property alias dragDropHandler: dragDropHandler
 	property alias dropValidator: dropValidator
@@ -38,10 +40,6 @@ Kirigami.ApplicationWindow {
 		id: dropValidator
 	}
 
-	SelectionManager {
-		id: selectionManager
-	}
-
 	FocusManager {
 		id: focusManager
 		window: root
@@ -58,7 +56,6 @@ Kirigami.ApplicationWindow {
 		id: actionManager
 		window: root
 		directory: directory
-		selectionManager: selectionManager
 		fileManager: fileManager
 	}
 

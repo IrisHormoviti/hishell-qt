@@ -11,12 +11,19 @@ unsafe extern "C" {
 	fn hishell_portal_open_with(path: *const c_char) -> bool;
 	fn hishell_portal_poll() -> i32;
 	fn hishell_send_key(key: i32) -> bool;
+	fn hishell_hook_menu_key();
 }
 
 /// Delivers a synthetic key press/release to whatever currently holds the
 /// keyboard focus, so popups (menus, dialogs) can be driven by the controller.
 pub fn send_key(key: i32) -> bool {
 	unsafe { hishell_send_key(key) }
+}
+
+/// Takes the keyboard's context menu key away from the platform so it can be
+/// routed like the gamepad's menu button.
+pub fn hook_menu_key() {
+	unsafe { hishell_hook_menu_key() }
 }
 
 fn empty_payload() -> String {

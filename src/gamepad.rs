@@ -17,6 +17,8 @@ pub enum Input {
 	Accept,
 	Cancel,
 	Menu,
+	Select,
+	Directory,
 }
 
 impl Input {
@@ -29,6 +31,8 @@ impl Input {
 			Input::Accept => "accept",
 			Input::Cancel => "cancel",
 			Input::Menu => "menu",
+			Input::Select => "select",
+			Input::Directory => "directory",
 		}
 	}
 }
@@ -48,6 +52,20 @@ static QUEUE: Lazy<Mutex<Vec<Input>>> = Lazy::new(|| Mutex::new(Vec::new()));
 static REPEAT_STATE: Lazy<Mutex<(Option<Input>, Instant)>> =
 	Lazy::new(|| Mutex::new((None, Instant::now())));
 static STARTED: AtomicBool = AtomicBool::new(false);
+
+/// Queues an input that came from somewhere other than the gamepad, such as
+/// the keyboard menu key. It is dispatched through the same routing as the
+/// controller so that both behave identically.
+pub fn push(input: Input) {
+	if let Ok(mut queue) = QUEUE.lock() {
+		queue.push(input);
+	}
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn hishell_menu_key_pressed() {
+	push(Input::Menu);
+}
 
 /// Starts the gilrs event pump. gilrs normalises controllers through the SDL
 /// mapping database, so d-pads, sticks and face buttons mean the same thing
@@ -142,7 +160,9 @@ fn button_input(button: Button) -> Option<Input> {
 	match button {
 		Button::South => Some(Input::Accept),
 		Button::East => Some(Input::Cancel),
-		Button::North | Button::Start => Some(Input::Menu),
+		Button::North => Some(Input::Menu),
+		Button::West => Some(Input::Select),
+		Button::Start => Some(Input::Directory),
 		_ => None,
 	}
 }

@@ -68,6 +68,42 @@ static HishellPortalRequestListener *portalListener()
 	return listener;
 }
 
+extern "C" void hishell_menu_key_pressed(void);
+
+// The context menu key would otherwise pop a menu up at the cursor; hand it to
+// the application instead so it follows the focused item like the gamepad's
+// menu button does.
+//
+// The filter also swallows the bare-Alt shortcut override: QQuickMenuBar uses it
+// to enter its Alt mode, which grabs focus and closes whatever menu is open.
+// Kirigami shows the mnemonic underlines from Alt key presses, so keeping that
+// event away from the menu bar leaves the underlines working while Alt no longer
+// dismisses an open menu.
+class HishellMenuKeyFilter : public QObject
+{
+public:
+	using QObject::QObject;
+
+protected:
+	bool eventFilter(QObject *receiver, QEvent *event) override
+	{
+		if (event->type() == QEvent::KeyPress) {
+			auto *keyEvent = static_cast<QKeyEvent *>(event);
+			if (keyEvent->key() == Qt::Key_Menu && !keyEvent->isAutoRepeat()) {
+				hishell_menu_key_pressed();
+				return true;
+			}
+		} else if (event->type() == QEvent::ShortcutOverride) {
+			auto *keyEvent = static_cast<QKeyEvent *>(event);
+			if ((keyEvent->key() == Qt::Key_Alt || keyEvent->key() == Qt::Key_Meta)
+			    && keyEvent->modifiers() == Qt::AltModifier) {
+				return true;
+			}
+		}
+		return QObject::eventFilter(receiver, event);
+	}
+};
+
 extern "C" {
 
 const char *hishell_open_with_apps(const char *path)
@@ -237,6 +273,20 @@ bool hishell_send_key(int key)
 	QKeyEvent release(QEvent::KeyRelease, key, Qt::NoModifier);
 	QCoreApplication::sendEvent(target, &release);
 	return true;
+}
+
+void hishell_hook_menu_key(void)
+{
+	static QObject *filter = nullptr;
+	if (filter) {
+		return;
+	}
+	QCoreApplication *application = QCoreApplication::instance();
+	if (!application) {
+		return;
+	}
+	filter = new HishellMenuKeyFilter(application);
+	application->installEventFilter(filter);
 }
 }
 

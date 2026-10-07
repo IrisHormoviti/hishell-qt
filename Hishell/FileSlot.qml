@@ -39,7 +39,7 @@ Item {
 	property bool focusActive: false
 	property bool isFocused: false
 	property string focusBorderSource: ""
-	property double focusBorderScale: 1.1
+	property double focusBorderScale: 1
 	property double focusBorderMovment: 0.03
 
 	property int currentDragCount: 1
