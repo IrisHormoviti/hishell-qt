@@ -8,6 +8,7 @@ Menu {
 	required property var directory
 	property var config: directory ? directory.config : null
 	property bool isLocal: directory ? directory.has_meta : false
+	readonly property string viewConfigGroupName: "Folder View"
 	readonly property bool hasFreePlacementPositions: {
 		if (!viewMenu.config)
 			return false;
@@ -26,14 +27,14 @@ Menu {
 
 	function setSort(value) {
 		if (viewMenu.directory) {
-			viewMenu.directory.set_config("VIEW", "Sort", value, viewMenu.isLocal);
+			viewMenu.directory.set_config(viewConfigGroupName, "Sort", value, viewMenu.isLocal);
 			viewMenu.directory.reload();
 		}
 	}
 
 	function setViewMode(value) {
 		if (viewMenu.directory) {
-			viewMenu.directory.set_config("VIEW", "ViewMode", value, viewMenu.isLocal);
+			viewMenu.directory.set_config(viewConfigGroupName, "ViewMode", value, viewMenu.isLocal);
 			viewMenu.directory.reload();
 		}
 	}
@@ -83,7 +84,7 @@ Menu {
 				to: 256
 				stepSize: 4
 				onMoved: if (viewMenu.directory) {
-					viewMenu.directory.set_config("VIEW", "GridSize", value.toString(), viewMenu.isLocal);
+					viewMenu.directory.set_config(viewConfigGroupName, "GridSize", value.toString(), viewMenu.isLocal);
 					viewMenu.directory.reload();
 				}
 			}
@@ -245,14 +246,14 @@ Menu {
 			checkable: true
 			checked: viewMenu.config ? viewMenu.config.stash_shown : false
 			onToggled: if (viewMenu.config && viewMenu.directory)
-				viewMenu.config.set(viewMenu.directory.path, "VIEW", "StashShown", String(checked), viewMenu.isLocal)
+				viewMenu.config.set(viewMenu.directory.path, viewConfigGroupName, "StashShown", String(checked), viewMenu.isLocal)
 		}
 		MenuItem {
 			text: qsTr("Stash Dotfiles")
 			checkable: true
 			checked: viewMenu.config ? viewMenu.config.stash_dotfiles : false
 			onToggled: if (viewMenu.config && viewMenu.directory)
-				viewMenu.config.set(viewMenu.directory.path, "VIEW", "StashDotFiles", String(checked), viewMenu.isLocal)
+				viewMenu.config.set(viewMenu.directory.path, viewConfigGroupName, "StashDotFiles", String(checked), viewMenu.isLocal)
 		}
 	}
 }

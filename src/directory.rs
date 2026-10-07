@@ -467,7 +467,7 @@ impl Directory {
 		if self.path_str.is_empty() {
 			return false;
 		}
-		Path::new(&self.path_str).join(".meta").is_file()
+		Path::new(&self.path_str).join(".directory").is_file()
 	}
 
 	pub fn set_path(&mut self, path: String) {
@@ -722,7 +722,7 @@ fn time_ms(time: Option<SystemTime>) -> u64 {
 }
 
 pub fn get_item_title(path: &Path) -> String {
-	if let Some(config_title) = config::get_string(path, "DISPLAY", "Title") {
+	if let Some(config_title) = config::get_string(path, "Desktop Entry", "Name") {
 		if !config_title.is_empty() {
 			return config_title;
 		}
@@ -792,15 +792,10 @@ pub fn get_folder_icon(path: &str) -> String {
 	let path_buf = Path::new(path);
 	let abs_path = std::fs::canonicalize(path_buf).unwrap_or_else(|_| path_buf.to_path_buf());
 
-	if let Some(icon) = config::get_image(&abs_path, "DISPLAY", "Icon") {
+	if let Some(icon) = config::get_image(&abs_path, "Desktop Entry", "Icon") {
 		if !icon.is_empty() {
 			return icon_source(icon, &abs_path);
 		}
-	}
-
-	let dot_directory = abs_path.join(".directory");
-	if let Some(icon) = crate::desktop_entry::get_icon(&dot_directory) {
-		return icon_source(icon, &abs_path);
 	}
 
 	if let Some(home) = dirs::home_dir().and_then(|h| std::fs::canonicalize(h).ok()) {

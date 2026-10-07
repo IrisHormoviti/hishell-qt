@@ -1151,18 +1151,6 @@ Item {
 		text: countLabel.text
 	}
 
-	TextMetrics {
-		id: selectAllMetrics
-		font: selectAllButton.font
-		text: selectAllButton.text
-	}
-
-	TextMetrics {
-		id: deselectAllMetrics
-		font: deselectAllButton.font
-		text: deselectAllButton.text
-	}
-
 	Kirigami.Separator {
 		anchors.top: parent.top
 		anchors.left: parent.left
@@ -1187,8 +1175,8 @@ Item {
 			checked: folderView.selectionManager.selected_count > 0 && folderView.selectionManager.selected_count === itemRepeater.count
 			tristate: folderView.selectionManager.selected_count > 0 && folderView.selectionManager.selected_count < itemRepeater.count
 			checkState: tristate ? Qt.PartiallyChecked : (checked ? Qt.Checked : Qt.Unchecked)
-			Layout.preferredWidth: Kirigami.Units.iconSizes.smallSpacing
-			Layout.preferredHeight: Kirigami.Units.iconSizes.smallSpacing
+			Layout.preferredWidth: Kirigami.Units.iconSizes.medium
+			Layout.preferredHeight: Kirigami.Units.iconSizes.medium
 			onClicked: {
 				if (folderView.selectionManager.selected_count === itemRepeater.count) {
 					folderView.selectionManager.deselect_all();
@@ -1213,17 +1201,6 @@ Item {
 			Layout.fillWidth: true
 			Layout.minimumWidth: selectionBar.compact ? 0 : countMetrics.width
 		}
-
-		// ToolButton {
-		// 	id: selectAllButton
-		// 	text: qsTr("Select All")
-		// 	icon.name: "edit-select-all"
-		// 	display: selectionBar.compact ? AbstractButton.IconOnly : AbstractButton.TextUnderIcon
-		// 	ToolTip.text: qsTr("Select All")
-		// 	ToolTip.visible: hovered
-		// 	flat: true
-		// 	onClicked: folderView.selectAll()
-		// }
 
 		ToolButton {
 			id: deselectAllButton

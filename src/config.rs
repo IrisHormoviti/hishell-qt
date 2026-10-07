@@ -3,7 +3,7 @@ use qmetaobject::prelude::*;
 use std::collections::HashMap;
 use std::path::Path;
 
-/// Loads and combines the default config with a folder's `.meta` config,
+/// Loads and combines the default config with a folder's `.directory` config,
 /// keeping track of which file each value came from and any load errors.
 pub fn load_path_checked(path: &Path) -> ParseOutput {
 	let default_cfg = Path::new("config/default.cfg");
@@ -14,12 +14,12 @@ pub fn load_path_checked(path: &Path) -> ParseOutput {
 			p
 		})
 		.unwrap_or_else(|| std::path::PathBuf::from("config/default.cfg"));
-	let meta_path = path.join(".meta");
+	let meta_path = path.join(".directory");
 	let paths: Vec<&Path> = vec![default_cfg, global_cfg.as_path(), meta_path.as_path()];
 	ConfigParser::parse_files(&paths)
 }
 
-/// Loads and combines the default config with a folder's `.meta` config.
+/// Loads and combines the default config with a folder's `.directory` config.
 pub fn load_path(path: &Path) -> HashMap<String, HashMap<String, ConfigValue>> {
 	load_path_checked(path).sections
 }
@@ -35,54 +35,54 @@ enum ExpectedKind {
 
 /// Every key the `Config` object reads, with the kind of value it expects.
 const EXPECTED_KEYS: &[(&str, &str, ExpectedKind)] = &[
-	("DISPLAY", "Title", ExpectedKind::Str),
-	("DISPLAY", "Icon", ExpectedKind::Str),
-	("DISPLAY", "Wallpaper", ExpectedKind::Str),
-	("LAYOUT", "Top", ExpectedKind::Array),
-	("LAYOUT", "Middle", ExpectedKind::Array),
-	("LAYOUT", "Bottom", ExpectedKind::Array),
-	("LAYOUT", "Header", ExpectedKind::Array),
-	("LAYOUT", "NativeMenuBar", ExpectedKind::Bool),
-	("LAYOUT", "NativeTitleBar", ExpectedKind::Bool),
-	("VIEW", "GridSize", ExpectedKind::Num),
-	("VIEW", "ShowLabels", ExpectedKind::Bool),
+	("Desktop Entry", "Name", ExpectedKind::Str),
+	("Desktop Entry", "Icon", ExpectedKind::Str),
+	("Layout", "Top", ExpectedKind::Array),
+	("Layout", "Middle", ExpectedKind::Array),
+	("Layout", "Bottom", ExpectedKind::Array),
+	("Layout", "Header", ExpectedKind::Array),
+	("Layout", "NativeMenuBar", ExpectedKind::Bool),
+	("Layout", "NativeTitleBar", ExpectedKind::Bool),
+	("Folder View", "Wallpaper", ExpectedKind::Str),
+	("Folder View", "GridSize", ExpectedKind::Num),
+	("Folder View", "ShowLabels", ExpectedKind::Bool),
 	(
-		"VIEW",
+		"Folder View",
 		"GridHorizontalAlign",
 		ExpectedKind::StrEnum(&["FILL", "LEFT", "CENTER", "RIGHT"]),
 	),
 	(
-		"VIEW",
+		"Folder View",
 		"GridVerticalAlign",
 		ExpectedKind::StrEnum(&["FILL", "TOP", "CENTER", "BOTTOM"]),
 	),
-	("VIEW", "Lines", ExpectedKind::Num),
+	("Folder View", "Lines", ExpectedKind::Num),
 	(
-		"VIEW",
+		"Folder View",
 		"ScrollDirection",
 		ExpectedKind::StrEnum(&["VERTICAL", "HORIZONTAL"]),
 	),
-	("VIEW", "ViewMode", ExpectedKind::StrEnum(&["GRID", "LIST"])),
+	("Folder View", "ViewMode", ExpectedKind::StrEnum(&["GRID", "LIST"])),
 	(
-		"VIEW",
+		"Folder View",
 		"Sort",
 		ExpectedKind::StrEnum(&["NEWEST", "OLDEST", "ALPHABETICAL", "FREE"]),
 	),
 	(
-		"VIEW",
+		"Folder View",
 		"SortDateMode",
 		ExpectedKind::StrEnum(&["MODIFIED", "CREATED", "ACCESSED"]),
 	),
 	(
-		"VIEW",
+		"Folder View",
 		"SortAlphaMode",
 		ExpectedKind::StrEnum(&["TITLES", "FILENAMES"]),
 	),
-	("VIEW", "StashShown", ExpectedKind::Bool),
-	("VIEW", "StashDotFiles", ExpectedKind::Bool),
-	("VIEW", "FreePlacementPositions", ExpectedKind::Dict),
-	("NAVIGATION", "CenterFocus", ExpectedKind::Bool),
-	("NAVIGATION", "SmoothScrolling", ExpectedKind::Bool),
+	("Folder View", "StashShown", ExpectedKind::Bool),
+	("Folder View", "StashDotFiles", ExpectedKind::Bool),
+	("Folder View", "FreePlacementPositions", ExpectedKind::Dict),
+	("Folder Navigation", "CenterFocus", ExpectedKind::Bool),
+	("Folder Navigation", "SmoothScrolling", ExpectedKind::Bool),
 ];
 
 /// Flags configured keys whose value does not match the expected kind.
@@ -313,8 +313,8 @@ impl Config {
 			_ => default.to_string(),
 		};
 
-		self.title = get_str("DISPLAY", "Title", "").into();
-		self.icon = get_image(path, "DISPLAY", "Icon")
+		self.title = get_str("Desktop Entry", "Name", "").into();
+		self.icon = get_image(path, "Desktop Entry", "Icon")
 			.map(|p| {
 				if p.starts_with('/') {
 					format!("file://{}", p)
@@ -323,7 +323,7 @@ impl Config {
 				}
 			})
 			.unwrap_or_default();
-		self.wallpaper = get_image(path, "DISPLAY", "Wallpaper")
+		self.wallpaper = get_image(path, "Folder View", "Wallpaper")
 			.map(|p| {
 				if p.starts_with('/') {
 					format!("file://{}", p)
@@ -333,22 +333,22 @@ impl Config {
 			})
 			.unwrap_or_default();
 
-		self.top_layout = get_json("LAYOUT", "Top", "[]").into();
-		self.middle_layout = get_json("LAYOUT", "Middle", r#"["./"]"#).into();
-		self.bottom_layout = get_json("LAYOUT", "Bottom", "[]").into();
+		self.top_layout = get_json("Layout", "Top", "[]").into();
+		self.middle_layout = get_json("Layout", "Middle", r#"["./"]"#).into();
+		self.bottom_layout = get_json("Layout", "Bottom", "[]").into();
 		self.header_layout = get_json(
-			"LAYOUT",
+			"Layout",
 			"Header",
 			r#"["toolkit/PathBar", "toolkit/Spacer", "toolkit/MenuBar"]"#,
 		)
 		.into();
-		self.native_menubar = get_bool("LAYOUT", "NativeMenuBar", false);
-		self.native_titlebar = get_bool("LAYOUT", "NativeTitleBar", true);
+		self.native_menubar = get_bool("Layout", "NativeMenuBar", false);
+		self.native_titlebar = get_bool("Layout", "NativeTitleBar", true);
 
-		self.grid_size = get_num("VIEW", "GridSize", 64) as u16;
-		self.show_labels = get_bool("VIEW", "ShowLabels", true);
+		self.grid_size = get_num("Folder View", "GridSize", 64) as u16;
+		self.show_labels = get_bool("Folder View", "ShowLabels", true);
 
-		self.grid_horizontal_align = match get_str("VIEW", "GridHorizontalAlign", "FILL")
+		self.grid_horizontal_align = match get_str("Folder View", "GridHorizontalAlign", "FILL")
 			.to_uppercase()
 			.as_str()
 		{
@@ -358,7 +358,7 @@ impl Config {
 			_ => 0,
 		};
 
-		self.grid_vertical_align = match get_str("VIEW", "GridVerticalAlign", "FILL")
+		self.grid_vertical_align = match get_str("Folder View", "GridVerticalAlign", "FILL")
 			.to_uppercase()
 			.as_str()
 		{
@@ -368,20 +368,20 @@ impl Config {
 			_ => 0,
 		};
 
-		self.grid_lines = get_num("VIEW", "Lines", 0).max(0);
+		self.grid_lines = get_num("Folder View", "Lines", 0).max(0);
 		self.scroll_horizontal =
-			get_str("VIEW", "ScrollDirection", "VERTICAL").to_uppercase() == "HORIZONTAL";
+			get_str("Folder View", "ScrollDirection", "VERTICAL").to_uppercase() == "HORIZONTAL";
 
-		self.center_focus = get_bool("NAVIGATION", "CenterFocus", false);
-		self.smooth_scrolling = get_bool("NAVIGATION", "SmoothScrolling", true);
+		self.center_focus = get_bool("Folder Navigation", "CenterFocus", false);
+		self.smooth_scrolling = get_bool("Folder Navigation", "SmoothScrolling", true);
 
-		self.view_mode = match get_str("VIEW", "ViewMode", "GRID").to_uppercase().as_str() {
+		self.view_mode = match get_str("Folder View", "ViewMode", "GRID").to_uppercase().as_str() {
 			"GRID" => 0,
 			"LIST" => 1,
 			_ => 0,
 		};
 
-		self.sort = match get_str("VIEW", "Sort", "NEWEST").to_uppercase().as_str() {
+		self.sort = match get_str("Folder View", "Sort", "NEWEST").to_uppercase().as_str() {
 			"NEWEST" => 0,
 			"OLDEST" => 1,
 			"ALPHABETICAL" => 2,
@@ -389,7 +389,7 @@ impl Config {
 			_ => 0,
 		};
 
-		self.sort_date_mode = match get_str("VIEW", "SortDateMode", "MODIFIED")
+		self.sort_date_mode = match get_str("Folder View", "SortDateMode", "MODIFIED")
 			.to_uppercase()
 			.as_str()
 		{
@@ -399,7 +399,7 @@ impl Config {
 			_ => 0,
 		};
 
-		self.sort_alpha_mode = match get_str("VIEW", "SortAlphaMode", "TITLES")
+		self.sort_alpha_mode = match get_str("Folder View", "SortAlphaMode", "TITLES")
 			.to_uppercase()
 			.as_str()
 		{
@@ -408,16 +408,16 @@ impl Config {
 			_ => 0,
 		};
 
-		self.stash_shown = get_bool("VIEW", "StashShown", false);
-		self.stash_dotfiles = get_bool("VIEW", "StashDotFiles", true);
-		self.free_placement_positions = get_json("VIEW", "FreePlacementPositions", "{}").into();
+		self.stash_shown = get_bool("Folder View", "StashShown", false);
+		self.stash_dotfiles = get_bool("Folder View", "StashDotFiles", true);
+		self.free_placement_positions = get_json("Folder View", "FreePlacementPositions", "{}").into();
 
 		self.config_changed();
 	}
 
 	pub fn _set(&mut self, path: &Path, section: &str, key: &str, value: &str, local: bool) {
 		let file_path = if local {
-			path.join(".meta")
+			path.join(".directory")
 		} else {
 			dirs::config_dir()
 				.map(|mut p| {
@@ -434,7 +434,7 @@ impl Config {
 	}
 
 	/// Record a manually placed item coordinate (column, row) in the folder's
-	/// `.meta` config under `FreePlacementPositions`.
+	/// `.directory` config under `FreePlacementPositions`.
 	pub fn set_free_position(&mut self, path: &Path, name: &str, col: i32, row: i32) {
 		let mut positions = self.parse_free_positions();
 		positions.insert(name.to_string(), (col, row));
@@ -484,6 +484,6 @@ impl Config {
 			obj.insert(name.clone(), serde_json::json!([col, row]));
 		}
 		let json = serde_json::Value::Object(obj).to_string();
-		self._set(path, "VIEW", "FreePlacementPositions", &json, true);
+		self._set(path, "Folder View", "FreePlacementPositions", &json, true);
 	}
 }

@@ -83,7 +83,7 @@ pub fn init() {
 				return;
 			}
 		};
-		println!("gamepad: ready");
+		// println!("gamepad: ready");
 		snapshot(&gilrs);
 
 		loop {
