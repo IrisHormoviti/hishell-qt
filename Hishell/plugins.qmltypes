@@ -353,52 +353,6 @@ Module {
 		}
 	}
 	Component {
-		name: "Config"
-		prototype: "QObject"
-		exports: ["Hishell/Config 1.0"]
-		exportMetaObjectRevisions: [256]
-
-		Property { name: "title"; type: "string"; isReadonly: true }
-		Property { name: "icon"; type: "string"; isReadonly: true }
-		Property { name: "wallpaper"; type: "string"; isReadonly: true }
-		Property { name: "top_layout"; type: "string"; isReadonly: true }
-		Property { name: "middle_layout"; type: "string"; isReadonly: true }
-		Property { name: "bottom_layout"; type: "string"; isReadonly: true }
-		Property { name: "header_layout"; type: "string"; isReadonly: true }
-		Property { name: "native_menubar"; type: "bool"; isReadonly: true }
-		Property { name: "native_titlebar"; type: "bool"; isReadonly: true }
-		Property { name: "grid_size"; type: "u16"; isReadonly: true }
-		Property { name: "grid_horizontal_align"; type: "u8"; isReadonly: true }
-		Property { name: "grid_vertical_align"; type: "u8"; isReadonly: true }
-		Property { name: "grid_lines"; type: "int"; isReadonly: true }
-		Property { name: "scroll_horizontal"; type: "bool"; isReadonly: true }
-		Property { name: "center_focus"; type: "bool"; isReadonly: true }
-		Property { name: "smooth_scrolling"; type: "bool"; isReadonly: true }
-		Property { name: "show_labels"; type: "bool"; isReadonly: true }
-		Property { name: "view_mode"; type: "u8"; isReadonly: true }
-		Property { name: "sort"; type: "u8"; isReadonly: true }
-		Property { name: "sort_date_mode"; type: "u8"; isReadonly: true }
-		Property { name: "sort_alpha_mode"; type: "u8"; isReadonly: true }
-		Property { name: "stash_shown"; type: "bool"; isReadonly: true }
-		Property { name: "stash_dotfiles"; type: "bool"; isReadonly: true }
-		Property { name: "free_placement_positions"; type: "string"; isReadonly: true }
-		Signal { name: "config_changed" }
-		Method {
-			name: "load"
-			type: "void"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "set"
-			type: "void"
-			Parameter { name: "path"; type: "string" }
-			Parameter { name: "section"; type: "string" }
-			Parameter { name: "key"; type: "string" }
-			Parameter { name: "value"; type: "string" }
-			Parameter { name: "local"; type: "bool" }
-		}
-	}
-	Component {
 		name: "DragDropHandler"
 		prototype: "QObject"
 		exports: ["Hishell/DragDropHandler 1.0"]
@@ -542,6 +496,54 @@ Module {
 			type: "void"
 			Parameter { name: "path"; type: "string" }
 			Parameter { name: "include_hidden"; type: "bool" }
+		}
+	}
+	Component {
+		name: "Config"
+		prototype: "QObject"
+		exports: ["Hishell/Config 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Property { name: "title"; type: "string"; isReadonly: true }
+		Property { name: "icon"; type: "string"; isReadonly: true }
+		Property { name: "wallpaper"; type: "string"; isReadonly: true }
+		Property { name: "top_layout"; type: "string"; isReadonly: true }
+		Property { name: "middle_layout"; type: "string"; isReadonly: true }
+		Property { name: "bottom_layout"; type: "string"; isReadonly: true }
+		Property { name: "header_layout"; type: "string"; isReadonly: true }
+		Property { name: "native_menubar"; type: "bool"; isReadonly: true }
+		Property { name: "native_titlebar"; type: "bool"; isReadonly: true }
+		Property { name: "grid_size"; type: "u16"; isReadonly: true }
+		Property { name: "grid_horizontal_align"; type: "u8"; isReadonly: true }
+		Property { name: "grid_vertical_align"; type: "u8"; isReadonly: true }
+		Property { name: "grid_lines"; type: "int"; isReadonly: true }
+		Property { name: "scroll_horizontal"; type: "bool"; isReadonly: true }
+		Property { name: "center_focus"; type: "bool"; isReadonly: true }
+		Property { name: "smooth_scrolling"; type: "bool"; isReadonly: true }
+		Property { name: "show_labels"; type: "bool"; isReadonly: true }
+		Property { name: "view_mode"; type: "u8"; isReadonly: true }
+		Property { name: "sort"; type: "u8"; isReadonly: true }
+		Property { name: "sort_date_mode"; type: "u8"; isReadonly: true }
+		Property { name: "sort_alpha_mode"; type: "u8"; isReadonly: true }
+		Property { name: "stash_shown"; type: "bool"; isReadonly: true }
+		Property { name: "stash_dotfiles"; type: "bool"; isReadonly: true }
+		Property { name: "free_placement_positions"; type: "string"; isReadonly: true }
+		Property { name: "error"; type: "string"; isReadonly: true }
+		Property { name: "error_file"; type: "string"; isReadonly: true }
+		Signal { name: "config_changed" }
+		Method {
+			name: "load"
+			type: "void"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "set"
+			type: "void"
+			Parameter { name: "path"; type: "string" }
+			Parameter { name: "section"; type: "string" }
+			Parameter { name: "key"; type: "string" }
+			Parameter { name: "value"; type: "string" }
+			Parameter { name: "local"; type: "bool" }
 		}
 	}
 }

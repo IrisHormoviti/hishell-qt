@@ -546,9 +546,8 @@ Item {
 			renameField.forceActiveFocus();
 		}
 
-		ColumnLayout {
+		contentItem: ColumnLayout {
 			spacing: Kirigami.Units.smallSpacing
-			width: 320
 
 			Label {
 				text: qsTr("New name:")
@@ -557,6 +556,7 @@ Item {
 			TextField {
 				id: renameField
 				Layout.fillWidth: true
+				Layout.minimumWidth: 320
 				text: renameDialog.newName
 				onTextChanged: renameDialog.newName = text
 				Keys.onReturnPressed: renameDialog.accept()

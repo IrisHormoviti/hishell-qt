@@ -28,6 +28,19 @@ Item {
 	required property int index
 	property bool is_dir: false
 
+	// The FolderView that owns this slot; used to detect free-placement mode,
+	// where the background DropArea owns all drops (including folder targets).
+	readonly property var folderView: {
+		let p = fileSlot.parent;
+		while (p) {
+			if (typeof p.isFreeRepositionDrop === 'function')
+				return p;
+			p = p.parent;
+		}
+		return null;
+	}
+	readonly property bool freePlacement: folderView && folderView.config ? (folderView.config.sort === 3 && folderView.config.view_mode === 0) : false
+
 	property int animationDuration: 200
 	property int animationEase: Easing.OutCubic
 
@@ -403,7 +416,7 @@ Item {
 	DropArea {
 		id: slotDropArea
 		anchors.fill: parent
-		enabled: fileSlot.is_dir
+		enabled: fileSlot.is_dir && !fileSlot.freePlacement
 		keys: ["text/uri-list", "text/plain"]
 
 		property bool isHovered: false

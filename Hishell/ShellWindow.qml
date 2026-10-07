@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import Hishell
@@ -131,6 +132,43 @@ Kirigami.ApplicationWindow {
 						directory: directory
 						window: root
 						Layout.fillWidth: true
+					}
+				}
+			}
+
+			// Folder config load error banner
+			Rectangle {
+				id: configErrorBanner
+				property string dismissedError: ""
+
+				visible: directory.config.error.length > 0 && directory.config.error !== configErrorBanner.dismissedError
+				Layout.fillWidth: true
+				Layout.preferredHeight: configErrorRow.implicitHeight + Kirigami.Units.largeSpacing * 2
+				color: Kirigami.Theme.negativeBackgroundColor
+
+				RowLayout {
+					id: configErrorRow
+					anchors.horizontalCenter: parent.horizontalCenter
+					anchors.verticalCenter: parent.verticalCenter
+					width: parent.width - Kirigami.Units.largeSpacing * 2
+					spacing: Kirigami.Units.largeSpacing
+
+					Label {
+						Layout.fillWidth: true
+						text: directory.config.error
+						color: Kirigami.Theme.negativeTextColor
+						wrapMode: Text.WordWrap
+					}
+
+					Button {
+						visible: directory.config.error_file.length > 0
+						text: "Open Config"
+						onClicked: fileManager.open_file(directory.config.error_file)
+					}
+
+					ToolButton {
+						icon.name: "dialog-close"
+						onClicked: configErrorBanner.dismissedError = directory.config.error
 					}
 				}
 			}

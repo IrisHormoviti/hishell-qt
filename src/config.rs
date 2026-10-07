@@ -1,10 +1,11 @@
-use crate::config_parser::{ConfigParser, ConfigValue};
+use crate::config_parser::{ConfigError, ConfigParser, ConfigValue, ParseOutput};
 use qmetaobject::prelude::*;
 use std::collections::HashMap;
 use std::path::Path;
 
-/// Loads and combines the default config with a folder's `.meta` config.
-pub fn load_path(path: &Path) -> HashMap<String, HashMap<String, ConfigValue>> {
+/// Loads and combines the default config with a folder's `.meta` config,
+/// keeping track of which file each value came from and any load errors.
+pub fn load_path_checked(path: &Path) -> ParseOutput {
 	let default_cfg = Path::new("config/default.cfg");
 	let global_cfg = dirs::config_dir()
 		.map(|mut p| {
@@ -16,6 +17,157 @@ pub fn load_path(path: &Path) -> HashMap<String, HashMap<String, ConfigValue>> {
 	let meta_path = path.join(".meta");
 	let paths: Vec<&Path> = vec![default_cfg, global_cfg.as_path(), meta_path.as_path()];
 	ConfigParser::parse_files(&paths)
+}
+
+/// Loads and combines the default config with a folder's `.meta` config.
+pub fn load_path(path: &Path) -> HashMap<String, HashMap<String, ConfigValue>> {
+	load_path_checked(path).sections
+}
+
+enum ExpectedKind {
+	Str,
+	StrEnum(&'static [&'static str]),
+	Bool,
+	Num,
+	Array,
+	Dict,
+}
+
+/// Every key the `Config` object reads, with the kind of value it expects.
+const EXPECTED_KEYS: &[(&str, &str, ExpectedKind)] = &[
+	("DISPLAY", "Title", ExpectedKind::Str),
+	("DISPLAY", "Icon", ExpectedKind::Str),
+	("DISPLAY", "Wallpaper", ExpectedKind::Str),
+	("LAYOUT", "Top", ExpectedKind::Array),
+	("LAYOUT", "Middle", ExpectedKind::Array),
+	("LAYOUT", "Bottom", ExpectedKind::Array),
+	("LAYOUT", "Header", ExpectedKind::Array),
+	("LAYOUT", "NativeMenuBar", ExpectedKind::Bool),
+	("LAYOUT", "NativeTitleBar", ExpectedKind::Bool),
+	("VIEW", "GridSize", ExpectedKind::Num),
+	("VIEW", "ShowLabels", ExpectedKind::Bool),
+	(
+		"VIEW",
+		"GridHorizontalAlign",
+		ExpectedKind::StrEnum(&["FILL", "LEFT", "CENTER", "RIGHT"]),
+	),
+	(
+		"VIEW",
+		"GridVerticalAlign",
+		ExpectedKind::StrEnum(&["FILL", "TOP", "CENTER", "BOTTOM"]),
+	),
+	("VIEW", "Lines", ExpectedKind::Num),
+	(
+		"VIEW",
+		"ScrollDirection",
+		ExpectedKind::StrEnum(&["VERTICAL", "HORIZONTAL"]),
+	),
+	("VIEW", "ViewMode", ExpectedKind::StrEnum(&["GRID", "LIST"])),
+	(
+		"VIEW",
+		"Sort",
+		ExpectedKind::StrEnum(&["NEWEST", "OLDEST", "ALPHABETICAL", "FREE"]),
+	),
+	(
+		"VIEW",
+		"SortDateMode",
+		ExpectedKind::StrEnum(&["MODIFIED", "CREATED", "ACCESSED"]),
+	),
+	(
+		"VIEW",
+		"SortAlphaMode",
+		ExpectedKind::StrEnum(&["TITLES", "FILENAMES"]),
+	),
+	("VIEW", "StashShown", ExpectedKind::Bool),
+	("VIEW", "StashDotFiles", ExpectedKind::Bool),
+	("VIEW", "FreePlacementPositions", ExpectedKind::Dict),
+	("NAVIGATION", "CenterFocus", ExpectedKind::Bool),
+	("NAVIGATION", "SmoothScrolling", ExpectedKind::Bool),
+];
+
+/// Flags configured keys whose value does not match the expected kind.
+fn validate_values(
+	parsed: &HashMap<String, HashMap<String, ConfigValue>>,
+	origins: &HashMap<(String, String), String>,
+) -> Vec<ConfigError> {
+	let mut errors = Vec::new();
+
+	for (section, key, expected) in EXPECTED_KEYS {
+		let Some(value) = parsed.get(*section).and_then(|s| s.get(*key)) else {
+			continue;
+		};
+
+		let message = match expected {
+			ExpectedKind::Str => {
+				(!matches!(value, ConfigValue::String(_) | ConfigValue::Number(_))).then(|| {
+					format!(
+						"[{}] {}: expected a string, got {}",
+						section,
+						key,
+						value.to_json_string()
+					)
+				})
+			}
+			ExpectedKind::StrEnum(allowed) => {
+				let valid = matches!(
+					value,
+					ConfigValue::String(s) if allowed.iter().any(|a| a.eq_ignore_ascii_case(s))
+				);
+				(!valid).then(|| {
+					format!(
+						"[{}] {}: expected one of [{}], got {}",
+						section,
+						key,
+						allowed.join(", "),
+						value.to_json_string()
+					)
+				})
+			}
+			ExpectedKind::Bool => (!matches!(value, ConfigValue::Boolean(_))).then(|| {
+				format!(
+					"[{}] {}: expected true or false, got {}",
+					section,
+					key,
+					value.to_json_string()
+				)
+			}),
+			ExpectedKind::Num => (!matches!(value, ConfigValue::Number(_))).then(|| {
+				format!(
+					"[{}] {}: expected a number, got {}",
+					section,
+					key,
+					value.to_json_string()
+				)
+			}),
+			ExpectedKind::Array => (!matches!(value, ConfigValue::Array(_))).then(|| {
+				format!(
+					"[{}] {}: expected a JSON array, got {}",
+					section,
+					key,
+					value.to_json_string()
+				)
+			}),
+			ExpectedKind::Dict => (!matches!(value, ConfigValue::Dictionary(_))).then(|| {
+				format!(
+					"[{}] {}: expected a dictionary, got {}",
+					section,
+					key,
+					value.to_json_string()
+				)
+			}),
+		};
+
+		if let Some(message) = message {
+			errors.push(ConfigError {
+				file: origins
+					.get(&(section.to_string(), key.to_string()))
+					.cloned(),
+				message,
+			});
+		}
+	}
+
+	errors
 }
 
 /// Retrieves a string property from a folder's config.
@@ -85,6 +237,9 @@ pub struct Config {
 	pub stash_dotfiles: qt_property!(bool; NOTIFY config_changed),
 	pub free_placement_positions: qt_property!(String; NOTIFY config_changed),
 
+	pub error: qt_property!(String; NOTIFY config_changed),
+	pub error_file: qt_property!(String; NOTIFY config_changed),
+
 	config_changed: qt_signal!(),
 
 	load: qt_method!(
@@ -110,7 +265,23 @@ pub struct Config {
 
 impl Config {
 	pub fn _load(&mut self, path: &Path) {
-		let parsed = load_path(path);
+		let load = load_path_checked(path);
+		let mut errors = load.errors;
+		errors.extend(validate_values(&load.sections, &load.origins));
+
+		self.error_file = errors
+			.iter()
+			.find_map(|e| e.file.clone())
+			.unwrap_or_default()
+			.into();
+		self.error = errors
+			.iter()
+			.map(|e| e.message.as_str())
+			.collect::<Vec<_>>()
+			.join("\n")
+			.into();
+
+		let parsed = load.sections;
 
 		let get = |sec, key| parsed.get(sec).and_then(|s| s.get(key));
 

@@ -28,6 +28,11 @@ Item {
 	property int freeDropCol: -1
 	property int freeDropRow: -1
 
+	// Directory under the cursor during a free-placement drag. After a short
+	// hover the drop switches from repositioning to dropping into the folder.
+	property bool folderDropActive: false
+	property string folderDropPath: ""
+
 	// Selection state is owned per view so selection mode and the selection
 	// toolbar stay inside the pane instead of the whole window.
 	SelectionManager {
@@ -642,18 +647,62 @@ Item {
 		return true;
 	}
 
-	function updateFreeDropTarget(x, y) {
+	function freeSlotAt(x, y) {
 		const metrics = folderView.gridMetrics;
-		if (!metrics.free) {
+		if (!metrics.free || metrics.columns < 1 || metrics.rows < 1)
+			return { col: -1, row: -1 };
+		const local = bgDropArea.mapToItem(gridContent, x, y);
+		const col = Math.round((local.x - metrics.offsetX - metrics.itemWidth / 2) / (metrics.itemWidth + metrics.gap));
+		const row = Math.round((local.y - metrics.offsetY - metrics.itemHeight / 2) / (metrics.itemHeight + metrics.gap));
+		return {
+			col: Math.max(0, Math.min(metrics.columns - 1, col)),
+			row: Math.max(0, Math.min(metrics.rows - 1, row))
+		};
+	}
+
+	function dirUnderPoint(x, y) {
+		const count = itemRepeater.count;
+		for (let i = 0; i < count; i++) {
+			const slot = itemRepeater.itemAt(i);
+			if (!slot || !slot.is_dir)
+				continue;
+			if (x >= slot.x && x <= slot.x + slot.width && y >= slot.y && y <= slot.y + slot.height)
+				return slot;
+		}
+		return null;
+	}
+
+	function resetFolderDrop() {
+		folderDropTimer.stop();
+		if (folderView.folderDropPath !== "")
+			folderView.folderDropPath = "";
+		if (folderView.folderDropActive)
+			folderView.folderDropActive = false;
+	}
+
+	function updateFreeDropTarget(x, y) {
+		if (!folderView.gridMetrics.free) {
 			folderView.freeDropCol = -1;
 			folderView.freeDropRow = -1;
+			folderView.resetFolderDrop();
 			return;
 		}
+
+		const slot = folderView.freeSlotAt(x, y);
+		folderView.freeDropCol = slot.col;
+		folderView.freeDropRow = slot.row;
+
 		const local = bgDropArea.mapToItem(gridContent, x, y);
-		let col = Math.round((local.x - metrics.offsetX) / (metrics.itemWidth + metrics.gap));
-		let row = Math.round((local.y - metrics.offsetY) / (metrics.itemHeight + metrics.gap));
-		folderView.freeDropCol = Math.max(0, Math.min(metrics.columns - 1, col));
-		folderView.freeDropRow = Math.max(0, Math.min(metrics.rows - 1, row));
+		const dirSlot = folderView.dirUnderPoint(local.x, local.y);
+		if (dirSlot) {
+			if (folderView.folderDropPath !== dirSlot.path) {
+				folderView.folderDropPath = dirSlot.path;
+				folderView.folderDropActive = false;
+				folderDropTimer.restart();
+			}
+		} else {
+			folderView.resetFolderDrop();
+		}
 	}
 
 	function repositionDroppedItems(drop) {
@@ -668,11 +717,9 @@ Item {
 			return false;
 
 		const dirPath = String(folderView.directory.path);
-		const local = bgDropArea.mapToItem(gridContent, drop.x, drop.y);
-		let col = Math.round((local.x - metrics.offsetX) / (metrics.itemWidth + metrics.gap));
-		let row = Math.round((local.y - metrics.offsetY) / (metrics.itemHeight + metrics.gap));
-		col = Math.max(0, Math.min(metrics.columns - 1, col));
-		row = Math.max(0, Math.min(metrics.rows - 1, row));
+		const slot = folderView.freeSlotAt(drop.x, drop.y);
+		const col = slot.col;
+		const row = slot.row;
 
 		let moved = false;
 		let placed = 0;
@@ -719,6 +766,7 @@ Item {
 		property DragDropHandler dragHandler: folderView.rootWindow ? folderView.rootWindow.dragDropHandler : null
 
 		onEntered: drag => {
+			folderView.resetFolderDrop();
 			checkDrop(drag);
 		}
 
@@ -736,18 +784,22 @@ Item {
 				sourcePaths = drag.urls;
 			}
 
+			folderView.updateFreeDropTarget(drag.x, drag.y);
+			const folderPath = folderView.folderDropPath;
+			const overFolder = folderPath !== "";
+
 			if (folderView.isFreeRepositionDrop(sourcePaths)) {
-				folderView.updateFreeDropTarget(drag.x, drag.y);
 				bgDropArea.isHovered = false;
 				if (typeof dragHandler !== 'undefined' && dragHandler) {
-					dragHandler.reposition_active = true;
+					dragHandler.reposition_active = !folderView.folderDropActive;
 					dragHandler.tooltip_active = true;
 				}
 				drag.accept();
 				return;
 			}
 
-			if (!folderView.isDropValid(folderView.directory.path, sourcePaths)) {
+			const target = overFolder ? folderPath : folderView.directory.path;
+			if (!folderView.isDropValid(target, sourcePaths)) {
 				bgDropArea.isHovered = false;
 				if (typeof dragHandler !== 'undefined' && dragHandler)
 					dragHandler.tooltip_active = false;
@@ -755,8 +807,9 @@ Item {
 				return;
 			}
 
-			bgDropArea.isHovered = true;
+			bgDropArea.isHovered = !overFolder;
 			if (typeof dragHandler !== 'undefined' && dragHandler) {
+				dragHandler.reposition_active = false;
 				dragHandler.tooltip_active = true;
 				const pt = bgDropArea.mapToItem(null, drag.x, drag.y);
 				dragHandler.track_mouse_shake(pt.x, pt.y);
@@ -768,6 +821,7 @@ Item {
 			bgDropArea.isHovered = false;
 			folderView.freeDropCol = -1;
 			folderView.freeDropRow = -1;
+			folderView.resetFolderDrop();
 			if (typeof dragHandler !== 'undefined' && dragHandler) {
 				dragHandler.tooltip_active = false;
 				dragHandler.reposition_active = false;
@@ -775,15 +829,29 @@ Item {
 		}
 
 		onDropped: drop => {
+			let sourcePaths = [];
+			if (typeof dragHandler !== 'undefined' && dragHandler && dragHandler.drag_source_paths && dragHandler.drag_source_paths.length > 0) {
+				sourcePaths = dragHandler.drag_source_paths;
+			} else if (drop.source) {
+				sourcePaths = drop.source.dragSourcePaths || (drop.source.mainPath ? [drop.source.mainPath] : []);
+			} else if (drop.hasUrls) {
+				sourcePaths = drop.urls;
+			}
+
+			const folderPath = folderView.folderDropPath;
+			const sameFolderReposition = folderView.isFreeRepositionDrop(sourcePaths);
+			const dropIntoFolder = folderPath !== "" && (!sameFolderReposition || folderView.folderDropActive);
+
 			bgDropArea.isHovered = false;
 			folderView.freeDropCol = -1;
 			folderView.freeDropRow = -1;
+			folderView.resetFolderDrop();
 			if (typeof dragHandler !== 'undefined' && dragHandler) {
 				dragHandler.tooltip_active = false;
 				dragHandler.reposition_active = false;
 			}
 
-			if (folderView.repositionDroppedItems(drop)) {
+			if (!dropIntoFolder && folderView.repositionDroppedItems(drop)) {
 				drop.accept();
 				return;
 			}
@@ -800,11 +868,30 @@ Item {
 			}
 
 			if (uris.length > 0 && typeof fileManager !== 'undefined' && fileManager) {
+				const target = dropIntoFolder ? folderPath : folderView.directory.path;
 				const action = (typeof dragHandler !== 'undefined' && dragHandler) ? dragHandler.drag_action : "copy";
-				if (fileManager.process_uris_action(folderView.directory.path, uris, action)) {
+				if (fileManager.process_uris_action(target, uris, action)) {
 					folderView.directory.reload();
 				}
 				drop.accept();
+			}
+		}
+	}
+
+	// Switching from repositioning to dropping into a folder requires hovering
+	// the same folder for this long first.
+	Timer {
+		id: folderDropTimer
+		interval: 600
+		repeat: false
+		onTriggered: {
+			if (folderView.folderDropPath === "")
+				return;
+			folderView.folderDropActive = true;
+			const handler = folderView.rootWindow ? folderView.rootWindow.dragDropHandler : null;
+			if (handler) {
+				handler.reposition_active = false;
+				handler.tooltip_active = true;
 			}
 		}
 	}
@@ -814,7 +901,7 @@ Item {
 
 		active: dragHandler ? dragHandler.tooltip_active : false
 		action: dragHandler ? dragHandler.drag_action : "copy"
-		reposition: dragHandler ? dragHandler.reposition_active : false
+		reposition: dragHandler ? (dragHandler.reposition_active && !folderView.folderDropActive) : false
 		cursorX: dragHandler ? dragHandler.drag_cursor_x + 16 : 0
 		cursorY: dragHandler ? dragHandler.drag_cursor_y + 16 : 0
 	}

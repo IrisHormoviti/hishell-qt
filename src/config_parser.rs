@@ -31,7 +31,7 @@ impl ConfigValue {
 			ConfigValue::Dictionary(dict) => {
 				let items: Vec<String> = dict
 					.iter()
-					.map(|(k, v)| format!("\"{}\":{}", k, v.to_json_string()))
+					.map(|(k, v)| format!("\"{}\":{}", k.replace('"', "\\\""), v.to_json_string()))
 					.collect();
 				format!("{{{}}}", items.join(","))
 			}
@@ -43,51 +43,134 @@ impl ConfigValue {
 	}
 }
 
+#[derive(Debug, Clone)]
+pub struct ConfigError {
+	pub file: Option<String>,
+	pub message: String,
+}
+
+pub struct ParseOutput {
+	pub sections: HashMap<String, HashMap<String, ConfigValue>>,
+	pub origins: HashMap<(String, String), String>,
+	pub errors: Vec<ConfigError>,
+}
+
 pub struct ConfigParser;
 
 impl ConfigParser {
-	pub fn parse_files(paths: &[&Path]) -> HashMap<String, HashMap<String, ConfigValue>> {
-		let mut combined = HashMap::new();
+	pub fn parse_files(paths: &[&Path]) -> ParseOutput {
+		let mut sections: HashMap<String, HashMap<String, ConfigValue>> = HashMap::new();
+		let mut origins: HashMap<(String, String), String> = HashMap::new();
+		let mut errors = Vec::new();
+
 		for path in paths {
-			for (section, items) in Self::parse_file(path) {
-				combined
-					.entry(section)
-					.or_insert_with(HashMap::new)
-					.extend(items);
+			let path_str = path.to_string_lossy().to_string();
+			let (parsed, file_errors) = Self::parse_file(path);
+
+			for (section, items) in parsed {
+				for (key, value) in items {
+					origins.insert((section.clone(), key.clone()), path_str.clone());
+					sections
+						.entry(section.clone())
+						.or_insert_with(HashMap::new)
+						.insert(key, value);
+				}
 			}
+
+			errors.extend(file_errors);
 		}
-		combined
+
+		ParseOutput {
+			sections,
+			origins,
+			errors,
+		}
 	}
 
-	pub fn parse_file(path: &Path) -> HashMap<String, HashMap<String, ConfigValue>> {
+	pub fn parse_file(
+		path: &Path,
+	) -> (
+		HashMap<String, HashMap<String, ConfigValue>>,
+		Vec<ConfigError>,
+	) {
 		let mut config = HashMap::new();
-		if let Ok(content) = fs::read_to_string(path) {
-			let mut current_section = "".to_string();
-			let mut section_map = HashMap::new();
+		let mut errors = Vec::new();
+		let path_str = path.to_string_lossy().to_string();
 
-			for line in content.lines() {
-				let line = line.trim();
-				if line.is_empty() || line.starts_with(';') || line.starts_with('#') {
-					continue;
+		match fs::read_to_string(path) {
+			Ok(content) => {
+				let mut current_section: Option<String> = None;
+				let mut section_map = HashMap::new();
+
+				for (index, raw) in content.lines().enumerate() {
+					let line = raw.trim();
+					if line.is_empty() || line.starts_with(';') || line.starts_with('#') {
+						continue;
+					}
+
+					if line.starts_with('[') {
+						if line.ends_with(']') {
+							if let Some(section) = current_section.take() {
+								config.insert(section, std::mem::take(&mut section_map));
+							}
+							current_section = Some(line[1..line.len() - 1].to_string());
+						} else {
+							errors.push(ConfigError {
+								file: Some(path_str.clone()),
+								message: format!(
+									"{}:{}: malformed section header: {}",
+									path_str,
+									index + 1,
+									line
+								),
+							});
+						}
+					} else if let Some(idx) = line.find('=') {
+						if current_section.is_some() {
+							let key = line[..idx].trim().to_string();
+							let val_str = line[idx + 1..].trim();
+							section_map.insert(key, Self::parse_value(val_str));
+						} else {
+							errors.push(ConfigError {
+								file: Some(path_str.clone()),
+								message: format!(
+									"{}:{}: '{}' is not inside a [section]",
+									path_str,
+									index + 1,
+									line
+								),
+							});
+						}
+					} else {
+						errors.push(ConfigError {
+							file: Some(path_str.clone()),
+							message: format!(
+								"{}:{}: malformed line: {}",
+								path_str,
+								index + 1,
+								line
+							),
+						});
+					}
 				}
 
-				if line.starts_with('[') && line.ends_with(']') {
-					if !current_section.is_empty() {
-						config.insert(current_section.clone(), section_map.clone());
-					}
-					current_section = line[1..line.len() - 1].to_string();
-					section_map.clear();
-				} else if let Some(idx) = line.find('=') {
-					let key = line[..idx].trim().to_string();
-					let val_str = line[idx + 1..].trim();
-					section_map.insert(key, Self::parse_value(val_str));
+				if let Some(section) = current_section.take() {
+					config.insert(section, section_map);
 				}
 			}
-			if !current_section.is_empty() {
-				config.insert(current_section, section_map);
+			Err(err) => {
+				// A missing config file is expected; only report files that
+				// exist but could not be read.
+				if path.exists() {
+					errors.push(ConfigError {
+						file: Some(path_str.clone()),
+						message: format!("{}: {}", path_str, err),
+					});
+				}
 			}
 		}
-		config
+
+		(config, errors)
 	}
 
 	pub fn set_value(path: &Path, section: &str, key: &str, value: &str) {
@@ -101,14 +184,14 @@ impl ConfigParser {
 
 			if trimmed.starts_with('[') && trimmed.ends_with(']') {
 				if in_section && !replaced {
-					out.push_str(&format!("{}={}\n", key, value));
+					out.push_str(&format!("{} = {}\n", key, value));
 					replaced = true;
 				}
 				in_section = trimmed == format!("[{}]", section);
 			} else if in_section && trimmed.starts_with(key) {
 				if let Some((k, _)) = trimmed.split_once('=') {
 					if k.trim() == key {
-						out.push_str(&format!("{}={}\n", key, value));
+						out.push_str(&format!("{} = {}\n", key, value));
 						replaced = true;
 						continue;
 					}
@@ -123,7 +206,7 @@ impl ConfigParser {
 			if !in_section {
 				out.push_str(&format!("\n[{}]\n", section));
 			}
-			out.push_str(&format!("{}={}\n", key, value));
+			out.push_str(&format!("{} = {}\n", key, value));
 		}
 
 		if let Some(parent) = path.parent() {
@@ -155,7 +238,9 @@ impl ConfigParser {
 			let mut dict = HashMap::new();
 			for item in items {
 				// handle either "key": value or key=value
-				if let Some(idx) = item.find(':').or_else(|| item.find('=')) {
+				if let Some(idx) =
+					Self::find_unquoted(&item, ':').or_else(|| Self::find_unquoted(&item, '='))
+				{
 					let k = item[..idx].trim();
 					let v = item[idx + 1..].trim();
 					let key_str = if k.starts_with('"') && k.ends_with('"') {
@@ -182,6 +267,19 @@ impl ConfigParser {
 		} else {
 			ConfigValue::String(s.to_string())
 		}
+	}
+
+	/// First index of `target` that is not inside a quoted string.
+	fn find_unquoted(s: &str, target: char) -> Option<usize> {
+		let mut in_string = false;
+		for (i, c) in s.char_indices() {
+			match c {
+				'"' => in_string = !in_string,
+				c if c == target && !in_string => return Some(i),
+				_ => {}
+			}
+		}
+		None
 	}
 
 	fn split_comma(s: &str) -> Vec<String> {
