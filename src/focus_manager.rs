@@ -3,12 +3,29 @@ use once_cell::sync::Lazy;
 use qmetaobject::{QVariantList, prelude::*};
 use std::collections::HashMap;
 use std::fs;
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 const FOCUS_BORDER_SVG: &str = include_str!("../theme/default/focus-border.svg");
 
 static BORDER_SOURCES: Lazy<Mutex<HashMap<String, String>>> =
 	Lazy::new(|| Mutex::new(HashMap::new()));
+
+fn focus_border_svg() -> String {
+	// Prefer the asset on disk so that edits show up without a rebuild, and
+	// fall back to the copy baked into the binary for installed builds.
+	let candidates = [
+		PathBuf::from("theme/default/focus-border.svg"),
+		PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("theme/default/focus-border.svg"),
+	];
+	for path in candidates {
+		if let Ok(source) = fs::read_to_string(&path) {
+			return source;
+		}
+	}
+
+	FOCUS_BORDER_SVG.to_string()
+}
 
 fn write_border_asset(color: &str) -> Option<String> {
 	let color = if color.starts_with('#') && matches!(color.len(), 7 | 9) {
@@ -17,13 +34,16 @@ fn write_border_asset(color: &str) -> Option<String> {
 		"#ffffff"
 	};
 
+	let source = focus_border_svg();
 	let directory = dirs::cache_dir()?.join("hishell");
 	fs::create_dir_all(&directory).ok()?;
 
-	let digest = md5::compute(color.as_bytes());
+	// Keyed by content as well as colour, so editing the asset yields a new
+	// file and URL, which also invalidates the image cache on the QML side.
+	let digest = md5::compute(format!("{color}:{source}").as_bytes());
 	let path = directory.join(format!("focus-border-{:x}.svg", digest));
 	if !path.exists() {
-		fs::write(&path, FOCUS_BORDER_SVG.replace("#ffffff", color)).ok()?;
+		fs::write(&path, source.replace("#ffffff", color)).ok()?;
 	}
 
 	Some(format!("file://{}", path.to_string_lossy()))
@@ -48,6 +68,7 @@ pub struct FocusManager {
 	menu_requested: qt_signal!(),
 
 	paths: Vec<String>,
+	horizontal: bool,
 
 	set_items: qt_method!(
 		fn set_items(&mut self, paths: QVariantList, columns: i32) {
@@ -95,6 +116,12 @@ pub struct FocusManager {
 		}
 	),
 
+	set_horizontal: qt_method!(
+		fn set_horizontal(&mut self, horizontal: bool) {
+			self.horizontal = horizontal;
+		}
+	),
+
 	set_focus_index: qt_method!(
 		fn set_focus_index(&mut self, index: i32) {
 			if self.paths.is_empty() {
@@ -125,9 +152,13 @@ pub struct FocusManager {
 	),
 
 	set_focus_path: qt_method!(
-		fn set_focus_path(&mut self, path: String) {
-			if let Some(index) = self.paths.iter().position(|entry| *entry == path) {
-				self.set_focus_index(index as i32);
+		fn set_focus_path(&mut self, path: String) -> bool {
+			match self.paths.iter().position(|entry| *entry == path) {
+				Some(index) => {
+					self.set_focus_index(index as i32);
+					true
+				}
+				None => false,
 			}
 		}
 	),
@@ -137,32 +168,49 @@ pub struct FocusManager {
 			if self.paths.is_empty() {
 				return false;
 			}
+			if !self.focus_active {
+				// The first directional input reveals the focus where it
+				// already sits instead of moving it right away.
+				self.set_focus_index(self.focused_index.max(0));
+				return true;
+			}
 			let count = self.item_count;
-			let columns = self.grid_columns.max(1);
-			let current = if self.focus_active && self.focused_index >= 0 {
-				self.focused_index
-			} else {
-				0
-			};
-			let current = current.clamp(0, count - 1);
+			let stride = self.grid_columns.max(1);
+			let current = self.focused_index.clamp(0, count - 1);
 
-			let target = match direction.as_str() {
-				"left" => (current - 1).max(0),
-				"right" => (current + 1).min(count - 1),
-				"up" => (current - columns).max(0),
-				"down" => {
-					let last_row = (count - 1) / columns;
-					if current / columns < last_row {
-						(current + columns).min(count - 1)
-					} else {
-						current
+			let target = if self.horizontal {
+				match direction.as_str() {
+					"up" => (current - 1).max(0),
+					"down" => (current + 1).min(count - 1),
+					"left" => (current - stride).max(0),
+					"right" => {
+						let last_column = (count - 1) / stride;
+						if current / stride < last_column {
+							(current + stride).min(count - 1)
+						} else {
+							current
+						}
 					}
+					_ => current,
 				}
-				_ => current,
+			} else {
+				match direction.as_str() {
+					"left" => (current - 1).max(0),
+					"right" => (current + 1).min(count - 1),
+					"up" => (current - stride).max(0),
+					"down" => {
+						let last_row = (count - 1) / stride;
+						if current / stride < last_row {
+							(current + stride).min(count - 1)
+						} else {
+							current
+						}
+					}
+					_ => current,
+				}
 			};
 
-			let changed = !self.focus_active || target != current;
-			self.focus_active = true;
+			let changed = target != current;
 			self.focused_index = target;
 			self.focused_path = self.paths[target as usize].clone();
 			self.update_status();

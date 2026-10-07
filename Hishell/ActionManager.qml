@@ -184,7 +184,7 @@ Item {
 				const p = paths[i];
 				if (sourceItem) {
 					const globalPos = sourceItem.mapToItem(actionManager, 0, 0);
-					sourceItem.grabToImage(result => {
+					sourceItem.contentLayout.grabToImage(result => {
 						externalOpenAnimation.x = globalPos.x;
 						externalOpenAnimation.y = globalPos.y;
 						externalOpenAnimation.width = sourceItem.width;
@@ -474,7 +474,7 @@ Item {
 
 	// Image Group
 	readonly property var imageGroup: [rotateClockwiseAction, rotateCounterClockwiseAction]
-	
+
 	Action {
 		id: rotateClockwiseAction
 		text: qsTr("Rotate Clockwise")

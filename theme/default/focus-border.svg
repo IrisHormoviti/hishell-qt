@@ -24,9 +24,9 @@
      inkscape:pagecheckerboard="true"
      inkscape:deskcolor="#d1d1d1"
      inkscape:export-bgcolor="#777777ff"
-     inkscape:zoom="13.158815"
-     inkscape:cx="32.715711"
-     inkscape:cy="26.902118"
+     inkscape:zoom="9.3046873"
+     inkscape:cx="22.891688"
+     inkscape:cy="15.368598"
      inkscape:window-width="1627"
      inkscape:window-height="1219"
      inkscape:window-x="0"
@@ -38,22 +38,27 @@
      stroke-width="5"
      stroke-linecap="round"
      stroke-linejoin="round"
-     id="g4">
+     id="g4"
+     style="stroke-width:10;stroke-dasharray:none;stroke-linejoin:bevel;stroke-linecap:butt;paint-order:normal">
     <path
-       d="M 8,23.744298 V 14 c 0,-4 2.000113,-6.030024 6,-6 l 10.124271,0.075995"
+       d="M 8,27.744298 V 14 c 0,-4 2.000431,-6.0587208 6,-6 l 10.352255,0.1519897"
        id="path1"
-       sodipodi:nodetypes="cssc" />
+       sodipodi:nodetypes="cssc"
+       style="stroke-width:7.5;stroke-linecap:butt;stroke-linejoin:bevel;stroke-dasharray:none;paint-order:normal" />
     <path
-       d="M 40.407692,8 H 50 c 4,0 5.968562,2.000124 6,6 l 0.07599,9.668303"
+       d="M 36.407692,8 H 50 c 4,0 5.977762,2.000062 6,6 l 0.07599,13.668303"
        id="path2"
-       sodipodi:nodetypes="cssc" />
+       sodipodi:nodetypes="cssc"
+       style="stroke-width:7.5;stroke-linecap:butt;stroke-linejoin:bevel;stroke-dasharray:none;paint-order:normal" />
     <path
-       d="M 56,41.319628 V 50 c 0,4 -2,6 -6,6 h -9.744298"
+       d="M 56,37.319628 V 50 c 0,4 -2,6 -6,6 H 36.255702"
        id="path3"
-       sodipodi:nodetypes="cssc" />
+       sodipodi:nodetypes="cssc"
+       style="stroke-width:7.5;stroke-linecap:butt;stroke-linejoin:bevel;stroke-dasharray:none;paint-order:normal" />
     <path
-       d="M 24.048277,56 H 14 C 10,56 8,54 8,50 v -8.680373"
+       d="M 24.048277,56 H 14 C 10,56 8,54 8,50 V 37.319627"
        id="path4"
-       sodipodi:nodetypes="cssc" />
+       sodipodi:nodetypes="cssc"
+       style="stroke-width:7.5;stroke-linecap:butt;stroke-linejoin:bevel;stroke-dasharray:none;paint-order:normal" />
   </g>
 </svg>

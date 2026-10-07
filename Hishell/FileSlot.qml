@@ -12,6 +12,7 @@ Item {
 	required property string path
 
 	property ShellWindow window: Window.window as ShellWindow
+	property alias contentLayout: contentLayout
 
 	property DragDropHandler dragDropHandler: window ? window.dragDropHandler : null
 	property ActionManager actionManager: window ? window.actionManager : null
@@ -24,7 +25,7 @@ Item {
 	property bool fixedWidth: true
 	property bool showIcon: icon !== ""
 	property bool is_symlink: false
-	property int index: 0
+	required property int index
 	property bool is_dir: false
 
 	property int animationDuration: 200
@@ -38,6 +39,8 @@ Item {
 	property bool focusActive: false
 	property bool isFocused: false
 	property string focusBorderSource: ""
+	property double focusBorderScale: 1.1
+	property double focusBorderMovment: 0.03
 
 	property int currentDragCount: 1
 
@@ -264,17 +267,12 @@ Item {
 			loops: Animation.Infinite
 			NumberAnimation {
 				to: 1.0
-				duration: 700
+				duration: animationDuration * 4
 				easing.type: Easing.InOutQuad
 			}
 			NumberAnimation {
 				to: -1.0
-				duration: 1400
-				easing.type: Easing.InOutQuad
-			}
-			NumberAnimation {
-				to: 0.0
-				duration: 700
+				duration: animationDuration * 2
 				easing.type: Easing.InOutQuad
 			}
 		}
@@ -282,8 +280,19 @@ Item {
 		Item {
 			id: focusCorners
 			anchors.fill: parent
-			scale: 1.0 + focusIndicator.pulse * 0.05
-			opacity: 0.95 - Math.abs(focusIndicator.pulse) * 0.35
+			scale: focusBorderScale + focusIndicator.pulse * focusBorderMovment
+			opacity: 0.95 - focusIndicator.pulse * 0.35
+
+			// Rasterise the vector art at the size the corners are drawn at,
+			// in device pixels, so it is never resampled; the clip rects live
+			// in that same pixel space. The container scale is included so the
+			// art is still rendered at its largest drawn size.
+			readonly property int cornerPixels: {
+				const window = fileSlot.Window.window;
+				const ratio = window ? window.devicePixelRatio : 1;
+				const ceiling = fileSlot.focusBorderScale + Math.abs(fileSlot.focusBorderMovment);
+				return Math.max(1, Math.ceil(focusIndicator.cornerSize * ratio * ceiling));
+			}
 
 			Image {
 				anchors.left: parent.left
@@ -291,7 +300,8 @@ Item {
 				width: focusIndicator.cornerSize
 				height: focusIndicator.cornerSize
 				source: fileSlot.focusBorderSource
-				sourceClipRect: Qt.rect(0, 0, 32, 32)
+				sourceSize: Qt.size(focusCorners.cornerPixels * 2, focusCorners.cornerPixels * 2)
+				sourceClipRect: Qt.rect(0, 0, focusCorners.cornerPixels, focusCorners.cornerPixels)
 				smooth: true
 			}
 
@@ -301,7 +311,8 @@ Item {
 				width: focusIndicator.cornerSize
 				height: focusIndicator.cornerSize
 				source: fileSlot.focusBorderSource
-				sourceClipRect: Qt.rect(32, 0, 32, 32)
+				sourceSize: Qt.size(focusCorners.cornerPixels * 2, focusCorners.cornerPixels * 2)
+				sourceClipRect: Qt.rect(focusCorners.cornerPixels, 0, focusCorners.cornerPixels, focusCorners.cornerPixels)
 				smooth: true
 			}
 
@@ -311,7 +322,8 @@ Item {
 				width: focusIndicator.cornerSize
 				height: focusIndicator.cornerSize
 				source: fileSlot.focusBorderSource
-				sourceClipRect: Qt.rect(32, 32, 32, 32)
+				sourceSize: Qt.size(focusCorners.cornerPixels * 2, focusCorners.cornerPixels * 2)
+				sourceClipRect: Qt.rect(focusCorners.cornerPixels, focusCorners.cornerPixels, focusCorners.cornerPixels, focusCorners.cornerPixels)
 				smooth: true
 			}
 
@@ -321,7 +333,8 @@ Item {
 				width: focusIndicator.cornerSize
 				height: focusIndicator.cornerSize
 				source: fileSlot.focusBorderSource
-				sourceClipRect: Qt.rect(0, 32, 32, 32)
+				sourceSize: Qt.size(focusCorners.cornerPixels * 2, focusCorners.cornerPixels * 2)
+				sourceClipRect: Qt.rect(0, focusCorners.cornerPixels, focusCorners.cornerPixels, focusCorners.cornerPixels)
 				smooth: true
 			}
 		}
@@ -592,7 +605,7 @@ Item {
 				dragDropHandler.set_drag_data(mainPath, uris, rawPaths, uris.length, fileSlot.title, fileSlot.icon);
 			}
 
-			const targetToGrab = (rawPaths.length > 1) ? stackPreviewContainer : fileSlot;
+			const targetToGrab = contentLayout;
 
 			targetToGrab.grabToImage(function (result) {
 				if (mouseArea.isPressAndHoldActive) {

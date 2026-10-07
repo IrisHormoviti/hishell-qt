@@ -70,6 +70,12 @@ pub struct Config {
 	pub native_titlebar: qt_property!(bool; NOTIFY config_changed),
 
 	pub grid_size: qt_property!(u16; NOTIFY config_changed),
+	pub grid_horizontal_align: qt_property!(u8; NOTIFY config_changed),
+	pub grid_vertical_align: qt_property!(u8; NOTIFY config_changed),
+	pub grid_lines: qt_property!(i32; NOTIFY config_changed),
+	pub scroll_horizontal: qt_property!(bool; NOTIFY config_changed),
+	pub center_focus: qt_property!(bool; NOTIFY config_changed),
+	pub smooth_scrolling: qt_property!(bool; NOTIFY config_changed),
 	pub show_labels: qt_property!(bool; NOTIFY config_changed),
 	pub view_mode: qt_property!(u8; NOTIFY config_changed),
 	pub sort: qt_property!(u8; NOTIFY config_changed),
@@ -171,6 +177,33 @@ impl Config {
 
 		self.grid_size = get_num("VIEW", "GridSize", 64) as u16;
 		self.show_labels = get_bool("VIEW", "ShowLabels", true);
+
+		self.grid_horizontal_align = match get_str("VIEW", "GridHorizontalAlign", "FILL")
+			.to_uppercase()
+			.as_str()
+		{
+			"LEFT" => 1,
+			"CENTER" => 2,
+			"RIGHT" => 3,
+			_ => 0,
+		};
+
+		self.grid_vertical_align = match get_str("VIEW", "GridVerticalAlign", "FILL")
+			.to_uppercase()
+			.as_str()
+		{
+			"TOP" => 1,
+			"CENTER" => 2,
+			"BOTTOM" => 3,
+			_ => 0,
+		};
+
+		self.grid_lines = get_num("VIEW", "Lines", 0).max(0);
+		self.scroll_horizontal =
+			get_str("VIEW", "ScrollDirection", "VERTICAL").to_uppercase() == "HORIZONTAL";
+
+		self.center_focus = get_bool("NAVIGATION", "CenterFocus", false);
+		self.smooth_scrolling = get_bool("NAVIGATION", "SmoothScrolling", true);
 
 		self.view_mode = match get_str("VIEW", "ViewMode", "GRID").to_uppercase().as_str() {
 			"GRID" => 0,

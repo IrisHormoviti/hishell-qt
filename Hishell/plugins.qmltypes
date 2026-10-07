@@ -2,47 +2,6 @@ import QtQuick.tooling 1.2
 
 Module {
 	Component {
-		name: "Config"
-		prototype: "QObject"
-		exports: ["Hishell/Config 1.0"]
-		exportMetaObjectRevisions: [256]
-
-		Property { name: "title"; type: "string"; isReadonly: true }
-		Property { name: "icon"; type: "string"; isReadonly: true }
-		Property { name: "wallpaper"; type: "string"; isReadonly: true }
-		Property { name: "top_layout"; type: "string"; isReadonly: true }
-		Property { name: "middle_layout"; type: "string"; isReadonly: true }
-		Property { name: "bottom_layout"; type: "string"; isReadonly: true }
-		Property { name: "header_layout"; type: "string"; isReadonly: true }
-		Property { name: "native_menubar"; type: "bool"; isReadonly: true }
-		Property { name: "native_titlebar"; type: "bool"; isReadonly: true }
-		Property { name: "grid_size"; type: "u16"; isReadonly: true }
-		Property { name: "show_labels"; type: "bool"; isReadonly: true }
-		Property { name: "view_mode"; type: "u8"; isReadonly: true }
-		Property { name: "sort"; type: "u8"; isReadonly: true }
-		Property { name: "sort_date_mode"; type: "u8"; isReadonly: true }
-		Property { name: "sort_alpha_mode"; type: "u8"; isReadonly: true }
-		Property { name: "stash_shown"; type: "bool"; isReadonly: true }
-		Property { name: "stash_dotfiles"; type: "bool"; isReadonly: true }
-		Property { name: "arbitrary_placement"; type: "bool"; isReadonly: true }
-		Property { name: "arbitrary_positions"; type: "string"; isReadonly: true }
-		Signal { name: "config_changed" }
-		Method {
-			name: "load"
-			type: "void"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "set"
-			type: "void"
-			Parameter { name: "path"; type: "string" }
-			Parameter { name: "section"; type: "string" }
-			Parameter { name: "key"; type: "string" }
-			Parameter { name: "value"; type: "string" }
-			Parameter { name: "local"; type: "bool" }
-		}
-	}
-	Component {
 		name: "DragDropHandler"
 		prototype: "QObject"
 		exports: ["Hishell/DragDropHandler 1.0"]
@@ -346,76 +305,6 @@ Module {
 		}
 	}
 	Component {
-		name: "FocusManager"
-		prototype: "QObject"
-		exports: ["Hishell/FocusManager 1.0"]
-		exportMetaObjectRevisions: [256]
-
-		Property { name: "focus_active"; type: "bool"; isReadonly: true }
-		Property { name: "focused_index"; type: "int"; isReadonly: true }
-		Property { name: "focused_path"; type: "string"; isReadonly: true }
-		Property { name: "item_count"; type: "int"; isReadonly: true }
-		Property { name: "grid_columns"; type: "int"; isReadonly: true }
-		Property { name: "focus_status"; type: "string"; isReadonly: true }
-		Property { name: "window"; type: "QVariant"; isReadonly: true }
-		Property { name: "view_focused"; type: "bool"; isReadonly: true }
-		Signal { name: "focus_changed" }
-		Signal { name: "accept_requested" }
-		Signal { name: "cancel_requested" }
-		Signal { name: "menu_requested" }
-		Method {
-			name: "set_items"
-			type: "void"
-			Parameter { name: "paths"; type: "QVariantList" }
-			Parameter { name: "columns"; type: "int" }
-		}
-		Method {
-			name: "set_columns"
-			type: "void"
-			Parameter { name: "columns"; type: "int" }
-		}
-		Method {
-			name: "set_focus_index"
-			type: "void"
-			Parameter { name: "index"; type: "int" }
-		}
-		Method {
-			name: "enter_focus"
-			type: "void"
-		}
-		Method {
-			name: "set_focus_path"
-			type: "void"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "move_focus"
-			type: "bool"
-			Parameter { name: "direction"; type: "string" }
-		}
-		Method {
-			name: "focus_first"
-			type: "void"
-		}
-		Method {
-			name: "focus_last"
-			type: "void"
-		}
-		Method {
-			name: "clear"
-			type: "void"
-		}
-		Method {
-			name: "poll_gamepad"
-			type: "void"
-		}
-		Method {
-			name: "border_source"
-			type: "string"
-			Parameter { name: "color"; type: "string" }
-		}
-	}
-	Component {
 		name: "Directory"
 		prototype: "QObject"
 		exports: ["Hishell/Directory 1.0"]
@@ -473,6 +362,128 @@ Module {
 			type: "void"
 			Parameter { name: "path"; type: "string" }
 			Parameter { name: "include_hidden"; type: "bool" }
+		}
+	}
+	Component {
+		name: "Config"
+		prototype: "QObject"
+		exports: ["Hishell/Config 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Property { name: "title"; type: "string"; isReadonly: true }
+		Property { name: "icon"; type: "string"; isReadonly: true }
+		Property { name: "wallpaper"; type: "string"; isReadonly: true }
+		Property { name: "top_layout"; type: "string"; isReadonly: true }
+		Property { name: "middle_layout"; type: "string"; isReadonly: true }
+		Property { name: "bottom_layout"; type: "string"; isReadonly: true }
+		Property { name: "header_layout"; type: "string"; isReadonly: true }
+		Property { name: "native_menubar"; type: "bool"; isReadonly: true }
+		Property { name: "native_titlebar"; type: "bool"; isReadonly: true }
+		Property { name: "grid_size"; type: "u16"; isReadonly: true }
+		Property { name: "grid_horizontal_align"; type: "u8"; isReadonly: true }
+		Property { name: "grid_vertical_align"; type: "u8"; isReadonly: true }
+		Property { name: "grid_lines"; type: "int"; isReadonly: true }
+		Property { name: "scroll_horizontal"; type: "bool"; isReadonly: true }
+		Property { name: "center_focus"; type: "bool"; isReadonly: true }
+		Property { name: "smooth_scrolling"; type: "bool"; isReadonly: true }
+		Property { name: "show_labels"; type: "bool"; isReadonly: true }
+		Property { name: "view_mode"; type: "u8"; isReadonly: true }
+		Property { name: "sort"; type: "u8"; isReadonly: true }
+		Property { name: "sort_date_mode"; type: "u8"; isReadonly: true }
+		Property { name: "sort_alpha_mode"; type: "u8"; isReadonly: true }
+		Property { name: "stash_shown"; type: "bool"; isReadonly: true }
+		Property { name: "stash_dotfiles"; type: "bool"; isReadonly: true }
+		Property { name: "arbitrary_placement"; type: "bool"; isReadonly: true }
+		Property { name: "arbitrary_positions"; type: "string"; isReadonly: true }
+		Signal { name: "config_changed" }
+		Method {
+			name: "load"
+			type: "void"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "set"
+			type: "void"
+			Parameter { name: "path"; type: "string" }
+			Parameter { name: "section"; type: "string" }
+			Parameter { name: "key"; type: "string" }
+			Parameter { name: "value"; type: "string" }
+			Parameter { name: "local"; type: "bool" }
+		}
+	}
+	Component {
+		name: "FocusManager"
+		prototype: "QObject"
+		exports: ["Hishell/FocusManager 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Property { name: "focus_active"; type: "bool"; isReadonly: true }
+		Property { name: "focused_index"; type: "int"; isReadonly: true }
+		Property { name: "focused_path"; type: "string"; isReadonly: true }
+		Property { name: "item_count"; type: "int"; isReadonly: true }
+		Property { name: "grid_columns"; type: "int"; isReadonly: true }
+		Property { name: "focus_status"; type: "string"; isReadonly: true }
+		Property { name: "window"; type: "QVariant"; isReadonly: true }
+		Property { name: "view_focused"; type: "bool"; isReadonly: true }
+		Signal { name: "focus_changed" }
+		Signal { name: "accept_requested" }
+		Signal { name: "cancel_requested" }
+		Signal { name: "menu_requested" }
+		Method {
+			name: "set_items"
+			type: "void"
+			Parameter { name: "paths"; type: "QVariantList" }
+			Parameter { name: "columns"; type: "int" }
+		}
+		Method {
+			name: "set_columns"
+			type: "void"
+			Parameter { name: "columns"; type: "int" }
+		}
+		Method {
+			name: "set_horizontal"
+			type: "void"
+			Parameter { name: "horizontal"; type: "bool" }
+		}
+		Method {
+			name: "set_focus_index"
+			type: "void"
+			Parameter { name: "index"; type: "int" }
+		}
+		Method {
+			name: "enter_focus"
+			type: "void"
+		}
+		Method {
+			name: "set_focus_path"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "move_focus"
+			type: "bool"
+			Parameter { name: "direction"; type: "string" }
+		}
+		Method {
+			name: "focus_first"
+			type: "void"
+		}
+		Method {
+			name: "focus_last"
+			type: "void"
+		}
+		Method {
+			name: "clear"
+			type: "void"
+		}
+		Method {
+			name: "poll_gamepad"
+			type: "void"
+		}
+		Method {
+			name: "border_source"
+			type: "string"
+			Parameter { name: "color"; type: "string" }
 		}
 	}
 }

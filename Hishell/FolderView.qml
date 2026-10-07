@@ -12,6 +12,7 @@ Item {
 	readonly property ShellWindow rootWindow: folderView.window
 	property Directory directory
 	property Config config: directory.config
+	readonly property bool horizontalScroll: folderView.config ? folderView.config.scroll_horizontal : false
 	property FocusManager focusManager: folderView.rootWindow ? folderView.rootWindow.focusManager : null
 	readonly property string focusBorderSource: folderView.focusManager ? folderView.focusManager.border_source(Kirigami.Theme.highlightColor.toString()) : ""
 	property bool focusOwned: false
@@ -59,13 +60,111 @@ Item {
 		mgr.select_all(paths);
 	}
 
-	function gridColumns() {
-		if (!folderView.config || flowLayout.width <= 0)
-			return 1;
-		const besideIcon = folderView.config.grid_size < 32;
-		const itemWidth = besideIcon ? Kirigami.Units.gridUnit * 10 : folderView.config.grid_size + Kirigami.Units.gridUnit * 3;
-		const gap = flowLayout.spacing;
-		return Math.max(1, Math.floor((flowLayout.width + gap) / (itemWidth + gap)));
+	readonly property var gridMetrics: {
+		const cfg = folderView.config;
+		const horizontal = cfg ? cfg.scroll_horizontal : false;
+		const count = itemRepeater.count;
+		const viewWidth = flickable.width;
+		const viewHeight = flickable.height;
+		const gap = Kirigami.Units.mediumSpacing;
+		const iconSize = cfg ? cfg.grid_size : 64;
+		const besideIcon = iconSize < 32;
+		const itemWidth = besideIcon ? Kirigami.Units.gridUnit * 10 : iconSize + Kirigami.Units.gridUnit * 3;
+		const itemHeight = besideIcon ? Kirigami.Units.gridUnit * 2 : iconSize + Kirigami.Units.gridUnit * 3;
+		const barWidth = verticalScrollBar.width;
+		const barHeight = horizontalScrollBar.height;
+		const barInsetX = barWidth + gap;
+		const barInsetY = barHeight + gap;
+
+		function alignOffset(align, view, natural) {
+			if (align === 1)
+				return 0;
+			if (align === 3)
+				return Math.max(0, view - natural);
+			return Math.max(0, (view - natural) / 2);
+		}
+
+		function measure(insetX, insetY) {
+			const width = viewWidth - insetX;
+			const height = viewHeight - insetY;
+			const lines = cfg ? cfg.grid_lines : 0;
+			const viewMain = horizontal ? height : width;
+			const itemMain = horizontal ? itemHeight : itemWidth;
+			const stride = lines > 0 ? lines : Math.max(1, Math.floor((viewMain + gap) / (itemMain + gap)));
+			const lineCount = Math.max(1, Math.ceil(count / stride));
+			const columns = horizontal ? lineCount : stride;
+			const rows = horizontal ? stride : lineCount;
+			return {
+				width: width,
+				height: height,
+				stride: stride,
+				columns: columns,
+				rows: rows,
+				naturalWidth: columns * itemWidth + (columns - 1) * gap,
+				naturalHeight: rows * itemHeight + (rows - 1) * gap
+			};
+		}
+
+		if (count === 0) {
+			return {
+				horizontal: horizontal,
+				stride: 1,
+				columns: 0,
+				rows: 0,
+				itemWidth: itemWidth,
+				itemHeight: itemHeight,
+				gap: gap,
+				insetX: 0,
+				insetY: 0,
+				offsetX: 0,
+				offsetY: 0,
+				contentWidth: viewWidth,
+				contentHeight: viewHeight
+			};
+		}
+
+		let insetX = 0;
+		let insetY = 0;
+		let metrics = measure(insetX, insetY);
+		for (let i = 0; i < 3; i++) {
+			const nextInsetX = metrics.naturalHeight > metrics.height ? barInsetX : 0;
+			const nextInsetY = metrics.naturalWidth > metrics.width ? barInsetY : 0;
+			if (nextInsetX === insetX && nextInsetY === insetY)
+				break;
+			insetX = nextInsetX;
+			insetY = nextInsetY;
+			metrics = measure(insetX, insetY);
+		}
+
+		return {
+			horizontal: horizontal,
+			stride: metrics.stride,
+			columns: metrics.columns,
+			rows: metrics.rows,
+			itemWidth: itemWidth,
+			itemHeight: itemHeight,
+			gap: gap,
+			insetX: insetX,
+			insetY: insetY,
+			offsetX: alignOffset(cfg ? cfg.grid_horizontal_align : 0, metrics.width, metrics.naturalWidth),
+			offsetY: alignOffset(cfg ? cfg.grid_vertical_align : 0, metrics.height, metrics.naturalHeight),
+			contentWidth: Math.max(viewWidth, metrics.naturalWidth + insetX),
+			contentHeight: Math.max(viewHeight, metrics.naturalHeight + insetY)
+		};
+	}
+
+	readonly property int gridStride: folderView.gridMetrics.stride
+
+	function gridSlotX(index) {
+		const metrics = folderView.gridMetrics;
+		const column = metrics.horizontal ? Math.floor(index / metrics.rows) : index % metrics.columns;
+		return metrics.offsetX + column * (metrics.itemWidth + metrics.gap);
+	}
+
+	function gridSlotY(index) {
+		const metrics = folderView.gridMetrics;
+		const row = metrics.horizontal ? index % metrics.rows : Math.floor(index / metrics.columns);
+		return metrics.offsetY + row * (metrics.itemHeight + metrics.gap);
 	}
 
 	function updateFocusItems() {
@@ -77,14 +176,15 @@ Item {
 			fm.clear();
 			return;
 		}
-		fm.set_items(paths, folderView.gridColumns());
+		fm.set_horizontal(folderView.horizontalScroll);
+		fm.set_items(paths, folderView.gridStride);
 		folderView.focusOwned = true;
 
 		if (folderView.returnFocusPath !== "") {
 			const target = folderView.returnFocusPath;
 			folderView.returnFocusPath = "";
-			fm.set_focus_path(target);
-			Qt.callLater(() => folderView.ensureFocusVisible());
+			if (fm.set_focus_path(target))
+				Qt.callLater(() => folderView.ensureFocusVisible());
 		}
 	}
 
@@ -94,12 +194,50 @@ Item {
 		const item = itemRepeater.itemAt(folderView.focusManager.focused_index);
 		if (!item)
 			return;
-		const top = item.y;
-		const bottom = item.y + item.height;
-		if (top < flickable.contentY)
-			flickable.contentY = top;
-		else if (bottom > flickable.contentY + flickable.height)
-			flickable.contentY = bottom - flickable.height;
+
+		const cfg = folderView.config;
+		const metrics = folderView.gridMetrics;
+		const viewWidth = flickable.width - metrics.insetX;
+		const viewHeight = flickable.height - metrics.insetY;
+		let targetY = flickable.contentY;
+		let targetX = flickable.contentX;
+
+		if (cfg && cfg.center_focus) {
+			targetY = item.y + item.height / 2 - viewHeight / 2;
+			targetX = item.x + item.width / 2 - viewWidth / 2;
+		} else {
+			const top = item.y;
+			const bottom = item.y + item.height;
+			if (top < flickable.contentY)
+				targetY = top;
+			else if (bottom > flickable.contentY + viewHeight)
+				targetY = bottom - viewHeight;
+
+			const left = item.x;
+			const right = item.x + item.width;
+			if (left < flickable.contentX)
+				targetX = left;
+			else if (right > flickable.contentX + viewWidth)
+				targetX = right - viewWidth;
+		}
+
+		targetY = Math.max(0, Math.min(targetY, flickable.contentHeight - flickable.height));
+		targetX = Math.max(0, Math.min(targetX, flickable.contentWidth - flickable.width));
+
+		if (Math.abs(targetY - flickable.contentY) < 1 && Math.abs(targetX - flickable.contentX) < 1)
+			return;
+
+		if (cfg && cfg.smooth_scrolling) {
+			focusScrollY.to = targetY;
+			focusScrollY.restart();
+			focusScrollX.to = targetX;
+			focusScrollX.restart();
+		} else {
+			focusScrollY.stop();
+			focusScrollX.stop();
+			flickable.contentY = targetY;
+			flickable.contentX = targetX;
+		}
 	}
 
 	function openFocused() {
@@ -154,12 +292,9 @@ Item {
 		}
 	}
 
-	Connections {
-		target: flowLayout
-		function onWidthChanged() {
-			if (folderView.focusOwned && folderView.focusManager)
-				folderView.focusManager.set_columns(folderView.gridColumns());
-		}
+	onGridStrideChanged: {
+		if (folderView.focusOwned && folderView.focusManager)
+			folderView.focusManager.set_columns(folderView.gridStride);
 	}
 
 	Connections {
@@ -226,9 +361,9 @@ Item {
 			}
 			if (folderView.focusManager)
 				folderView.focusManager.clear();
+			// Entering a folder leaves the focus inactive, so no border shows
+			// until the next directional input; a restored target activates it.
 			folderView.updateFocusItems();
-			if (folderView.focusManager && folderView.focusOwned)
-				folderView.focusManager.enter_focus();
 			if (folderView.rootWindow && folderView.rootWindow.selectionManager) {
 				folderView.rootWindow.selectionManager.exit_selection_mode();
 			}
@@ -469,9 +604,26 @@ Item {
 
 	// ── Grid ───
 
+	NumberAnimation {
+		id: focusScrollY
+		target: flickable
+		property: "contentY"
+		duration: 180
+		easing.type: Easing.OutCubic
+	}
+
+	NumberAnimation {
+		id: focusScrollX
+		target: flickable
+		property: "contentX"
+		duration: 180
+		easing.type: Easing.OutCubic
+	}
+
 	Flickable {
 		id: flickable
 		z: 1
+		clip: true
 		anchors {
 			top: parent.top
 			left: parent.left
@@ -479,8 +631,20 @@ Item {
 			bottom: selectionBar.top
 		}
 		anchors.margins: Kirigami.Units.mediumSpacing
-		contentWidth: width
-		contentHeight: Math.max(height, flowLayout.height)
+		contentWidth: folderView.gridMetrics.contentWidth
+		contentHeight: folderView.gridMetrics.contentHeight
+
+		ScrollBar.vertical: ScrollBar {
+			id: verticalScrollBar
+			policy: size < 1.0 ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+			z: 2
+		}
+
+		ScrollBar.horizontal: ScrollBar {
+			id: horizontalScrollBar
+			policy: size < 1.0 ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+			z: 2
+		}
 
 		MouseArea {
 			id: flickableBgMouseArea
@@ -497,11 +661,11 @@ Item {
 			}
 		}
 
-		Flow {
-			id: flowLayout
+		Item {
+			id: gridContent
 			z: 1
-			width: parent.width
-			spacing: Kirigami.Units.mediumSpacing
+			width: flickable.contentWidth
+			height: flickable.contentHeight
 
 			Repeater {
 				id: itemRepeater
@@ -515,6 +679,8 @@ Item {
 					dragDropHandler: folderView.rootWindow ? folderView.rootWindow.dragDropHandler : null
 					width: labelBesideIcon ? Kirigami.Units.gridUnit * 10 : gridSize + Kirigami.Units.gridUnit * 3
 					height: labelBesideIcon ? Kirigami.Units.gridUnit * 2 : gridSize + Kirigami.Units.gridUnit * 3
+					x: folderView.gridSlotX(index)
+					y: folderView.gridSlotY(index)
 
 					gridSize: folderView.config.grid_size
 					selectionActive: selectionManager ? selectionManager.selection_active : false

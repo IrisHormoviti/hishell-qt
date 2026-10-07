@@ -13,3 +13,9 @@
 - Prefers adopting a mature, well-established library/dependency (e.g. a standard game-input crate like `gilrs` with SDL controller mapping) over maintaining hand-rolled low-level implementations when a subsystem gets complicated. Confidence: 0.5
 - This project follows a no-committed-tests convention: temporary local tests are acceptable for verifying a fix, but they must be removed before finishing (relying on build/format checks plus a timed runtime run instead). Confidence: 0.6
 - Expects the agent not to terminate processes it did not start — verify ownership (e.g. via `/proc`, parent shell, cmdline) before killing, and leave the user's own running app instances untouched. Confidence: 0.55
+- Prefers view/layout behaviors to be exposed as documented, user-facing config options (defaults in `config/default.cfg`, parsed into the Rust config, mirrored in `plugins.qmltypes`) rather than hardcoded. Confidence: 0.65
+- For the folder grid, prefers FILL alignment to center the grid block when it is smaller than the viewport and clamp to the start when it overflows (respecting an explicit Lines value), rather than stretching gaps or auto-fitting. Confidence: 0.5
+- Prefers numeric config values to use 0 as a sentinel meaning "auto / fit to the available screen size" (e.g. Lines = 0 auto-fits the window). Confidence: 0.45
+- Prefers focus-driven viewport scrolling to be smooth/animated (eased transitions) rather than instant jumps when navigating. Confidence: 0.5
+- Wants the focused item kept centered in the viewport as a (configurable) navigation behavior rather than only nudging it into view. Confidence: 0.45
+- Expects content layout to reserve space for overlay elements (e.g. scrollbars) so grid items can never render under or overlap them — overlap is treated as a bug, including at scroll extremes and with alignment applied. Confidence: 0.5
