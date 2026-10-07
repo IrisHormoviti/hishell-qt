@@ -14,7 +14,7 @@ Hishell isn't intended to just be the name for this file manager, but a specific
 - [X] Multiple folder views within one directory
 - [X] View modes (Grid, List etc)
 - [ ] Sorting modes
-- [ ] Layout directions
+- [X] Layout directions
 - [ ] "Stash" feature (Hidden items)
 - [ ] Behavior overrides (e.g. always open in new windows)
 - [ ] In-folder text or images
@@ -27,14 +27,14 @@ All these things would be able to be set per folder using a few dot files, allow
 This is meant to be a reference implementation for this Hishell spec, which I might also use in other projects. This app is strictly a file manager, made in QT and Kirigami, with the backend written in Rust.
 Planned features:
 - [ ] Everything in the hishell spec
-- [ ] Copy, Paste etc, essential file manager stuff
-- [ ] Selection mode, enabled by clicking and holding on an item or pressing space.
+- [X] Copy, Paste etc, essential file manager stuff
+- [X] Selection mode, enabled by clicking and holding on an item or pressing space.
 - [X] Breadcrumb path bar
 - [ ] File thumbnailing
 - [ ] Quickly filtering files by typing
-- [ ] Menubar with context related actions
-- [ ] Right click context menu
-- [ ] "Open as" dialog
+- [X] Menubar with context related actions
+- [X] Right click context menu
+- [X] "Open as" dialog
 
 ## Unusual design choices
 ### No double clicking
@@ -49,37 +49,6 @@ If you still want a sidebar though, you'll want to add a specific folder to the 
 The settings will be the "general config", a folder config that can will be applied to every folder by default, stored in `~/.config/hishell/folder.cfg`. Everything there can be altered on a per folder basis. There will be a GUI for everything in here, just don't expect a "Settings" menu.
 
 ## Install / Build
-
-### Requirements
-
-- Rust toolchain
-- `cargo`
-- `cmake` >= 3.20
-- `pkg-config`
-- Qt6 development packages for Core, Gui, Qml, and Quick
-- KDE Frameworks 6 development packages for Service, KIO, and CoreAddons (used by the Open With dialog)
-- `gio` executable (`glib2.0-bin` / `glib2`)
-- `xdg-open` (`xdg-utils`)
-- `bsdtar` (`libarchive-tools` / `libarchive`)
-- `convert` (`imagemagick`)
-
-### Debian packages
-
-```bash
-sudo apt install build-essential cmake pkg-config qt6-base-dev qt6-declarative-dev libqt6qml-dev libqt6quick-dev libkf6service-dev libkf6kio-dev libkf6coreaddons-dev glib2.0-bin xdg-utils libarchive-tools imagemagick
-```
-
-### Fedora packages
-
-```bash
-sudo dnf install @development-tools cmake pkgconfig qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qml-devel qt6-qtquickcontrols2-devel kf6-kservice-devel kf6-kio-devel kf6-kcoreaddons-devel glib2-devel xdg-utils libarchive imagemagick
-```
-
-### Arch packages
-
-```bash
-sudo pacman -Syu qt6 qt6-declarative cmake pkgconf kservice kio glib2 xdg-utils libarchive imagemagick
-```
 
 ### Build
 
