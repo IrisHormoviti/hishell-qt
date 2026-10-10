@@ -16,6 +16,9 @@ Kirigami.ApplicationWindow {
 	// Selection state lives in the folder views; this points at the manager of
 	// the view that last took focus so the window actions operate on it.
 	property SelectionManager selectionManager: null
+	// The pane that follows the window's own folder; it owns the keyboard
+	// whenever nothing else does, so typing filters the window's folder.
+	property Item primaryFolderView: null
 	property alias focusManager: focusManager
 	property alias dragDropHandler: dragDropHandler
 	property alias dropValidator: dropValidator
@@ -81,6 +84,22 @@ Kirigami.ApplicationWindow {
 	Component.onCompleted: {
 		directory.config.load(initialPath);
 		directory.path = initialPath;
+	}
+
+	// Whenever the keyboard is left unclaimed, hand it back to the window's own
+	// pane. Deferred so Qt has settled focus after (de)activation.
+	onActiveChanged: Qt.callLater(() => root.ensureFolderViewFocus())
+	onActiveFocusItemChanged: Qt.callLater(() => root.ensureFolderViewFocus())
+
+	function ensureFolderViewFocus() {
+		if (!root.active || !root.primaryFolderView)
+			return;
+		// The page itself holds focus when nothing else does; a file view or
+		// anything the user focused deliberately is left alone.
+		const item = root.activeFocusItem;
+		if (item && item !== root.pageStack.currentItem)
+			return;
+		root.primaryFolderView.forceActiveFocus();
 	}
 
 	menuBar: MenuBar {

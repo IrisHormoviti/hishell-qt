@@ -76,6 +76,9 @@ RowLayout {
 
 			const isPath = itemSpec.startsWith("/") || itemSpec.startsWith(".") || itemSpec.startsWith("~");
 			const componentFile = isPath ? "FolderView.qml" : itemSpec + ".qml";
+			// An entry that denotes the window's folder itself ("./") follows
+			// navigation and shares its Directory (and config).
+			const followsWindow = isPath && itemSpec.replace(/\/+$/, "") === ".";
 
 			const component = Qt.createComponent(componentFile);
 			if (component.status === Component.Error) {
@@ -102,14 +105,15 @@ RowLayout {
 			if ("paneCount" in obj) {
 				obj.paneCount = layoutEngine.layoutItems.length;
 			}
+			if ("followsWindow" in obj) {
+				obj.followsWindow = followsWindow;
+			}
 
 			if (isPath) {
-				// An entry that denotes the window's folder itself ("./") follows
-				// navigation and shares its Directory (and config), so view settings
-				// changed through the menus apply to this pane immediately. Every
-				// other entry — absolute paths and "~" included — is pinned to its
-				// own folder instead.
-				const followsWindow = itemSpec.replace(/\/+$/, "") === ".";
+				// A view that follows the window's folder shares its Directory (and
+				// config), so view settings changed through the menus apply to this
+				// pane immediately. Every other entry — absolute paths and "~"
+				// included — is pinned to its own folder instead.
 				if (!followsWindow) {
 					const customDir = Qt.createQmlObject('import Hishell; Directory {}', obj);
 					if (customDir) {

@@ -54,6 +54,9 @@ fn write_border_asset(color: &str) -> Option<String> {
 #[derive(Clone, Default)]
 struct Pane {
 	paths: Vec<String>,
+	// Visual grid cell of every path, set for free-placement views; empty for
+	// the implicit row-major layouts.
+	positions: Vec<(i32, i32)>,
 	index: i32,
 	active: bool,
 	columns: i32,
@@ -70,6 +73,11 @@ impl Pane {
 		self.paths.len() as i32
 	}
 
+	/// Whether every path has a visual position to navigate by.
+	fn has_positions(&self) -> bool {
+		!self.positions.is_empty() && self.positions.len() == self.paths.len()
+	}
+
 	fn path(&self) -> String {
 		if self.index < 0 {
 			return String::new();
@@ -82,10 +90,20 @@ impl Pane {
 
 	fn rows(&self) -> i32 {
 		let count = self.count();
-		let stride = self.columns.max(1);
 		if count == 0 {
-			1
-		} else if self.horizontal {
+			return 1;
+		}
+		if self.has_positions() {
+			return self
+				.positions
+				.iter()
+				.map(|(_, row)| row + 1)
+				.max()
+				.unwrap_or(1)
+				.max(1);
+		}
+		let stride = self.columns.max(1);
+		if self.horizontal {
 			stride
 		} else {
 			(count + stride - 1) / stride
@@ -94,10 +112,20 @@ impl Pane {
 
 	fn grid_columns(&self) -> i32 {
 		let count = self.count();
-		let stride = self.columns.max(1);
 		if count == 0 {
-			1
-		} else if self.horizontal {
+			return 1;
+		}
+		if self.has_positions() {
+			return self
+				.positions
+				.iter()
+				.map(|(column, _)| column + 1)
+				.max()
+				.unwrap_or(1)
+				.max(1);
+		}
+		let stride = self.columns.max(1);
+		if self.horizontal {
 			(count + stride - 1) / stride
 		} else {
 			stride
@@ -109,8 +137,12 @@ impl Pane {
 		if count == 0 {
 			return (0, 0);
 		}
-		let stride = self.columns.max(1);
 		let index = self.index.clamp(0, count - 1);
+		if self.has_positions() {
+			let (column, row) = self.positions[index as usize];
+			return (row, column);
+		}
+		let stride = self.columns.max(1);
 		if self.horizontal {
 			(index % stride, index / stride)
 		} else {
@@ -122,6 +154,19 @@ impl Pane {
 		let count = self.count();
 		if count == 0 {
 			return -1;
+		}
+		if self.has_positions() {
+			// Enter at the item closest to the requested visual cell.
+			let mut best = 0;
+			let mut best_distance = i64::MAX;
+			for (index, &(c, r)) in self.positions.iter().enumerate() {
+				let distance = (r - row).abs() as i64 + (c - column).abs() as i64;
+				if distance < best_distance {
+					best_distance = distance;
+					best = index as i32;
+				}
+			}
+			return best;
 		}
 		let row = row.clamp(0, self.rows() - 1);
 		let column = column.clamp(0, self.grid_columns() - 1);
@@ -236,6 +281,28 @@ pub struct FocusManager {
 		}
 	),
 
+	set_pane_positions: qt_method!(
+		fn set_pane_positions(&mut self, id: i32, positions_json: String) {
+			let Some(pane) = self.pane_mut(id) else {
+				return;
+			};
+			pane.positions.clear();
+			if positions_json.is_empty() {
+				return;
+			}
+			if let Ok(value) = serde_json::from_str::<serde_json::Value>(&positions_json)
+				&& let Some(entries) = value.as_array()
+			{
+				for entry in entries {
+					let column =
+						entry.get("c").and_then(|value| value.as_i64()).unwrap_or(0) as i32;
+					let row = entry.get("r").and_then(|value| value.as_i64()).unwrap_or(0) as i32;
+					pane.positions.push((column, row));
+				}
+			}
+		}
+	),
+
 	set_pane_horizontal: qt_method!(
 		fn set_pane_horizontal(&mut self, id: i32, horizontal: bool) {
 			if let Some(pane) = self.pane_mut(id) {
@@ -317,16 +384,35 @@ pub struct FocusManager {
 	focus_first: qt_method!(
 		fn focus_first(&mut self) {
 			let id = self.current;
-			self.set_index(id, 0);
+			let index = self.pane(id).and_then(|pane| {
+				if pane.has_positions() {
+					visual_edge(&pane.positions, true)
+				} else if pane.count() > 0 {
+					Some(0)
+				} else {
+					None
+				}
+			});
+			if let Some(index) = index {
+				self.set_index(id, index as i32);
+			}
 		}
 	),
 
 	focus_last: qt_method!(
 		fn focus_last(&mut self) {
 			let id = self.current;
-			let count = self.pane(id).map_or(0, |pane| pane.count());
-			if count > 0 {
-				self.set_index(id, count - 1);
+			let index = self.pane(id).and_then(|pane| {
+				if pane.has_positions() {
+					visual_edge(&pane.positions, false)
+				} else if pane.count() > 0 {
+					Some(pane.count() as usize - 1)
+				} else {
+					None
+				}
+			});
+			if let Some(index) = index {
+				self.set_index(id, index as i32);
 			}
 		}
 	),
@@ -516,7 +602,10 @@ impl FocusManager {
 
 		let stride = pane.columns.max(1);
 		let index = pane.index.clamp(0, count - 1);
-		let target = if pane.horizontal {
+		let target = if pane.has_positions() {
+			nearest_in_direction(&pane.positions, index as usize, direction)
+				.map_or(index, |target| target as i32)
+		} else if pane.horizontal {
 			// Items fill a column first, then move on to the next column.
 			let row = index % stride;
 			let column = index / stride;
@@ -649,6 +738,54 @@ impl FocusManager {
 		);
 		self.focus_status = serde_json::to_string(&status).unwrap_or_default();
 	}
+}
+
+/// Nearest item in the given direction from `index`, by visual grid position.
+/// Items closer to the movement axis win when the forward distance is similar.
+fn nearest_in_direction(positions: &[(i32, i32)], index: usize, direction: &str) -> Option<usize> {
+	let (column, row) = positions[index];
+	let mut best: Option<(i64, usize)> = None;
+	for (candidate, &(c, r)) in positions.iter().enumerate() {
+		if candidate == index {
+			continue;
+		}
+		let (forward, aside) = match direction {
+			"right" => (c - column, (r - row).abs()),
+			"left" => (column - c, (r - row).abs()),
+			"down" => (r - row, (c - column).abs()),
+			"up" => (row - r, (c - column).abs()),
+			_ => return None,
+		};
+		if forward <= 0 {
+			continue;
+		}
+		let score = forward as i64 + aside as i64 * 3;
+		if best.is_none_or(|(best_score, _)| score < best_score) {
+			best = Some((score, candidate));
+		}
+	}
+	best.map(|(_, candidate)| candidate)
+}
+
+/// Index of the item at the top-left (or bottom-right) of the visual grid.
+fn visual_edge(positions: &[(i32, i32)], first: bool) -> Option<usize> {
+	let mut best: Option<(i32, i32, usize)> = None;
+	for (index, &(column, row)) in positions.iter().enumerate() {
+		let better = match best {
+			None => true,
+			Some((best_row, best_column, _)) => {
+				if first {
+					(row, column) < (best_row, best_column)
+				} else {
+					(row, column) > (best_row, best_column)
+				}
+			}
+		};
+		if better {
+			best = Some((row, column, index));
+		}
+	}
+	best.map(|(_, _, index)| index)
 }
 
 fn qt_key(input: Input) -> Option<i32> {

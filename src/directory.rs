@@ -141,6 +141,8 @@ pub struct FileItem {
 pub struct Directory {
 	base: qt_base_class!(trait QAbstractListModel),
 	items: Vec<FileItem>,
+	// Indices of `items` that pass the active filter, in display order.
+	visible: Vec<usize>,
 
 	config: QObjectBox<Config>,
 	config_prop: qt_property!(QVariant; READ get_config NOTIFY config_changed ALIAS config),
@@ -153,6 +155,9 @@ pub struct Directory {
 	path: qt_property!(String; READ get_path WRITE set_path NOTIFY path_changed),
 	path_str: String,
 	path_changed: qt_signal!(),
+
+	filter: qt_property!(String; READ get_filter NOTIFY filter_changed),
+	filter_changed: qt_signal!(),
 
 	#[allow(non_snake_case)]
 	requestExecutePrompt: qt_signal!(path: String),
@@ -228,17 +233,19 @@ pub struct Directory {
 				return;
 			}
 			let mut updates = Vec::new();
-			for (idx, item) in self.items.iter().enumerate() {
+			for (row, index) in self.visible.iter().enumerate() {
+				let item = &self.items[*index];
 				if let Some(uri) = thumbnailer::result_for(&item.path) {
 					if item.icon != uri {
-						updates.push((idx, uri));
+						updates.push((row, uri));
 					}
 				}
 			}
-			for (idx, uri) in updates {
-				self.items[idx].icon = uri;
-				let index = self.row_index(idx as i32);
-				self.data_changed(index, index);
+			for (row, uri) in updates {
+				let index = self.visible[row];
+				self.items[index].icon = uri;
+				let model_index = self.row_index(row as i32);
+				self.data_changed(model_index, model_index);
 			}
 		}
 	),
@@ -251,8 +258,10 @@ pub struct Directory {
 				if let Some(idx) = self.items.iter().position(|it| it.path == path) {
 					if self.items[idx].icon != uri {
 						self.items[idx].icon = uri;
-						let index = self.row_index(idx as i32);
-						self.data_changed(index, index);
+						if let Some(row) = self.visible.iter().position(|visible| *visible == idx) {
+							let model_index = self.row_index(row as i32);
+							self.data_changed(model_index, model_index);
+						}
 					}
 				}
 			}
@@ -324,11 +333,36 @@ pub struct Directory {
 		}
 	),
 
+	append_filter: qt_method!(
+		fn append_filter(&mut self, text: String) {
+			let mut filter = self.filter.clone();
+			filter.push_str(&text);
+			self.set_filter_text(filter);
+		}
+	),
+
+	backspace_filter: qt_method!(
+		fn backspace_filter(&mut self) {
+			let mut filter = self.filter.clone();
+			if filter.pop().is_some() {
+				self.set_filter_text(filter);
+			}
+		}
+	),
+
+	clear_filter: qt_method!(
+		fn clear_filter(&mut self) {
+			self.set_filter_text(String::new());
+		}
+	),
+
 	get_all_paths: qt_method!(
 		pub fn get_all_paths(&self) -> QVariantList {
 			let mut list = QVariantList::default();
-			for item in &self.items {
-				list.push(QString::from(item.path.as_str()).into());
+			for index in &self.visible {
+				if let Some(item) = self.items.get(*index) {
+					list.push(QString::from(item.path.as_str()).into());
+				}
 			}
 			list
 		}
@@ -346,8 +380,13 @@ pub struct Directory {
 			item_height: f64,
 			gap: f64,
 		) -> String {
+			let items: Vec<&FileItem> = self
+				.visible
+				.iter()
+				.filter_map(|index| self.items.get(*index))
+				.collect();
 			Self::compute_free_layout(
-				&self.items,
+				&items,
 				&positions_json,
 				lines,
 				horizontal,
@@ -420,6 +459,7 @@ impl Directory {
 		}
 
 		self.sort_items();
+		self.apply_filter();
 
 		self.end_reset_model();
 	}
@@ -429,6 +469,7 @@ impl Directory {
 	fn resort_items(&mut self) {
 		self.begin_reset_model();
 		self.sort_items();
+		self.apply_filter();
 		self.end_reset_model();
 	}
 
@@ -482,6 +523,43 @@ impl Directory {
 		self.path_str.clone()
 	}
 
+	pub fn get_filter(&self) -> String {
+		self.filter.clone()
+	}
+
+	/// Replace the filter and rebuild the visible rows.
+	fn set_filter_text(&mut self, filter: String) {
+		if self.filter == filter {
+			return;
+		}
+		self.filter = filter;
+		self.begin_reset_model();
+		self.apply_filter();
+		self.end_reset_model();
+		self.filter_changed();
+	}
+
+	/// Rebuild the row index from the current filter; the caller owns the model
+	/// reset so sorting and reloads can reuse it.
+	fn apply_filter(&mut self) {
+		let query = self.filter.to_lowercase();
+		self.visible.clear();
+		for (index, item) in self.items.iter().enumerate() {
+			if query.is_empty()
+				|| item.name.to_lowercase().contains(&query)
+				|| item.title.to_lowercase().contains(&query)
+			{
+				self.visible.push(index);
+			}
+		}
+	}
+
+	fn visible_item(&self, row: usize) -> Option<&FileItem> {
+		self.visible
+			.get(row)
+			.and_then(|index| self.items.get(*index))
+	}
+
 	pub fn get_config(&self) -> QVariant {
 		QVariant::from(self.config.pinned())
 	}
@@ -518,6 +596,12 @@ impl Directory {
 			crate::thumbnailer::cancel_folder(Path::new(&self.path_str));
 		}
 
+		// Navigating to a different folder drops the type-to-filter text.
+		if self.path_str != abs_str && !self.filter.is_empty() {
+			self.filter = String::new();
+			self.filter_changed();
+		}
+
 		self.path_str = abs_str.clone();
 
 		let load_path = if abs_path.is_file() {
@@ -546,7 +630,7 @@ impl Directory {
 	/// Compute grid coordinates for every item in free placement mode.
 	#[allow(clippy::too_many_arguments)]
 	pub fn compute_free_layout(
-		items: &[FileItem],
+		items: &[&FileItem],
 		positions_json: &str,
 		lines: i32,
 		horizontal: bool,
@@ -722,15 +806,13 @@ fn nearest_available(
 
 impl QAbstractListModel for Directory {
 	fn row_count(&self) -> i32 {
-		self.items.len() as i32
+		self.visible.len() as i32
 	}
 
 	fn data(&self, index: QModelIndex, role: i32) -> QVariant {
-		let idx = index.row() as usize;
-		if idx >= self.items.len() {
+		let Some(item) = self.visible_item(index.row() as usize) else {
 			return QVariant::default();
-		}
-		let item = &self.items[idx];
+		};
 		match role {
 			0x0100 => QString::from(item.name.as_str()).into(),
 			0x0101 => QString::from(item.path.as_str()).into(),

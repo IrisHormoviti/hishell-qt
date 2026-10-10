@@ -13,9 +13,13 @@ Item {
 	property Directory directory
 	property Config config: directory.config
 	readonly property bool horizontalScroll: folderView.config ? folderView.config.scroll_horizontal : false
+	readonly property bool filterActive: folderView.directory ? String(folderView.directory.filter).length > 0 : false
 	property FocusManager focusManager: folderView.rootWindow ? folderView.rootWindow.focusManager : null
 	readonly property string focusBorderSource: folderView.focusManager ? folderView.focusManager.border_source(Kirigami.Theme.highlightColor.toString()) : ""
 	property bool focusOwned: false
+	// True for the pane that follows the window's own folder; that pane owns
+	// the keyboard whenever nothing else does.
+	property bool followsWindow: false
 	property var openMenu: null
 	property string returnFocusPath: ""
 	property string lastPath: ""
@@ -86,7 +90,10 @@ Item {
 	Connections {
 		target: folderView.Window.window
 		function onActiveChanged() {
-			if (folderView.Window.window.active)
+			const window = folderView.rootWindow;
+			// The window hands the keyboard to its own pane when it comes back;
+			// other panes only claim a keyboard nothing else took.
+			if (window && window.active && !window.activeFocusItem && (folderView.followsWindow || !window.primaryFolderView))
 				folderView.forceActiveFocus();
 			folderView.updateViewFocus();
 		}
@@ -308,6 +315,8 @@ Item {
 		}
 		fm.set_pane_horizontal(folderView.paneId, folderView.horizontalScroll);
 		fm.set_pane_items(folderView.paneId, paths, folderView.gridStride);
+		const metrics = folderView.gridMetrics;
+		fm.set_pane_positions(folderView.paneId, metrics.free ? JSON.stringify(metrics.slots) : "");
 		folderView.focusOwned = true;
 
 		if (folderView.returnFocusPath !== "") {
@@ -421,12 +430,19 @@ Item {
 	Component.onCompleted: {
 		Qt.callLater(() => {
 			const window = folderView.Window.window;
-			// The layout creates one view after another; only the first one
-			// claims the keyboard, the rest leave it alone.
-			if (!window || !window.activeFocusItem)
-				folderView.forceActiveFocus();
 			if (folderView.focusManager)
 				folderView.paneId = folderView.focusManager.register_pane();
+			if (folderView.followsWindow && folderView.rootWindow)
+				folderView.rootWindow.primaryFolderView = folderView;
+			// The layout creates one view after another; the view that follows
+			// the window's folder takes the keyboard, the rest leave it alone
+			// unless nothing claimed it. Activating the pane first keeps a
+			// sibling that still counts as current from taking it back.
+			const claim = folderView.followsWindow || !window || !window.activeFocusItem;
+			if (claim && folderView.focusManager && folderView.paneId > 0)
+				folderView.focusManager.activate_pane(folderView.paneId);
+			if (claim)
+				folderView.forceActiveFocus();
 			folderView.updateViewFocus();
 			folderView.updateGeometry();
 			if (folderView.config && folderView.directory) {
@@ -443,6 +459,8 @@ Item {
 	Component.onDestruction: {
 		if (folderView.rootWindow && folderView.rootWindow.selectionManager === folderView.selectionManager)
 			folderView.rootWindow.selectionManager = null;
+		if (folderView.rootWindow && folderView.rootWindow.primaryFolderView === folderView)
+			folderView.rootWindow.primaryFolderView = null;
 		if (folderView.focusManager && folderView.paneId > 0)
 			folderView.focusManager.release_pane(folderView.paneId);
 	}
@@ -491,6 +509,17 @@ Item {
 			folderView.focusManager.set_pane_columns(folderView.paneId, folderView.gridStride);
 	}
 
+	// Free placement re-flows with the view, so the pane's copy of the visual
+	// positions is refreshed whenever the grid is recomputed.
+	onGridMetricsChanged: {
+		const metrics = folderView.gridMetrics;
+		if (!metrics.free)
+			return;
+		const fm = folderView.focusManager;
+		if (fm && folderView.paneId > 0)
+			fm.set_pane_positions(folderView.paneId, JSON.stringify(metrics.slots));
+	}
+
 	Connections {
 		target: folderView.focusManager
 		function onFocus_changed() {
@@ -528,6 +557,11 @@ Item {
 			if (folderView.openMenu && folderView.openMenu.visible) {
 				folderView.openMenu.close();
 				folderView.openMenu = null;
+				return;
+			}
+
+			if (folderView.filterActive) {
+				folderView.directory.clear_filter();
 				return;
 			}
 
@@ -613,6 +647,16 @@ Item {
 		function onModelReset() {
 			folderView.thumbRequested = ({});
 			folderView.thumbRequestKey = "";
+			folderView.scheduleThumbnails();
+		}
+
+		// Filtering swaps the visible rows; re-point the pane at them and put
+		// the focus on the first match while a filter is up.
+		function onFilter_changed() {
+			folderView.updateFocusItems();
+			const fm = folderView.focusManager;
+			if (fm && folderView.paneId > 0 && fm.current_pane === folderView.paneId && folderView.filterActive)
+				fm.focus_first();
 			folderView.scheduleThumbnails();
 		}
 
@@ -1156,7 +1200,55 @@ Item {
 	}
 
 	// ── Input Shortcuts ───
+
+	// Type-to-filter: printable keys extend the filter, Backspace trims it and
+	// Escape clears it. Returns true when the key was consumed.
+	function handleFilterKey(event) {
+		const dir = folderView.directory;
+		if (!dir)
+			return false;
+
+		const active = String(dir.filter).length > 0;
+		const control = (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)) !== 0;
+
+		if (event.key === Qt.Key_Escape) {
+			if (!active)
+				return false;
+			dir.clear_filter();
+			return true;
+		}
+
+		if (event.key === Qt.Key_Backspace) {
+			if (!active)
+				return false;
+			dir.backspace_filter();
+			return true;
+		}
+
+		// Space keeps toggling the selection until the filter is up.
+		if (event.key === Qt.Key_Space && !active)
+			return false;
+
+		if (control || event.text.length === 0)
+			return false;
+
+		// Tab, Return, Delete and friends carry control characters in `text`.
+		for (let i = 0; i < event.text.length; i++) {
+			const code = event.text.charCodeAt(i);
+			if (code < 0x20 || code === 0x7f)
+				return false;
+		}
+
+		dir.append_filter(event.text);
+		return true;
+	}
+
 	Keys.onPressed: event => {
+		if (folderView.handleFilterKey(event)) {
+			event.accepted = true;
+			return;
+		}
+
 		const mgr = folderView.selectionManager;
 		const fm = folderView.focusManager;
 		if (!mgr || !fm)
@@ -1239,8 +1331,12 @@ Item {
 			left: parent.left
 			right: parent.right
 			bottom: selectionBar.top
+			leftMargin: Kirigami.Units.mediumSpacing
+			rightMargin: Kirigami.Units.mediumSpacing
+			bottomMargin: Kirigami.Units.mediumSpacing
+			// The filter bar pushes the grid down while it is up.
+			topMargin: folderView.filterActive ? filterBar.height + Kirigami.Units.mediumSpacing * 2 : Kirigami.Units.mediumSpacing
 		}
-		anchors.margins: Kirigami.Units.mediumSpacing
 
 		onContentYChanged: folderView.scheduleThumbnails()
 		onContentXChanged: folderView.scheduleThumbnails()
@@ -1363,6 +1459,81 @@ Item {
 							}
 						}
 					}
+				}
+			}
+		}
+	}
+
+	// ── Filter Bar ───
+
+	Rectangle {
+		id: filterBar
+		z: 3
+
+		anchors.top: parent.top
+		anchors.left: parent.left
+		anchors.right: parent.right
+		anchors.margins: Kirigami.Units.mediumSpacing
+		height: Kirigami.Units.gridUnit * 2
+		radius: Kirigami.Units.cornerRadius
+
+		visible: opacity > 0
+		opacity: folderView.filterActive ? 1 : 0
+		Behavior on opacity {
+			NumberAnimation {
+				duration: 120
+				easing.type: Easing.OutCubic
+			}
+		}
+
+		Kirigami.Theme.colorSet: Kirigami.Theme.Header
+		color: Kirigami.Theme.backgroundColor
+		border.width: 1
+		border.color: Kirigami.Theme.highlightColor
+
+		MouseArea {
+			anchors.fill: parent
+			acceptedButtons: Qt.AllButtons
+			onPressed: mouse => {
+				mouse.accepted = true;
+				folderView.forceActiveFocus();
+			}
+		}
+
+		RowLayout {
+			anchors.fill: parent
+			anchors.leftMargin: Kirigami.Units.largeSpacing
+			anchors.rightMargin: Kirigami.Units.smallSpacing
+			spacing: Kirigami.Units.smallSpacing
+
+			Kirigami.Icon {
+				source: "search"
+				Layout.preferredWidth: Kirigami.Units.iconSizes.small
+				Layout.preferredHeight: Kirigami.Units.iconSizes.small
+			}
+
+			Label {
+				text: folderView.directory ? String(folderView.directory.filter) : ""
+				font.weight: Font.Medium
+				elide: Text.ElideRight
+				Layout.fillWidth: true
+			}
+
+			Label {
+				text: itemRepeater.count === 1 ? qsTr("1 match") : qsTr("%1 matches").arg(itemRepeater.count)
+				opacity: 0.7
+				elide: Text.ElideRight
+			}
+
+			ToolButton {
+				icon.name: "edit-clear"
+				focusPolicy: Qt.NoFocus
+				flat: true
+				ToolTip.text: qsTr("Clear filter")
+				ToolTip.visible: hovered
+				onClicked: {
+					folderView.directory.clear_filter();
+					folderView.forceActiveFocus();
 				}
 			}
 		}
