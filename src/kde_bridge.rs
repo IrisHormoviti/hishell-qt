@@ -13,6 +13,15 @@ unsafe extern "C" {
 	fn hishell_portal_poll() -> i32;
 	fn hishell_send_key(key: i32) -> bool;
 	fn hishell_hook_menu_key();
+	fn hishell_file_uri(path: *const c_char) -> *const c_char;
+	fn hishell_thumbnail_image(
+		src: *const c_char,
+		dst: *const c_char,
+		size: i32,
+		uri: *const c_char,
+		mtime_secs: i64,
+		file_size: i64,
+	) -> bool;
 }
 
 /// Delivers a synthetic key press/release to whatever currently holds the
@@ -134,4 +143,43 @@ pub fn set_default(mime: &str, storage_id: &str) -> bool {
 		.status()
 		.map(|status| status.success())
 		.unwrap_or(false)
+}
+
+/// Percent-encoded `file://` URI used as a freedesktop thumbnail cache key.
+pub fn file_uri(path: &str) -> Option<String> {
+	let path = CString::new(path).ok()?;
+	let uri = unsafe { hishell_file_uri(path.as_ptr()) };
+	if uri.is_null() {
+		return None;
+	}
+	let uri = unsafe { CStr::from_ptr(uri) }
+		.to_string_lossy()
+		.into_owned();
+	if uri.is_empty() { None } else { Some(uri) }
+}
+
+/// Renders an image thumbnail with QImageReader and stores it with the
+/// freedesktop `Thumb::*` text chunks. Runs on the thumbnail worker threads.
+pub fn thumbnail_image(
+	src: &str,
+	dst: &str,
+	size: u32,
+	uri: &str,
+	mtime_secs: i64,
+	file_size: u64,
+) -> bool {
+	let (Ok(src), Ok(dst), Ok(uri)) = (CString::new(src), CString::new(dst), CString::new(uri))
+	else {
+		return false;
+	};
+	unsafe {
+		hishell_thumbnail_image(
+			src.as_ptr(),
+			dst.as_ptr(),
+			size as i32,
+			uri.as_ptr(),
+			mtime_secs,
+			file_size as i64,
+		)
+	}
 }

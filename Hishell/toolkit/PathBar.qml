@@ -112,8 +112,9 @@ RowLayout {
                 id: crumbSlot
                 path: pathBar.pathForIndex(delegateRoot.index)
                 title: delegateRoot.modelData === "/" ? "/" : delegateRoot.modelData
+                icon: pathBar.window.fileManager ? pathBar.window.fileManager.get_icon(crumbSlot.path) : ""
                 showIcon: delegateRoot.index === pathBar.segments.length - 1
-				implicitHeight: Kirigami.Units.iconSizes.medium
+                implicitHeight: Kirigami.Units.iconSizes.medium
 
                 dragDropHandler: pathBar.window.dragDropHandler
                 fileManager: pathBar.window.fileManager

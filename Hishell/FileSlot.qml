@@ -18,7 +18,7 @@ Item {
 	property ActionManager actionManager: window ? window.actionManager : null
 	property FileManager fileManager: window ? window.fileManager : null
 
-	property string icon: fileManager ? fileManager.get_icon(path) : ""
+	required property string icon
 	required property string title
 	property int gridSize: 64
 	property bool labelBesideIcon: gridSize < 32
@@ -146,37 +146,6 @@ Item {
 		NumberAnimation {
 			duration: fileSlot.animationDuration
 			easing.type: fileSlot.animationEase
-		}
-	}
-
-	// ── Offscreen Visual Container for Multi-Drag Stack ──
-	Item {
-		id: stackPreviewContainer
-		width: fileSlot.width + 12
-		height: fileSlot.height + 12
-		visible: false
-
-		Repeater {
-			model: Math.min(3, fileSlot.currentDragCount)
-			delegate: Rectangle {
-				required property int index
-				x: (2 - index) * 5
-				y: (2 - index) * 5
-				width: fileSlot.width
-				height: fileSlot.height
-				radius: Kirigami.Units.cornerRadius
-				color: Kirigami.Theme.backgroundColor
-				border.color: Kirigami.Theme.highlightColor
-				border.width: 1
-				opacity: 1.0 - (index * 0.15)
-
-				Kirigami.Icon {
-					anchors.centerIn: parent
-					width: fileSlot.gridSize
-					height: fileSlot.gridSize
-					source: fileSlot.icon
-				}
-			}
 		}
 	}
 

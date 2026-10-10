@@ -14,6 +14,7 @@
 #include <QDBusUnixFileDescriptor>
 #include <QDebug>
 #include <QGuiApplication>
+#include <QImageReader>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -21,6 +22,7 @@
 #include <QMimeDatabase>
 #include <QMimeType>
 #include <QRandomGenerator>
+#include <QSaveFile>
 #include <QUrl>
 #include <QVariantMap>
 #include <QWindow>
@@ -317,6 +319,52 @@ void hishell_hook_menu_key(void)
 	}
 	filter = new HishellMenuKeyFilter(application);
 	application->installEventFilter(filter);
+}
+
+// The percent-encoded file:// URI that names an entry in the freedesktop
+// thumbnail cache. Matches the keys KDE applications write, so the same
+// cached thumbnails are shared in both directions.
+const char *hishell_file_uri(const char *path)
+{
+	g_result = QUrl::fromLocalFile(QString::fromUtf8(path)).toEncoded(QUrl::FullyEncoded);
+	return g_result.constData();
+}
+
+// Thumbnail an image the way KIO's image thumbnailer does: let QImageReader
+// decode at the target size and store the result as a PNG carrying the
+// freedesktop Thumb::* text chunks. Runs on worker threads.
+bool hishell_thumbnail_image(const char *src, const char *dst, int size, const char *uri, long long mtimeSecs, long long fileSize)
+{
+	QImageReader reader(QString::fromUtf8(src));
+	reader.setAutoTransform(true);
+	const QSize origSize = reader.size();
+	if (size > 0 && origSize.isValid() && !origSize.isEmpty()) {
+		QSize scaled = origSize;
+		scaled.scale(QSize(size, size), Qt::KeepAspectRatio);
+		if (scaled != origSize) {
+			reader.setScaledSize(scaled);
+		}
+	}
+
+	QImage image = reader.read();
+	if (image.isNull()) {
+		return false;
+	}
+
+	image.setText(QStringLiteral("Thumb::URI"), QString::fromUtf8(uri));
+	image.setText(QStringLiteral("Thumb::MTime"), QString::number(mtimeSecs));
+	image.setText(QStringLiteral("Thumb::Size"), QString::number(fileSize));
+	image.setText(QStringLiteral("Software"), QStringLiteral("hishell Thumbnail Generator (QImageReader)"));
+
+	QSaveFile out(QString::fromUtf8(dst));
+	if (!out.open(QIODevice::WriteOnly)) {
+		return false;
+	}
+	if (!image.save(&out, "PNG")) {
+		out.cancelWriting();
+		return false;
+	}
+	return out.commit();
 }
 }
 

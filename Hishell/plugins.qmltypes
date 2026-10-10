@@ -478,6 +478,12 @@ Module {
 			type: "void"
 		}
 		Method {
+			name: "request_thumbnail"
+			type: "void"
+			Parameter { name: "path"; type: "string" }
+			Parameter { name: "size"; type: "int" }
+		}
+		Method {
 			name: "set_config"
 			type: "void"
 			Parameter { name: "section"; type: "string" }

@@ -218,18 +218,38 @@ pub struct Directory {
 
 	poll_thumbnails: qt_method!(
 		pub fn poll_thumbnails(&mut self) {
-			let updates = crate::thumbnailer::drain_results();
-			if updates.is_empty() {
+			if !thumbnailer::has_results() {
 				return;
 			}
-			for (src, dst) in updates {
-				if let Some(idx) = self.items.iter().position(|it| it.path == src) {
-					self.items[idx].icon = format!("file://{}", dst);
+			let mut updates = Vec::new();
+			for (idx, item) in self.items.iter().enumerate() {
+				if let Some(uri) = thumbnailer::result_for(&item.path) {
+					if item.icon != uri {
+						updates.push((idx, uri));
+					}
 				}
 			}
+			for (idx, uri) in updates {
+				self.items[idx].icon = uri;
+				let index = self.row_index(idx as i32);
+				self.data_changed(index, index);
+			}
+		}
+	),
 
-			self.begin_reset_model();
-			self.end_reset_model();
+	request_thumbnail: qt_method!(
+		pub fn request_thumbnail(&mut self, path: String, size: i32) {
+			let size = size.max(1) as u32;
+			let folder = self.path_str.clone();
+			if let Some(uri) = thumbnailer::request(Path::new(&path), size, Path::new(&folder)) {
+				if let Some(idx) = self.items.iter().position(|it| it.path == path) {
+					if self.items[idx].icon != uri {
+						self.items[idx].icon = uri;
+						let index = self.row_index(idx as i32);
+						self.data_changed(index, index);
+					}
+				}
+			}
 		}
 	),
 
@@ -336,6 +356,11 @@ pub struct Directory {
 
 	load_directory: qt_method!(
 		fn load_directory(&mut self, path: String, include_hidden: bool) {
+			// Re-reading a folder drops its pending thumbnail work; results that
+			// are still in flight simply no longer match any item.
+			if !self.path_str.is_empty() {
+				crate::thumbnailer::cancel_folder(Path::new(&self.path_str));
+			}
 			Directory::new(self, path, include_hidden);
 		}
 	),
@@ -358,7 +383,7 @@ impl Directory {
 				let p = entry_path.to_string_lossy().to_string();
 				let title = get_item_title(&entry_path);
 				let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
-				let mut icon = get_icon(&p);
+				let icon = get_icon(&p);
 
 				let (modified, created, accessed) = entry
 					.metadata()
@@ -370,49 +395,6 @@ impl Directory {
 						)
 					})
 					.unwrap_or((0, 0, 0));
-
-				// enqueue thumbnail generation for images/videos and use cached thumbnail if available
-				if !is_dir {
-					let size = self.config.pinned().borrow().grid_size as u32;
-					if let Some(ext) = Path::new(&p).extension().and_then(|e| e.to_str()) {
-						let ext_l = ext.to_lowercase();
-						let image_exts = [
-							"png", "jpg", "jpeg", "bmp", "gif", "webp", "avif", "tiff", "svg",
-							"kra", "appimage",
-						];
-						let video_exts = ["mp4", "mkv", "webm", "avi", "mov", "mpeg", "mpg"];
-						// also allow filenames that end with .AppImage even if ext detection fails
-						let fname = Path::new(&p)
-							.file_name()
-							.and_then(|n| n.to_str())
-							.unwrap_or("")
-							.to_lowercase();
-						let is_appimage_name = fname.ends_with(".appimage");
-						if image_exts.contains(&ext_l.as_str())
-							|| video_exts.contains(&ext_l.as_str())
-							|| is_appimage_name
-						{
-							if let Some(uri) =
-								thumbnailer::thumbnail_uri_if_exists(Path::new(&p), size)
-							{
-								icon = uri;
-							} else {
-								// avoid generating thumbnails for very large files
-								const MAX_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
-								match fs::metadata(&p) {
-									Ok(meta) => {
-										if meta.len() <= MAX_BYTES {
-											thumbnailer::enqueue(Path::new(&p), size);
-										}
-									}
-									Err(_) => {
-										thumbnailer::enqueue(Path::new(&p), size);
-									}
-								}
-							}
-						}
-					}
-				}
 
 				self.items.push(FileItem {
 					name,
@@ -511,6 +493,10 @@ impl Directory {
 		let abs_path = normalize_path(path_buf, &self.path_str);
 		let abs_str = abs_path.to_string_lossy().to_string();
 
+		if !self.path_str.is_empty() && self.path_str != abs_str {
+			crate::thumbnailer::cancel_folder(Path::new(&self.path_str));
+		}
+
 		self.path_str = abs_str.clone();
 
 		let load_path = if abs_path.is_file() {
@@ -522,8 +508,11 @@ impl Directory {
 			abs_str.clone()
 		};
 
-		self.load_directory(load_path.clone(), false);
-		self.config.pinned().borrow_mut().load(load_path);
+		// The config decides whether dotfiles are listed, so it has to be read
+		// before the directory; otherwise the folder gets scanned twice.
+		self.config.pinned().borrow_mut().load(load_path.clone());
+		let include_hidden = !self.config.pinned().borrow().stash_dotfiles;
+		self.load_directory(load_path, include_hidden);
 
 		self.path_changed();
 		self.config_changed();

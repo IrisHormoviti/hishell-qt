@@ -430,8 +430,8 @@ Item {
 			folderView.updateViewFocus();
 			folderView.updateGeometry();
 			if (folderView.config && folderView.directory) {
-				folderView.config.load(folderView.directory.path);
-				folderView.directory.load_directory(folderView.directory.path, !folderView.config.stash_dotfiles);
+				// The directory has already scanned its folder when the path was
+				// set; only the initial view state is set up here.
 				folderView.lastPath = String(folderView.directory.path);
 				folderView.updateFocusItems();
 			} else {
@@ -476,6 +476,7 @@ Item {
 		target: itemRepeater
 		function onCountChanged() {
 			folderView.updateFocusItems();
+			folderView.scheduleThumbnails();
 		}
 	}
 
@@ -553,29 +554,75 @@ Item {
 		}
 	}
 
+	// Thumbnails are only requested for the items in (or near) the visible
+	// area, like Dolphin does; the backend caches them, so scrolling back is
+	// instant and a big folder never gets previewed all at once.
+	property var thumbRequested: ({})
+	property string thumbRequestKey: ""
+
+	function scheduleThumbnails() {
+		thumbnailTimer.restart();
+	}
+
+	function requestVisibleThumbnails() {
+		const dir = folderView.directory;
+		if (!dir || !flickable || flickable.height <= 0 || flickable.width <= 0)
+			return;
+
+		const cfg = folderView.config;
+		const gridSize = cfg ? cfg.grid_size : 64;
+		const bucket = gridSize <= 128 ? 128 : (gridSize <= 256 ? 256 : (gridSize <= 512 ? 512 : 1024));
+		const key = String(dir.path) + "|" + bucket;
+		if (key !== folderView.thumbRequestKey) {
+			folderView.thumbRequestKey = key;
+			folderView.thumbRequested = ({});
+		}
+
+		const requested = folderView.thumbRequested;
+		const metrics = folderView.gridMetrics;
+		const margin = Math.max(metrics.itemWidth, metrics.itemHeight);
+		const top = flickable.contentY - margin;
+		const bottom = flickable.contentY + flickable.height + margin;
+		const left = flickable.contentX - margin;
+		const right = flickable.contentX + flickable.width + margin;
+
+		const count = itemRepeater.count;
+		for (let i = 0; i < count; i++) {
+			const item = itemRepeater.itemAt(i);
+			if (!item || !item.path || requested[item.path])
+				continue;
+			if (item.y + item.height < top || item.y > bottom || item.x + item.width < left || item.x > right)
+				continue;
+			requested[item.path] = true;
+			dir.request_thumbnail(item.path, bucket);
+		}
+	}
+
+	Timer {
+		id: thumbnailTimer
+		interval: 120
+		repeat: false
+		onTriggered: folderView.requestVisibleThumbnails()
+	}
+
 	Connections {
 		target: folderView.directory
 
 		function onPathChanged() {
 			const current = String(folderView.directory.path);
-			const pathChanged = current !== folderView.lastPath;
 			const previous = folderView.lastPath;
 			folderView.lastPath = current;
 			folderView.returnFocusPath = previous;
 
-			if (folderView.config && folderView.directory) {
-				// A refresh emits `path_changed` without moving; only re-read from
-				// disk when the location actually changed, otherwise the caller has
-				// already refreshed the model in place.
-				folderView.config.load(folderView.directory.path);
-				if (pathChanged)
-					folderView.directory.load_directory(folderView.directory.path, !folderView.config.stash_dotfiles);
-			}
+			// The directory has already scanned the new folder (and re-read its
+			// config) when the path was set, so only the view state is updated
+			// here.
 			if (folderView.focusManager)
 				folderView.focusManager.clear_pane(folderView.paneId);
 			// Entering a folder leaves the focus inactive, so no border shows
 			// until the next directional input; a restored target activates it.
 			folderView.updateFocusItems();
+			folderView.scheduleThumbnails();
 			if (folderView.selectionManager)
 				folderView.selectionManager.exit_selection_mode();
 		}
@@ -583,8 +630,10 @@ Item {
 		function onConfig_changed() {
 			// View-only settings (grid size, sorting, free placement, ...) are
 			// applied by re-evaluating the grid bindings; the directory does not
-			// need to be re-read.
+			// need to be re-read. A grid size change may need thumbnails of a
+			// different cache tier.
 			folderView.updateFocusItems();
+			folderView.scheduleThumbnails();
 		}
 	}
 
@@ -1184,6 +1233,11 @@ Item {
 			bottom: selectionBar.top
 		}
 		anchors.margins: Kirigami.Units.mediumSpacing
+
+		onContentYChanged: folderView.scheduleThumbnails()
+		onContentXChanged: folderView.scheduleThumbnails()
+		onHeightChanged: folderView.scheduleThumbnails()
+		onWidthChanged: folderView.scheduleThumbnails()
 		contentWidth: folderView.gridMetrics.contentWidth
 		contentHeight: folderView.gridMetrics.contentHeight
 
