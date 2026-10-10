@@ -17,6 +17,11 @@ use crate::thumbnailer;
 static ICON_CACHE: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 fn query_gio_icon(path: &str) -> Option<String> {
+	// `gio info ""` inspects the working directory and reports a folder icon.
+	if path.trim().is_empty() {
+		return None;
+	}
+
 	if let Ok(output) = Command::new("gio").arg("info").arg(path).output() {
 		if output.status.success() {
 			let out = String::from_utf8_lossy(&output.stdout);
@@ -125,6 +130,7 @@ pub struct FileItem {
 	pub title: String,
 	pub path: String,
 	pub is_dir: bool,
+	pub is_dotfile: bool,
 	pub icon: String,
 	pub modified: u64,
 	pub created: u64,
@@ -401,6 +407,10 @@ impl Directory {
 					title,
 					path: p,
 					is_dir,
+					is_dotfile: entry_path
+						.file_name()
+						.and_then(|n| n.to_str())
+						.is_some_and(|n| n.starts_with('.')),
 					icon,
 					modified,
 					created,
@@ -439,21 +449,32 @@ impl Directory {
 			_ => item.title.to_lowercase(),
 		};
 
+		let dotfile_key = |item: &FileItem| item.is_dotfile;
+
 		match sort {
 			0 => self.items.sort_by(|a, b| {
-				date_key(b)
-					.cmp(&date_key(a))
+				dotfile_key(a)
+					.cmp(&dotfile_key(b))
+					.then_with(|| date_key(b).cmp(&date_key(a)))
 					.then_with(|| name_key(a).cmp(&name_key(b)))
 			}),
 			1 => self.items.sort_by(|a, b| {
-				date_key(a)
-					.cmp(&date_key(b))
+				dotfile_key(a)
+					.cmp(&dotfile_key(b))
+					.then_with(|| date_key(a).cmp(&date_key(b)))
 					.then_with(|| name_key(a).cmp(&name_key(b)))
 			}),
-			2 => self.items.sort_by(|a, b| name_key(a).cmp(&name_key(b))),
-			_ => self
-				.items
-				.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then(a.name.cmp(&b.name))),
+			2 => self.items.sort_by(|a, b| {
+				dotfile_key(a)
+					.cmp(&dotfile_key(b))
+					.then_with(|| name_key(a).cmp(&name_key(b)))
+			}),
+			_ => self.items.sort_by(|a, b| {
+				dotfile_key(a)
+					.cmp(&dotfile_key(b))
+					.then_with(|| b.is_dir.cmp(&a.is_dir))
+					.then_with(|| a.name.cmp(&b.name))
+			}),
 		}
 	}
 
@@ -751,6 +772,12 @@ pub fn get_item_title(path: &Path) -> String {
 }
 
 pub fn get_icon(path: &str) -> String {
+	// An empty path would make `gio info` inspect the current working directory,
+	// so bail out before any filesystem or gio lookup can happen.
+	if path.trim().is_empty() {
+		return "text-x-generic".to_string();
+	}
+
 	let path_buf = Path::new(path);
 	let is_dir = path_buf.is_dir();
 
@@ -768,7 +795,10 @@ pub fn get_icon(path: &str) -> String {
 		return "open-link".to_string();
 	}
 
-	// Prefer system icons via `gio` when available, caching per-extension or per-mime.
+	// Prefer system icons via `gio` when available, caching per-extension. Files
+	// without an extension (README, Makefile, .bashrc, ...) are cached per-name:
+	// mime_guess reports them all as application/octet-stream, so a mime-keyed
+	// cache would let the first one resolved decide the icon for all the others.
 	let mime = from_path(path)
 		.first_or_octet_stream()
 		.essence_str()
@@ -776,7 +806,12 @@ pub fn get_icon(path: &str) -> String {
 	let key = if let Some(ext) = Path::new(path).extension().and_then(|e| e.to_str()) {
 		format!("ext:{}", ext.to_lowercase())
 	} else {
-		format!("mime:{}", mime)
+		let name = path_buf
+			.file_name()
+			.and_then(|n| n.to_str())
+			.unwrap_or(path)
+			.to_lowercase();
+		format!("name:{}", name)
 	};
 
 	if let Some(cached) = ICON_CACHE.lock().unwrap().get(&key) {
@@ -793,8 +828,6 @@ pub fn get_icon(path: &str) -> String {
 		"image-x-generic".to_string()
 	} else if mime.starts_with("video/") {
 		"video-x-generic".to_string()
-	} else if mime.starts_with("text/") {
-		"text-x-generic".to_string()
 	} else {
 		"text-x-generic".to_string()
 	};
