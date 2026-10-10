@@ -242,6 +242,13 @@ pub struct Directory {
 				&value,
 				local,
 			);
+			// Refreshing the changed config property is enough for layout-only
+			// settings (grid size, spacing, alignment, ...). Sorting reorders the
+			// existing items in place; keys that change which files exist emit
+			// `items_changed`, which the view turns into a re-scan.
+			if crate::config::key_affects_order(&section, &key) {
+				self.resort_items();
+			}
 			self.config_changed();
 		}
 	),
@@ -253,8 +260,6 @@ pub struct Directory {
 				.pinned()
 				.borrow_mut()
 				.set_free_position(Path::new(&path), &name, col, row);
-			self.config_changed();
-			self.reload();
 		}
 	),
 
@@ -265,8 +270,6 @@ pub struct Directory {
 				.pinned()
 				.borrow_mut()
 				.reset_free_positions(Path::new(&path));
-			self.config_changed();
-			self.reload();
 		}
 	),
 
@@ -278,7 +281,7 @@ pub struct Directory {
 				&old_name,
 				&new_name,
 			);
-			self.config_changed();
+			// The file itself was renamed, so the item set changed.
 			self.reload();
 		}
 	),
@@ -286,6 +289,9 @@ pub struct Directory {
 	reload: qt_method!(
 		pub fn reload(&mut self) {
 			let path = self.path_str.clone();
+			// Re-read the config first so a manual refresh also picks up edits
+			// made to the folder's config file on disk.
+			self.config.pinned().borrow_mut()._load(Path::new(&path));
 			let include_hidden = !self.config.pinned().borrow().stash_dotfiles;
 			self.load_directory(path, include_hidden);
 			self.path_changed();
@@ -423,6 +429,14 @@ impl Directory {
 
 		self.sort_items();
 
+		self.end_reset_model();
+	}
+
+	/// Re-sort the in-memory items after a sort-related config change, without
+	/// touching the filesystem.
+	fn resort_items(&mut self) {
+		self.begin_reset_model();
+		self.sort_items();
 		self.end_reset_model();
 	}
 

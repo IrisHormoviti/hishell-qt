@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Dialogs
 
 
 Menu {
@@ -25,23 +26,39 @@ Menu {
 	title: qsTr("&View")
 	popupType: Popup.Native
 
+	// Write a setting to a config section. The scope follows the General/Here tab:
+	// the global config, or this folder's own .directory.
+	function setSectionConfig(section, key, value) {
+		if (viewMenu.directory)
+			viewMenu.directory.set_config(section, key, value, viewMenu.isLocal);
+	}
+
+	function setConfig(key, value) {
+		viewMenu.setSectionConfig(viewConfigGroupName, key, value);
+	}
+
+	function setNavigationConfig(key, value) {
+		viewMenu.setSectionConfig("Folder Navigation", key, value);
+	}
+
 	function setSort(value) {
-		if (viewMenu.directory) {
-			viewMenu.directory.set_config(viewConfigGroupName, "Sort", value, viewMenu.isLocal);
-			viewMenu.directory.reload();
-		}
+		viewMenu.setConfig("Sort", value);
 	}
 
 	function setViewMode(value) {
-		if (viewMenu.directory) {
-			viewMenu.directory.set_config(viewConfigGroupName, "ViewMode", value, viewMenu.isLocal);
-			viewMenu.directory.reload();
-		}
+		viewMenu.setConfig("ViewMode", value);
 	}
 
 	function resetFreePlacement() {
 		if (viewMenu.directory)
 			viewMenu.directory.reset_free_positions();
+	}
+
+	function pathFromUrl(url) {
+		let path = String(url);
+		if (path.startsWith("file://"))
+			path = path.substring(7);
+		return decodeURIComponent(path);
 	}
 
 	ButtonGroup {
@@ -55,6 +72,22 @@ Menu {
 	}
 	ButtonGroup {
 		id: sortAlphaMode
+	}
+	ButtonGroup {
+		id: scrollDirectionGroup
+	}
+	ButtonGroup {
+		id: horizontalAlignGroup
+	}
+	ButtonGroup {
+		id: verticalAlignGroup
+	}
+
+	FileDialog {
+		id: wallpaperDialog
+		title: qsTr("Choose Wallpaper")
+		nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.webp *.avif *.bmp *.gif *.svg)"), qsTr("All files (*)")]
+		onAccepted: viewMenu.setConfig("Wallpaper", viewMenu.pathFromUrl(wallpaperDialog.selectedFile))
 	}
 
 	TabBar {
@@ -83,10 +116,7 @@ Menu {
 				from: 16
 				to: 256
 				stepSize: 4
-				onMoved: if (viewMenu.directory) {
-					viewMenu.directory.set_config(viewConfigGroupName, "GridSize", value.toString(), viewMenu.isLocal);
-					viewMenu.directory.reload();
-				}
+				onMoved: viewMenu.setConfig("GridSize", value.toString())
 			}
 			TextMetrics {
 				id: charMetrics
@@ -100,18 +130,43 @@ Menu {
 		}
 	}
 
+	MenuItem {
+		contentItem: RowLayout {
+			Label {
+				text: qsTr("Lines")
+			}
+			Slider {
+				id: linesSlider
+				value: viewMenu.config ? viewMenu.config.grid_lines : 0
+				from: 0
+				to: 20
+				stepSize: 1
+				onMoved: viewMenu.setConfig("Lines", value.toString())
+			}
+			TextMetrics {
+				id: autoMetrics
+				text: qsTr("Auto")
+			}
+			Label {
+				text: linesSlider.value === 0 ? qsTr("Auto") : linesSlider.value
+				Layout.preferredWidth: autoMetrics.width
+				horizontalAlignment: Text.AlignHCenter
+			}
+		}
+	}
+
 	Action {
 		id: increaseSizeAction
 		text: qsTr("Zoom In")
 		shortcut: "Ctrl+="
-		onTriggered: gridSizeSlider.value = Math.min(gridSizeSlider.value + 4, gridSizeSlider.to)
+		onTriggered: viewMenu.setConfig("GridSize", String(Math.min(gridSizeSlider.value + 4, gridSizeSlider.to)))
 	}
 
 	Action {
 		id: decreaseSizeAction
 		text: qsTr("Zoom Out")
 		shortcut: "Ctrl+-"
-		onTriggered: gridSizeSlider.value = Math.max(gridSizeSlider.value - 4, gridSizeSlider.from)
+		onTriggered: viewMenu.setConfig("GridSize", String(Math.max(gridSizeSlider.value - 4, gridSizeSlider.from)))
 	}
 
 	MenuSeparator {}
@@ -146,6 +201,25 @@ Menu {
 		}
 	}
 
+	Menu {
+		title: qsTr("Labels")
+		icon.name: "format-text"
+		popupType: Popup.Item
+		MenuItem {
+			text: qsTr("Show Labels")
+			checkable: true
+			checked: viewMenu.config ? viewMenu.config.show_labels : true
+			onToggled: viewMenu.setConfig("ShowLabels", String(checked))
+		}
+		MenuItem {
+			text: qsTr("Labels Beside Icons")
+			checkable: true
+			checked: viewMenu.config ? viewMenu.config.grid_labels_beside_icons : false
+			enabled: viewMenu.config ? viewMenu.config.show_labels : true
+			onToggled: viewMenu.setConfig("GridLabelsBesidesIcons", String(checked))
+		}
+	}
+
 	MenuSeparator {}
 
 	Menu {
@@ -176,6 +250,7 @@ Menu {
 				ButtonGroup.group: sortDateMode
 				checked: viewMenu.config ? viewMenu.config.sort_date_mode === 0 : false
 				objectName: "MODIFIED"
+				onTriggered: viewMenu.setConfig("SortDateMode", "MODIFIED")
 			}
 			MenuItem {
 				text: qsTr("Created")
@@ -183,6 +258,7 @@ Menu {
 				ButtonGroup.group: sortDateMode
 				checked: viewMenu.config ? viewMenu.config.sort_date_mode === 1 : false
 				objectName: "CREATED"
+				onTriggered: viewMenu.setConfig("SortDateMode", "CREATED")
 			}
 			MenuItem {
 				text: qsTr("Accessed")
@@ -190,6 +266,7 @@ Menu {
 				ButtonGroup.group: sortDateMode
 				checked: viewMenu.config ? viewMenu.config.sort_date_mode === 2 : false
 				objectName: "ACCESSED"
+				onTriggered: viewMenu.setConfig("SortDateMode", "ACCESSED")
 			}
 		}
 		MenuSeparator {}
@@ -209,6 +286,7 @@ Menu {
 				ButtonGroup.group: sortAlphaMode
 				checked: viewMenu.config ? viewMenu.config.sort_alpha_mode === 0 : false
 				objectName: "TITLES"
+				onTriggered: viewMenu.setConfig("SortAlphaMode", "TITLES")
 			}
 			MenuItem {
 				text: qsTr("File Name")
@@ -216,6 +294,7 @@ Menu {
 				ButtonGroup.group: sortAlphaMode
 				checked: viewMenu.config ? viewMenu.config.sort_alpha_mode === 1 : false
 				objectName: "FILENAMES"
+				onTriggered: viewMenu.setConfig("SortAlphaMode", "FILENAMES")
 			}
 		}
 		MenuSeparator {}
@@ -236,6 +315,136 @@ Menu {
 		}
 	}
 
+	Menu {
+		title: qsTr("Arrange")
+		icon.name: "format-justify-fill"
+		popupType: Popup.Item
+		Menu {
+			title: qsTr("Scroll Direction")
+			MenuItem {
+				text: qsTr("Vertical")
+				checkable: true
+				ButtonGroup.group: scrollDirectionGroup
+				checked: viewMenu.config ? !viewMenu.config.scroll_horizontal : true
+				objectName: "VERTICAL"
+				onTriggered: viewMenu.setConfig("ScrollDirection", "VERTICAL")
+			}
+			MenuItem {
+				text: qsTr("Horizontal")
+				checkable: true
+				ButtonGroup.group: scrollDirectionGroup
+				checked: viewMenu.config ? viewMenu.config.scroll_horizontal : false
+				objectName: "HORIZONTAL"
+				onTriggered: viewMenu.setConfig("ScrollDirection", "HORIZONTAL")
+			}
+		}
+		Menu {
+			title: qsTr("Horizontal Align")
+			MenuItem {
+				text: qsTr("Fill")
+				checkable: true
+				ButtonGroup.group: horizontalAlignGroup
+				checked: viewMenu.config ? viewMenu.config.grid_horizontal_align === 0 : true
+				objectName: "HALIGN_FILL"
+				onTriggered: viewMenu.setConfig("GridHorizontalAlign", "FILL")
+			}
+			MenuItem {
+				text: qsTr("Left")
+				checkable: true
+				ButtonGroup.group: horizontalAlignGroup
+				checked: viewMenu.config ? viewMenu.config.grid_horizontal_align === 1 : false
+				objectName: "HALIGN_LEFT"
+				onTriggered: viewMenu.setConfig("GridHorizontalAlign", "LEFT")
+			}
+			MenuItem {
+				text: qsTr("Center")
+				checkable: true
+				ButtonGroup.group: horizontalAlignGroup
+				checked: viewMenu.config ? viewMenu.config.grid_horizontal_align === 2 : false
+				objectName: "HALIGN_CENTER"
+				onTriggered: viewMenu.setConfig("GridHorizontalAlign", "CENTER")
+			}
+			MenuItem {
+				text: qsTr("Right")
+				checkable: true
+				ButtonGroup.group: horizontalAlignGroup
+				checked: viewMenu.config ? viewMenu.config.grid_horizontal_align === 3 : false
+				objectName: "HALIGN_RIGHT"
+				onTriggered: viewMenu.setConfig("GridHorizontalAlign", "RIGHT")
+			}
+		}
+		Menu {
+			title: qsTr("Vertical Align")
+			MenuItem {
+				text: qsTr("Fill")
+				checkable: true
+				ButtonGroup.group: verticalAlignGroup
+				checked: viewMenu.config ? viewMenu.config.grid_vertical_align === 0 : false
+				objectName: "VALIGN_FILL"
+				onTriggered: viewMenu.setConfig("GridVerticalAlign", "FILL")
+			}
+			MenuItem {
+				text: qsTr("Top")
+				checkable: true
+				ButtonGroup.group: verticalAlignGroup
+				checked: viewMenu.config ? viewMenu.config.grid_vertical_align === 1 : true
+				objectName: "VALIGN_TOP"
+				onTriggered: viewMenu.setConfig("GridVerticalAlign", "TOP")
+			}
+			MenuItem {
+				text: qsTr("Center")
+				checkable: true
+				ButtonGroup.group: verticalAlignGroup
+				checked: viewMenu.config ? viewMenu.config.grid_vertical_align === 2 : false
+				objectName: "VALIGN_CENTER"
+				onTriggered: viewMenu.setConfig("GridVerticalAlign", "CENTER")
+			}
+			MenuItem {
+				text: qsTr("Bottom")
+				checkable: true
+				ButtonGroup.group: verticalAlignGroup
+				checked: viewMenu.config ? viewMenu.config.grid_vertical_align === 3 : false
+				objectName: "VALIGN_BOTTOM"
+				onTriggered: viewMenu.setConfig("GridVerticalAlign", "BOTTOM")
+			}
+		}
+	}
+
+	Menu {
+		title: qsTr("Navigation")
+		icon.name: "transform-move"
+		popupType: Popup.Item
+		MenuItem {
+			text: qsTr("Center Focus")
+			checkable: true
+			checked: viewMenu.config ? viewMenu.config.center_focus : false
+			onToggled: viewMenu.setNavigationConfig("CenterFocus", String(checked))
+		}
+		MenuItem {
+			text: qsTr("Smooth Scrolling")
+			checkable: true
+			checked: viewMenu.config ? viewMenu.config.smooth_scrolling : true
+			onToggled: viewMenu.setNavigationConfig("SmoothScrolling", String(checked))
+		}
+	}
+
+	Menu {
+		title: qsTr("Wallpaper")
+		icon.name: "preferences-desktop-wallpaper"
+		popupType: Popup.Item
+		MenuItem {
+			text: qsTr("Set Wallpaper...")
+			icon.name: "document-open"
+			onTriggered: wallpaperDialog.open()
+		}
+		MenuItem {
+			text: qsTr("Clear Wallpaper")
+			icon.name: "edit-clear"
+			enabled: viewMenu.config ? viewMenu.config.wallpaper !== "" : false
+			onTriggered: viewMenu.setConfig("Wallpaper", "")
+		}
+	}
+
 	MenuSeparator {}
 
 	Menu {
@@ -245,15 +454,13 @@ Menu {
 			text: qsTr("Show Stash")
 			checkable: true
 			checked: viewMenu.config ? viewMenu.config.stash_shown : false
-			onToggled: if (viewMenu.config && viewMenu.directory)
-				viewMenu.config.set(viewMenu.directory.path, viewConfigGroupName, "StashShown", String(checked), viewMenu.isLocal)
+			onToggled: viewMenu.setConfig("StashShown", String(checked))
 		}
 		MenuItem {
 			text: qsTr("Stash Dotfiles")
 			checkable: true
 			checked: viewMenu.config ? viewMenu.config.stash_dotfiles : false
-			onToggled: if (viewMenu.config && viewMenu.directory)
-				viewMenu.config.set(viewMenu.directory.path, viewConfigGroupName, "StashDotFiles", String(checked), viewMenu.isLocal)
+			onToggled: viewMenu.setConfig("StashDotFiles", String(checked))
 		}
 	}
 }

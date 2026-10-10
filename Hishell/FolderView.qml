@@ -44,9 +44,18 @@ Item {
 		id: selectionManagerImpl
 	}
 
+	// Labels are placed beside (rather than under) the icon either when the tiny
+	// icon size makes that the natural fit, or when the folder asks for it.
+	readonly property bool labelsBesideIcons: {
+		const cfg = folderView.config;
+		if (!cfg || !cfg.show_labels)
+			return false;
+		return cfg.grid_labels_beside_icons || cfg.grid_size < 32;
+	}
+
 	readonly property size gridItemSize: {
 		const iconSize = folderView.config ? folderView.config.grid_size : 64;
-		if (iconSize < 32)
+		if (folderView.labelsBesideIcons)
 			return Qt.size(Kirigami.Units.gridUnit * 10, Kirigami.Units.gridUnit * 2);
 		return Qt.size(iconSize + Kirigami.Units.gridUnit * 3, iconSize + Kirigami.Units.gridUnit * 3);
 	}
@@ -548,13 +557,19 @@ Item {
 		target: folderView.directory
 
 		function onPathChanged() {
+			const current = String(folderView.directory.path);
+			const pathChanged = current !== folderView.lastPath;
 			const previous = folderView.lastPath;
-			folderView.lastPath = String(folderView.directory.path);
+			folderView.lastPath = current;
 			folderView.returnFocusPath = previous;
 
 			if (folderView.config && folderView.directory) {
+				// A refresh emits `path_changed` without moving; only re-read from
+				// disk when the location actually changed, otherwise the caller has
+				// already refreshed the model in place.
 				folderView.config.load(folderView.directory.path);
-				folderView.directory.load_directory(folderView.directory.path, !folderView.config.stash_dotfiles);
+				if (pathChanged)
+					folderView.directory.load_directory(folderView.directory.path, !folderView.config.stash_dotfiles);
 			}
 			if (folderView.focusManager)
 				folderView.focusManager.clear_pane(folderView.paneId);
@@ -566,6 +581,18 @@ Item {
 		}
 
 		function onConfig_changed() {
+			// View-only settings (grid size, sorting, free placement, ...) are
+			// applied by re-evaluating the grid bindings; the directory does not
+			// need to be re-read.
+			folderView.updateFocusItems();
+		}
+	}
+
+	Connections {
+		target: folderView.config
+
+		function onItems_changed() {
+			// Only keys that change which files exist require a full re-scan.
 			folderView.directory.load_directory(folderView.directory.path, !folderView.config.stash_dotfiles);
 			folderView.updateFocusItems();
 		}
@@ -610,6 +637,7 @@ Item {
 
 	ContextMenu.menu: ShellContextMenu {
 		actionManager: folderView.rootWindow.actionManager
+		directory: folderView.directory
 		targetIsBackground: true
 	}
 	ContextMenu.onRequested: {
@@ -800,7 +828,7 @@ Item {
 
 		const handler = folderView.rootWindow ? folderView.rootWindow.dragDropHandler : null;
 		if (handler) {
-			handler.reposition_preview = JSON.stringify({ hotspotX: hotspotX, hotspotY: hotspotY, gridSize: (cfg.grid_size ? cfg.grid_size : 64), items: previewItems });
+			handler.reposition_preview = JSON.stringify({ hotspotX: hotspotX, hotspotY: hotspotY, gridSize: (cfg.grid_size ? cfg.grid_size : 64), showLabels: cfg.show_labels, labelsBeside: folderView.labelsBesideIcons, items: previewItems });
 			handler.reposition_active = true;
 		}
 		folderView.repositionDragActive = true;
@@ -1222,6 +1250,8 @@ Item {
 					y: folderView.gridSlotY(index)
 
 					gridSize: folderView.config.grid_size
+					showLabels: folderView.config.show_labels
+					labelBesideIcon: folderView.labelsBesideIcons
 					selectionActive: selectionManager ? selectionManager.selection_active : false
 					focusActive: folderView.focusOwned && folderView.focusManager && folderView.focusManager.current_pane === folderView.paneId
 					focusBorderSource: folderView.focusBorderSource

@@ -111,6 +111,45 @@ pub fn string_value(value: &ConfigValue) -> Option<String> {
 	}
 }
 
+/// Reads a string option, falling back to `default`.
+fn opt_string(value: Option<&ConfigValue>, default: &str) -> String {
+	match value {
+		Some(ConfigValue::String(v)) => v.clone(),
+		_ => default.to_string(),
+	}
+}
+
+/// Reads an upper-cased enum option, falling back to `default`.
+fn enum_value(value: Option<&ConfigValue>, default: &str) -> String {
+	opt_string(value, default).to_uppercase()
+}
+
+/// Reads a boolean option, falling back to `default`.
+fn bool_value(value: Option<&ConfigValue>, default: bool) -> bool {
+	match value {
+		Some(ConfigValue::Boolean(b)) => *b,
+		_ => default,
+	}
+}
+
+/// Reads an integer option, falling back to `default`.
+fn num_value(value: Option<&ConfigValue>, default: i32) -> i32 {
+	match value {
+		Some(ConfigValue::Number(n)) => *n as i32,
+		_ => default,
+	}
+}
+
+/// Reads an array / dictionary option as its JSON form, falling back to `default`.
+fn json_value(value: Option<&ConfigValue>, default: &str) -> String {
+	match value {
+		Some(v @ ConfigValue::Array(_)) | Some(v @ ConfigValue::Dictionary(_)) => {
+			v.to_json_string()
+		}
+		_ => default.to_string(),
+	}
+}
+
 pub fn entry_string(values: &HashMap<String, ConfigValue>, key: &str) -> Option<String> {
 	values.get(key).and_then(string_value)
 }
@@ -149,6 +188,7 @@ const EXPECTED_KEYS: &[(&str, &str, ExpectedKind)] = &[
 	("Folder View", "Wallpaper", ExpectedKind::Str),
 	("Folder View", "GridSize", ExpectedKind::Num),
 	("Folder View", "ShowLabels", ExpectedKind::Bool),
+	("Folder View", "GridLabelsBesidesIcons", ExpectedKind::Bool),
 	(
 		"Folder View",
 		"GridHorizontalAlign",
@@ -354,6 +394,7 @@ pub struct Config {
 	pub center_focus: qt_property!(bool; NOTIFY config_changed),
 	pub smooth_scrolling: qt_property!(bool; NOTIFY config_changed),
 	pub show_labels: qt_property!(bool; NOTIFY config_changed),
+	pub grid_labels_beside_icons: qt_property!(bool; NOTIFY config_changed),
 	pub view_mode: qt_property!(u8; NOTIFY config_changed),
 	pub sort: qt_property!(u8; NOTIFY config_changed),
 	pub sort_date_mode: qt_property!(u8; NOTIFY config_changed),
@@ -366,6 +407,12 @@ pub struct Config {
 	pub error_file: qt_property!(String; NOTIFY config_changed),
 
 	config_changed: qt_signal!(),
+
+	/// Emitted instead of `config_changed` when a written key changes which
+	/// files the folder contains (e.g. toggling dotfile stashing). Listeners use
+	/// this to do a full directory re-scan, while layout-only changes are handled
+	/// by re-evaluating the `config_changed` bindings.
+	items_changed: qt_signal!(),
 
 	load: qt_method!(
 		pub fn load(&mut self, path: String) {
@@ -383,13 +430,55 @@ pub struct Config {
 			local: bool,
 		) {
 			self._set(Path::new(&path), &section, &key, &value, local);
-			self.config_changed();
 		}
 	),
 }
 
+/// Which properties a config write should refresh. Full loads refresh every
+/// property; a partial write refreshes only the one that changed, so that
+/// adjusting a view setting never has to re-read the folder from disk.
+#[derive(Clone)]
+enum ChangedKeys {
+	All,
+	Only(String, String),
+}
+
+impl ChangedKeys {
+	/// True when the property for `section`/`key` should be (re)derived.
+	fn includes(&self, section: &str, key: &str) -> bool {
+		match self {
+			ChangedKeys::All => true,
+			ChangedKeys::Only(s, k) => s == section && k == key,
+		}
+	}
+}
+
+/// Keys whose value decides which files appear in the folder. Writing one of
+/// these requires a directory re-scan, so `items_changed` is emitted instead of
+/// a layout-only refresh.
+pub fn key_affects_items(section: &str, key: &str) -> bool {
+	matches!((section, key), ("Folder View", "StashDotFiles"))
+}
+
+/// Keys whose value only reorders the existing items, so a write can update the
+/// model in place instead of re-reading the folder.
+pub fn key_affects_order(section: &str, key: &str) -> bool {
+	matches!(
+		(section, key),
+		("Folder View", "Sort" | "SortDateMode" | "SortAlphaMode")
+	)
+}
+
 impl Config {
 	pub fn _load(&mut self, path: &Path) {
+		self._apply(path, ChangedKeys::All);
+	}
+
+	/// Re-derive and assign the config properties selected by `changed` from the
+	/// folder's combined config, then notify listeners. Only the requested
+	/// properties are recomputed, letting view-only changes (grid size, sorting,
+	/// free placement, ...) skip the expensive directory reload entirely.
+	fn _apply(&mut self, path: &Path, changed: ChangedKeys) {
 		let load = load_path_checked(path);
 		let mut errors = load.errors;
 		errors.extend(validate_values(&load.sections, &load.origins));
@@ -407,142 +496,149 @@ impl Config {
 			.into();
 
 		let parsed = load.sections;
-
 		let get = |sec, key| parsed.get(sec).and_then(|s| s.get(key));
 
-		let get_str = |sec, key, default: &str| {
-			if let Some(ConfigValue::String(v)) = get(sec, key) {
-				v.clone()
-			} else {
-				default.to_string()
+		macro_rules! changed {
+			($sec:literal, $key:literal) => {
+				changed.includes($sec, $key)
+			};
+		}
+
+		if changed!("Desktop Entry", "Name") {
+			self.title = match get("Desktop Entry", "Name") {
+				Some(ConfigValue::String(v)) => v.clone(),
+				_ => String::new(),
 			}
-		};
-		let get_bool = |sec, key, default| {
-			if let Some(ConfigValue::Boolean(b)) = get(sec, key) {
-				*b
-			} else {
-				default
-			}
-		};
-		let get_num = |sec, key, default| {
-			if let Some(ConfigValue::Number(n)) = get(sec, key) {
-				*n as i32
-			} else {
-				default
-			}
-		};
-		let get_json = |sec, key, default: &str| match get(sec, key) {
-			Some(v @ ConfigValue::Array(_)) | Some(v @ ConfigValue::Dictionary(_)) => {
-				v.to_json_string()
-			}
-			_ => default.to_string(),
-		};
+			.into();
+		}
+		if changed!("Desktop Entry", "Icon") {
+			self.icon = get_image(path, "Desktop Entry", "Icon")
+				.map(|p| {
+					if p.starts_with('/') {
+						format!("file://{}", p)
+					} else {
+						p
+					}
+				})
+				.unwrap_or_default()
+				.into();
+		}
+		if changed!("Folder View", "Wallpaper") {
+			self.wallpaper = get_image(path, "Folder View", "Wallpaper")
+				.map(|p| {
+					if p.starts_with('/') {
+						format!("file://{}", p)
+					} else {
+						p
+					}
+				})
+				.unwrap_or_default()
+				.into();
+		}
 
-		self.title = get_str("Desktop Entry", "Name", "").into();
-		self.icon = get_image(path, "Desktop Entry", "Icon")
-			.map(|p| {
-				if p.starts_with('/') {
-					format!("file://{}", p)
-				} else {
-					p
-				}
-			})
-			.unwrap_or_default();
-		self.wallpaper = get_image(path, "Folder View", "Wallpaper")
-			.map(|p| {
-				if p.starts_with('/') {
-					format!("file://{}", p)
-				} else {
-					p
-				}
-			})
-			.unwrap_or_default();
+		if changed!("Layout", "Top") {
+			self.top_layout = json_value(get("Layout", "Top"), "[]").into();
+		}
+		if changed!("Layout", "Middle") {
+			self.middle_layout = json_value(get("Layout", "Middle"), r#"["./"]"#).into();
+		}
+		if changed!("Layout", "Bottom") {
+			self.bottom_layout = json_value(get("Layout", "Bottom"), "[]").into();
+		}
+		if changed!("Layout", "Header") {
+			self.header_layout = json_value(
+				get("Layout", "Header"),
+				r#"["toolkit/PathBar", "toolkit/Spacer", "toolkit/MenuBar"]"#,
+			)
+			.into();
+		}
+		if changed!("Layout", "NativeMenuBar") {
+			self.native_menubar = bool_value(get("Layout", "NativeMenuBar"), false);
+		}
+		if changed!("Layout", "NativeTitleBar") {
+			self.native_titlebar = bool_value(get("Layout", "NativeTitleBar"), true);
+		}
 
-		self.top_layout = get_json("Layout", "Top", "[]").into();
-		self.middle_layout = get_json("Layout", "Middle", r#"["./"]"#).into();
-		self.bottom_layout = get_json("Layout", "Bottom", "[]").into();
-		self.header_layout = get_json(
-			"Layout",
-			"Header",
-			r#"["toolkit/PathBar", "toolkit/Spacer", "toolkit/MenuBar"]"#,
-		)
-		.into();
-		self.native_menubar = get_bool("Layout", "NativeMenuBar", false);
-		self.native_titlebar = get_bool("Layout", "NativeTitleBar", true);
-
-		self.grid_size = get_num("Folder View", "GridSize", 64) as u16;
-		self.show_labels = get_bool("Folder View", "ShowLabels", true);
-
-		self.grid_horizontal_align = match get_str("Folder View", "GridHorizontalAlign", "FILL")
-			.to_uppercase()
-			.as_str()
-		{
-			"LEFT" => 1,
-			"CENTER" => 2,
-			"RIGHT" => 3,
-			_ => 0,
-		};
-
-		self.grid_vertical_align = match get_str("Folder View", "GridVerticalAlign", "FILL")
-			.to_uppercase()
-			.as_str()
-		{
-			"TOP" => 1,
-			"CENTER" => 2,
-			"BOTTOM" => 3,
-			_ => 0,
-		};
-
-		self.grid_lines = get_num("Folder View", "Lines", 0).max(0);
-		self.scroll_horizontal =
-			get_str("Folder View", "ScrollDirection", "VERTICAL").to_uppercase() == "HORIZONTAL";
-
-		self.center_focus = get_bool("Folder Navigation", "CenterFocus", false);
-		self.smooth_scrolling = get_bool("Folder Navigation", "SmoothScrolling", true);
-
-		self.view_mode = match get_str("Folder View", "ViewMode", "GRID")
-			.to_uppercase()
-			.as_str()
-		{
-			"GRID" => 0,
-			"LIST" => 1,
-			_ => 0,
-		};
-
-		self.sort = match get_str("Folder View", "Sort", "NEWEST")
-			.to_uppercase()
-			.as_str()
-		{
-			"NEWEST" => 0,
-			"OLDEST" => 1,
-			"ALPHABETICAL" => 2,
-			"FREE" => 3,
-			_ => 0,
-		};
-
-		self.sort_date_mode = match get_str("Folder View", "SortDateMode", "MODIFIED")
-			.to_uppercase()
-			.as_str()
-		{
-			"MODIFIED" => 0,
-			"CREATED" => 1,
-			"ACCESSED" => 2,
-			_ => 0,
-		};
-
-		self.sort_alpha_mode = match get_str("Folder View", "SortAlphaMode", "TITLES")
-			.to_uppercase()
-			.as_str()
-		{
-			"TITLES" => 0,
-			"FILENAMES" => 1,
-			_ => 0,
-		};
-
-		self.stash_shown = get_bool("Folder View", "StashShown", false);
-		self.stash_dotfiles = get_bool("Folder View", "StashDotFiles", true);
-		self.free_placement_positions =
-			get_json("Folder View", "FreePlacementPositions", "{}").into();
+		if changed!("Folder View", "GridSize") {
+			self.grid_size = num_value(get("Folder View", "GridSize"), 64).max(0) as u16;
+		}
+		if changed!("Folder View", "ShowLabels") {
+			self.show_labels = bool_value(get("Folder View", "ShowLabels"), true);
+		}
+		if changed!("Folder View", "GridLabelsBesidesIcons") {
+			self.grid_labels_beside_icons =
+				bool_value(get("Folder View", "GridLabelsBesidesIcons"), false);
+		}
+		if changed!("Folder View", "GridHorizontalAlign") {
+			self.grid_horizontal_align =
+				match enum_value(get("Folder View", "GridHorizontalAlign"), "FILL").as_str() {
+					"LEFT" => 1,
+					"CENTER" => 2,
+					"RIGHT" => 3,
+					_ => 0,
+				};
+		}
+		if changed!("Folder View", "GridVerticalAlign") {
+			self.grid_vertical_align =
+				match enum_value(get("Folder View", "GridVerticalAlign"), "FILL").as_str() {
+					"TOP" => 1,
+					"CENTER" => 2,
+					"BOTTOM" => 3,
+					_ => 0,
+				};
+		}
+		if changed!("Folder View", "Lines") {
+			self.grid_lines = num_value(get("Folder View", "Lines"), 0).max(0);
+		}
+		if changed!("Folder View", "ScrollDirection") {
+			self.scroll_horizontal =
+				enum_value(get("Folder View", "ScrollDirection"), "VERTICAL") == "HORIZONTAL";
+		}
+		if changed!("Folder Navigation", "CenterFocus") {
+			self.center_focus = bool_value(get("Folder Navigation", "CenterFocus"), false);
+		}
+		if changed!("Folder Navigation", "SmoothScrolling") {
+			self.smooth_scrolling = bool_value(get("Folder Navigation", "SmoothScrolling"), true);
+		}
+		if changed!("Folder View", "ViewMode") {
+			self.view_mode = match enum_value(get("Folder View", "ViewMode"), "GRID").as_str() {
+				"LIST" => 1,
+				_ => 0,
+			};
+		}
+		if changed!("Folder View", "Sort") {
+			self.sort = match enum_value(get("Folder View", "Sort"), "NEWEST").as_str() {
+				"OLDEST" => 1,
+				"ALPHABETICAL" => 2,
+				"FREE" => 3,
+				_ => 0,
+			};
+		}
+		if changed!("Folder View", "SortDateMode") {
+			self.sort_date_mode =
+				match enum_value(get("Folder View", "SortDateMode"), "MODIFIED").as_str() {
+					"CREATED" => 1,
+					"ACCESSED" => 2,
+					_ => 0,
+				};
+		}
+		if changed!("Folder View", "SortAlphaMode") {
+			self.sort_alpha_mode =
+				match enum_value(get("Folder View", "SortAlphaMode"), "TITLES").as_str() {
+					"FILENAMES" => 1,
+					_ => 0,
+				};
+		}
+		if changed!("Folder View", "StashShown") {
+			self.stash_shown = bool_value(get("Folder View", "StashShown"), false);
+		}
+		if changed!("Folder View", "StashDotFiles") {
+			self.stash_dotfiles = bool_value(get("Folder View", "StashDotFiles"), true);
+		}
+		if changed!("Folder View", "FreePlacementPositions") {
+			self.free_placement_positions =
+				json_value(get("Folder View", "FreePlacementPositions"), "{}").into();
+		}
 
 		self.config_changed();
 	}
@@ -562,7 +658,15 @@ impl Config {
 
 		crate::config_parser::ConfigParser::set_value(&file_path, section, key, value);
 
-		self._load(path);
+		// Refresh only the written key; layout-only settings therefore skip the
+		// full config re-derivation (and, downstream, the directory re-scan).
+		self._apply(
+			path,
+			ChangedKeys::Only(section.to_string(), key.to_string()),
+		);
+		if key_affects_items(section, key) {
+			self.items_changed();
+		}
 	}
 
 	/// Record a manually placed item coordinate (column, row) in the folder's

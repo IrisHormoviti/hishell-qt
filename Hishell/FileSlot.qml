@@ -22,6 +22,7 @@ Item {
 	required property string title
 	property int gridSize: 64
 	property bool labelBesideIcon: gridSize < 32
+	property bool showLabels: true
 	property bool fixedWidth: true
 	property bool showIcon: icon !== ""
 	property bool is_symlink: false
@@ -111,7 +112,7 @@ Item {
 		return menu;
 	}
 
-	implicitWidth: contentLayout.implicitWidth + (fileSlot.labelBesideIcon && fileSlot.showIcon ? Kirigami.Units.largeSpacing * 2 : Kirigami.Units.smallSpacing * 2)
+	implicitWidth: contentLayout.implicitWidth + (fileSlot.labelBesideIcon && fileSlot.showIcon && fileSlot.showLabels ? Kirigami.Units.largeSpacing * 2 : Kirigami.Units.smallSpacing * 2)
 	implicitHeight: contentLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
 	opacity: (fileSlot.dragDropHandler && fileSlot.dragDropHandler.active_dragged_paths && fileSlot.dragDropHandler.active_dragged_paths.indexOf(fileSlot.path) !== -1) ? 0.2 : 1.0
 	scale: mouseArea.pressed ? 0.9 : (mouseArea.containsMouse ? 1.05 : 1.0)
@@ -184,8 +185,8 @@ Item {
 	GridLayout {
 		id: contentLayout
 		anchors.verticalCenter: parent.verticalCenter
-		x: (fileSlot.labelBesideIcon && fileSlot.showIcon) ? Kirigami.Units.largeSpacing : (parent.width - width) / 2
-		columns: (fileSlot.labelBesideIcon && fileSlot.showIcon) ? 2 : 1
+		x: (fileSlot.labelBesideIcon && fileSlot.showIcon && fileSlot.showLabels) ? Kirigami.Units.largeSpacing : (parent.width - width) / 2
+		columns: (fileSlot.labelBesideIcon && fileSlot.showIcon && fileSlot.showLabels) ? 2 : 1
 
 		Item {
 			visible: fileSlot.showIcon
@@ -227,6 +228,7 @@ Item {
 
 		Label {
 			id: labelItem
+			visible: fileSlot.showLabels
 			Layout.alignment: fileSlot.labelBesideIcon ? Qt.AlignVCenter : Qt.AlignHCenter
 
 			property string title: fileSlot.title == "" ? fileSlot.path.substring(fileSlot.path.lastIndexOf("/") + 1) : fileSlot.title

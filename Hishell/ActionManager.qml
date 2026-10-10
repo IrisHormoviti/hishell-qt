@@ -230,7 +230,11 @@ Item {
 			const paths = targetPath !== "" ? [targetPath] : actionManager.selectedPathList;
 			for (let i = 0; i < paths.length; i++) {
 				const p = paths[i];
-				if (sourceItem) {
+				// Opening a folder in place resets the view's model and destroys the
+				// source item, taking any in-flight grab with it while the render
+				// thread is still using it. Only grab when the item survives the open.
+				const isDir = actionManager.fileManager && actionManager.fileManager.is_directory(p);
+				if (sourceItem && !(isDir && !inNewWindow)) {
 					const globalPos = sourceItem.mapToItem(actionManager, 0, 0);
 					sourceItem.contentLayout.grabToImage(result => {
 						externalOpenAnimation.x = globalPos.x;
@@ -416,8 +420,9 @@ Item {
 	}
 
 	// Folder Group
-	readonly property var folderActionsGroup: [goUpAction, pasteAction, copyPathAction]
+	readonly property var folderActionsGroup: [goUpAction, refreshAction, pasteAction, copyPathAction]
 	property alias goUpAction: goUpAction
+	property alias refreshAction: refreshAction
 	property string pasteTargetPath: ""
 
 	Action {
@@ -429,6 +434,19 @@ Item {
 		onTriggered: {
 			if (actionManager.directory)
 				actionManager.directory.go_up();
+		}
+	}
+
+	Action {
+		id: refreshAction
+		text: qsTr("&Refresh")
+		icon.name: "view-refresh"
+		shortcut: "F5"
+		enabled: actionManager.directory !== null
+		onTriggered: {
+			// Full reload: re-reads the folder contents and its config.
+			if (actionManager.directory)
+				actionManager.directory.reload();
 		}
 	}
 

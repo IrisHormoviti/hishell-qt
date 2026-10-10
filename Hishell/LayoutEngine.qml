@@ -48,6 +48,19 @@ RowLayout {
 		layoutEngine.layoutItems = items;
 	}
 
+	// Resolve a layout entry against the window's current folder, collapsing the
+	// "." segments so "./" resolves to the base folder itself.
+	function resolveEntryPath(itemSpec) {
+		const base = layoutEngine.directory ? String(layoutEngine.directory.path) : "";
+		let resolved = itemSpec;
+		if (!itemSpec.startsWith("/")) {
+			if (!base)
+				return itemSpec;
+			resolved = base + "/" + itemSpec;
+		}
+		return resolved.replace(/\/\.\//g, "/").replace(/\/\.$/, "").replace(/\/+$/, "") || "/";
+	}
+
 	function updateLayout() {
 		for (let i = 0; i < layoutEngine._createdItems.length; i++) {
 			layoutEngine._createdItems[i].destroy();
@@ -92,19 +105,18 @@ RowLayout {
 			}
 
 			if (isPath) {
-				const customDir = Qt.createQmlObject('import Hishell; Directory {}', obj);
-				if (customDir) {
-					customDir.path = Qt.binding(function () {
-						const base = layoutEngine.directory ? layoutEngine.directory.path : "";
-						if (itemSpec.startsWith("/")) {
-							return itemSpec;
-						}
-						if (!base)
-							return itemSpec;
-						return base + "/" + itemSpec;
-					});
-					obj.directory = customDir;
-					layoutEngine._createdItems.push(customDir);
+				// A layout entry that resolves to the window's current folder shares its
+				// Directory (and therefore its config), so view settings changed through
+				// the menus apply to this pane immediately.
+				const base = layoutEngine.directory ? String(layoutEngine.directory.path) : "";
+				const isCurrentFolder = base !== "" && layoutEngine.resolveEntryPath(itemSpec) === layoutEngine.resolveEntryPath(base);
+				if (!isCurrentFolder) {
+					const customDir = Qt.createQmlObject('import Hishell; Directory {}', obj);
+					if (customDir) {
+						customDir.path = Qt.binding(() => layoutEngine.resolveEntryPath(itemSpec));
+						obj.directory = customDir;
+						layoutEngine._createdItems.push(customDir);
+					}
 				}
 			}
 

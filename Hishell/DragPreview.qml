@@ -35,6 +35,8 @@ Item {
 
 	// Slot sizing mirrors FileSlot so the ghost looks identical to the real icons.
 	readonly property real iconSize: parsed && parsed.gridSize ? parsed.gridSize : 64
+	readonly property bool showLabels: parsed ? parsed.showLabels !== false : true
+	readonly property bool labelsBeside: parsed ? parsed.labelsBeside === true : false
 
 	visible: previewActive && parsed !== null && parsed.items && parsed.items.length > 0
 	opacity: visible ? 1.0 : 0.0
@@ -72,7 +74,7 @@ Item {
 				return p.substring(p.lastIndexOf("/") + 1);
 			}
 			readonly property bool hasIcon: slotIcon !== ""
-			readonly property bool labelBeside: dragPreview.iconSize < 32 && hasIcon
+			readonly property bool labelBeside: dragPreview.labelsBeside && hasIcon
 
 			GridLayout {
 				id: contentLayout
@@ -118,6 +120,7 @@ Item {
 				}
 
 				Label {
+					visible: dragPreview.showLabels
 					Layout.alignment: previewItem.labelBeside ? Qt.AlignVCenter : Qt.AlignHCenter
 					Layout.maximumWidth: previewItem.labelBeside ? previewItem.width - dragPreview.iconSize - Kirigami.Units.gridUnit * 2 : dragPreview.iconSize + Kirigami.Units.gridUnit * 2
 					text: {

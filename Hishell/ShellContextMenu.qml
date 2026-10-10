@@ -16,6 +16,8 @@ Menu {
 	property bool targetIsDir: false
 	property bool targetIsImage: false
 	property bool targetIsBackground: false
+	// Folder the view settings apply to; defaults to the window's current folder.
+	property var directory: contextMenu.actionManager ? contextMenu.actionManager.directory : null
 
 	Repeater {
 		model: contextMenu.targetIsBackground ? contextMenu.actionManager.actionsFor("directory") : []
@@ -37,7 +39,7 @@ Menu {
 	}
 
 	Instantiator {
-		model: contextMenu.targetIsBackground ? [contextMenu.actionManager.directory] : []
+		model: contextMenu.targetIsBackground && contextMenu.directory ? [contextMenu.directory] : []
 		delegate: ViewMenu {
 			required property Directory modelData
 			directory: modelData
