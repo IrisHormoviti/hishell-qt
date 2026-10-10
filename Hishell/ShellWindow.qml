@@ -23,7 +23,9 @@ Kirigami.ApplicationWindow {
 	property alias directory: directory
 	property alias actionManager: actionManager
 
-	WindowOverlay {}
+	WindowOverlay {
+		enabled: !directory.config.native_titlebar
+	}
 
 	Directory {
 		id: directory
@@ -79,12 +81,6 @@ Kirigami.ApplicationWindow {
 	Component.onCompleted: {
 		directory.config.load(initialPath);
 		directory.path = initialPath;
-
-		// Set layout strings dynamically after config load
-		headerLayoutEngine.layoutString = String(directory.config.header_layout);
-		topLayoutEngine.layoutString = String(directory.config.top_layout);
-		middleLayoutEngine.layoutString = String(directory.config.middle_layout);
-		bottomLayoutEngine.layoutString = String(directory.config.bottom_layout);
 	}
 
 	menuBar: MenuBar {
@@ -139,6 +135,7 @@ Kirigami.ApplicationWindow {
 						id: headerLayoutEngine
 						directory: directory
 						window: root
+						layoutString: String(directory.config.header_layout || "[]")
 						Layout.fillWidth: true
 					}
 				}
@@ -186,6 +183,7 @@ Kirigami.ApplicationWindow {
 				id: topLayoutEngine
 				directory: directory
 				window: root
+				layoutString: String(directory.config.top_layout || "[]")
 				Layout.fillWidth: true
 			}
 
@@ -199,6 +197,7 @@ Kirigami.ApplicationWindow {
 					id: middleLayoutEngine
 					directory: directory
 					window: root
+					layoutString: String(directory.config.middle_layout || "[]")
 					Layout.fillHeight: true
 					Layout.fillWidth: true
 				}
@@ -209,6 +208,7 @@ Kirigami.ApplicationWindow {
 				id: bottomLayoutEngine
 				directory: directory
 				window: root
+				layoutString: String(directory.config.bottom_layout || "[]")
 				Layout.fillWidth: true
 			}
 		}

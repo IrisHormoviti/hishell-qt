@@ -1,6 +1,7 @@
 use serde_json::Value;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
+use std::path::PathBuf;
 use std::process::Command;
 
 unsafe extern "C" {
@@ -14,6 +15,8 @@ unsafe extern "C" {
 	fn hishell_send_key(key: i32) -> bool;
 	fn hishell_hook_menu_key();
 	fn hishell_file_uri(path: *const c_char) -> *const c_char;
+	fn hishell_mime_type(path: *const c_char) -> *const c_char;
+	fn hishell_thumbnailer_dirs() -> *const c_char;
 	fn hishell_thumbnail_image(
 		src: *const c_char,
 		dst: *const c_char,
@@ -156,6 +159,37 @@ pub fn file_uri(path: &str) -> Option<String> {
 		.to_string_lossy()
 		.into_owned();
 	if uri.is_empty() { None } else { Some(uri) }
+}
+
+/// The shared-mime-info content type for a path, resolved with `QMimeDatabase`
+/// (the same database KDE uses), so extensions it registers beyond what
+/// `mime_guess` knows — like aseprite's `image/x-aseprite` — are recognised.
+pub fn mime_type(path: &str) -> Option<String> {
+	let path = CString::new(path).ok()?;
+	let mime = unsafe { hishell_mime_type(path.as_ptr()) };
+	if mime.is_null() {
+		return None;
+	}
+	let mime = unsafe { CStr::from_ptr(mime) }
+		.to_string_lossy()
+		.into_owned();
+	if mime.is_empty() { None } else { Some(mime) }
+}
+
+/// Directories to search for external freedesktop `*.thumbnailer` files.
+/// Resolved by Qt from `$XDG_DATA_HOME`/`$XDG_DATA_DIRS`, so the conventional
+/// locations are never hard-coded.
+pub fn thumbnailer_dirs() -> Vec<PathBuf> {
+	let raw = unsafe { hishell_thumbnailer_dirs() };
+	if raw.is_null() {
+		return Vec::new();
+	}
+	unsafe { CStr::from_ptr(raw) }
+		.to_string_lossy()
+		.lines()
+		.filter(|line| !line.is_empty())
+		.map(PathBuf::from)
+		.collect()
 }
 
 /// Renders an image thumbnail with QImageReader and stores it with the

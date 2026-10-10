@@ -200,12 +200,13 @@ Item {
 				if (!actionManager.directory.is_execute_target(path))
 					continue;
 				if (sourceItem) {
-					const globalPos = sourceItem.mapToItem(actionManager, 0, 0);
-					sourceItem.contentLayout.grabToImage(result => {
+					const layout = sourceItem.contentLayout;
+					const globalPos = layout.mapToItem(actionManager, 0, 0);
+					layout.grabToImage(result => {
 						externalOpenAnimation.x = globalPos.x;
 						externalOpenAnimation.y = globalPos.y;
-						externalOpenAnimation.width = sourceItem.width;
-						externalOpenAnimation.height = sourceItem.height;
+						externalOpenAnimation.width = layout.width;
+						externalOpenAnimation.height = layout.height;
 						externalOpenImage.source = result.url;
 						externalOpenAnimation.visible = true;
 						externalOpenAnimationEffect.restart();
@@ -235,12 +236,13 @@ Item {
 				// thread is still using it. Only grab when the item survives the open.
 				const isDir = actionManager.fileManager && actionManager.fileManager.is_directory(p);
 				if (sourceItem && !(isDir && !inNewWindow)) {
-					const globalPos = sourceItem.mapToItem(actionManager, 0, 0);
-					sourceItem.contentLayout.grabToImage(result => {
+					const layout = sourceItem.contentLayout;
+					const globalPos = layout.mapToItem(actionManager, 0, 0);
+					layout.grabToImage(result => {
 						externalOpenAnimation.x = globalPos.x;
 						externalOpenAnimation.y = globalPos.y;
-						externalOpenAnimation.width = sourceItem.width;
-						externalOpenAnimation.height = sourceItem.height;
+						externalOpenAnimation.width = layout.width;
+						externalOpenAnimation.height = layout.height;
 						externalOpenImage.source = result.url;
 						externalOpenAnimation.visible = true;
 						externalOpenAnimationEffect.restart();

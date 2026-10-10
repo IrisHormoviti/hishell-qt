@@ -185,14 +185,8 @@ static IMAGEMAGICK: OnceLock<Option<String>> = OnceLock::new();
 fn load_system_thumbnailers() -> &'static Vec<SystemThumb> {
 	SYSTEM_THUMBNAILERS.get_or_init(|| {
 		let mut out: Vec<SystemThumb> = Vec::new();
-		let dirs = [
-			PathBuf::from("/usr/share/thumbnailers"),
-			dirs::home_dir()
-				.map(|d| d.join(".local/share/thumbnailers"))
-				.unwrap_or_default(),
-		];
 
-		for dir in dirs {
+		for dir in crate::kde_bridge::thumbnailer_dirs() {
 			let Ok(entries) = fs::read_dir(dir) else {
 				continue;
 			};
@@ -253,10 +247,7 @@ fn is_thumbnailable(src: &Path) -> bool {
 	if IMAGE_EXTS.contains(&ext.as_str()) || is_video_ext(&ext) {
 		return true;
 	}
-	let mime = from_path(src)
-		.first_or_octet_stream()
-		.essence_str()
-		.to_string();
+	let mime = mime_for(src);
 	for thumb in load_system_thumbnailers() {
 		for glob in &thumb.mime_globs {
 			if glob == &mime {
@@ -270,6 +261,18 @@ fn is_thumbnailable(src: &Path) -> bool {
 		}
 	}
 	false
+}
+
+/// The content type of a file, resolved through the shared MIME database so
+/// external thumbnailers registered for types beyond `mime_guess`'s built-in
+/// table (e.g. `image/x-aseprite`) can be matched.
+fn mime_for(src: &Path) -> String {
+	crate::kde_bridge::mime_type(&src.to_string_lossy()).unwrap_or_else(|| {
+		from_path(src)
+			.first_or_octet_stream()
+			.essence_str()
+			.to_string()
+	})
 }
 
 // ── Job queue ───────────────────────────────────────────────────────────────
@@ -495,10 +498,7 @@ fn generate(job: &Job) -> Result<PathBuf, String> {
 
 	// Everything else goes through the system's freedesktop thumbnailers,
 	// which write the raw image; the cache copy gets the Thumb::* metadata.
-	let mime = from_path(src)
-		.first_or_octet_stream()
-		.essence_str()
-		.to_string();
+	let mime = mime_for(src);
 	for thumb in load_system_thumbnailers() {
 		if !thumbnailer_matches(thumb, &mime, &ext) {
 			continue;
@@ -626,7 +626,18 @@ fn adopt_thumbnail(
 	mtime: i64,
 	file_size: u64,
 ) -> bool {
-	let Ok(img) = image::open(tmp) else {
+	let Ok(file) = File::open(tmp) else {
+		let _ = fs::remove_file(tmp);
+		return false;
+	};
+	// External thumbnailers write to a `.part` scratch path, so the file name
+	// says nothing about the format; sniff the content rather than the extension.
+	let Ok(reader) = image::ImageReader::new(std::io::BufReader::new(file)).with_guessed_format()
+	else {
+		let _ = fs::remove_file(tmp);
+		return false;
+	};
+	let Ok(img) = reader.decode() else {
 		let _ = fs::remove_file(tmp);
 		return false;
 	};

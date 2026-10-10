@@ -115,7 +115,7 @@ Menu {
 				value: viewMenu.config ? viewMenu.config.grid_size : 64
 				from: 16
 				to: 256
-				stepSize: 4
+				stepSize: 12
 				onMoved: viewMenu.setConfig("GridSize", value.toString())
 			}
 			TextMetrics {
@@ -130,43 +130,18 @@ Menu {
 		}
 	}
 
-	MenuItem {
-		contentItem: RowLayout {
-			Label {
-				text: qsTr("Lines")
-			}
-			Slider {
-				id: linesSlider
-				value: viewMenu.config ? viewMenu.config.grid_lines : 0
-				from: 0
-				to: 20
-				stepSize: 1
-				onMoved: viewMenu.setConfig("Lines", value.toString())
-			}
-			TextMetrics {
-				id: autoMetrics
-				text: qsTr("Auto")
-			}
-			Label {
-				text: linesSlider.value === 0 ? qsTr("Auto") : linesSlider.value
-				Layout.preferredWidth: autoMetrics.width
-				horizontalAlignment: Text.AlignHCenter
-			}
-		}
-	}
-
 	Action {
 		id: increaseSizeAction
 		text: qsTr("Zoom In")
 		shortcut: "Ctrl+="
-		onTriggered: viewMenu.setConfig("GridSize", String(Math.min(gridSizeSlider.value + 4, gridSizeSlider.to)))
+		onTriggered: viewMenu.setConfig("GridSize", String(Math.min(gridSizeSlider.value + 12, gridSizeSlider.to)))
 	}
 
 	Action {
 		id: decreaseSizeAction
 		text: qsTr("Zoom Out")
 		shortcut: "Ctrl+-"
-		onTriggered: viewMenu.setConfig("GridSize", String(Math.max(gridSizeSlider.value - 4, gridSizeSlider.from)))
+		onTriggered: viewMenu.setConfig("GridSize", String(Math.max(gridSizeSlider.value - 12, gridSizeSlider.from)))
 	}
 
 	MenuSeparator {}
@@ -319,6 +294,32 @@ Menu {
 		title: qsTr("Arrange")
 		icon.name: "format-justify-fill"
 		popupType: Popup.Item
+
+		MenuItem {
+			contentItem: RowLayout {
+				Label {
+					text: qsTr("Lines")
+				}
+				Slider {
+					id: linesSlider
+					value: viewMenu.config ? viewMenu.config.grid_lines : 0
+					from: 0
+					to: 10
+					stepSize: 1
+					onMoved: viewMenu.setConfig("Lines", value.toString())
+				}
+				TextMetrics {
+					id: autoMetrics
+					text: qsTr("Auto")
+				}
+				Label {
+					text: linesSlider.value === 0 ? qsTr("Auto") : linesSlider.value
+					Layout.preferredWidth: autoMetrics.width
+					horizontalAlignment: Text.AlignHCenter
+				}
+			}
+		}
+
 		Menu {
 			title: qsTr("Scroll Direction")
 			MenuItem {
@@ -440,7 +441,7 @@ Menu {
 		MenuItem {
 			text: qsTr("Clear Wallpaper")
 			icon.name: "edit-clear"
-			enabled: viewMenu.config ? viewMenu.config.wallpaper !== "" : false
+			enabled: viewMenu.config ? String(viewMenu.config.wallpaper).trim() !== "" : false
 			onTriggered: viewMenu.setConfig("Wallpaper", "")
 		}
 	}

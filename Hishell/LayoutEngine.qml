@@ -16,6 +16,10 @@ RowLayout {
 	property var layoutItems: []
 	property var _createdItems: []
 
+	PathUtils {
+		id: pathUtils
+	}
+
 	visible: layoutEngine.layoutItems.length > 0 || layoutEngine.errorString.length > 0
 	implicitWidth: visible ? -1 : 0
 	implicitHeight: visible ? -1 : 0
@@ -48,17 +52,12 @@ RowLayout {
 		layoutEngine.layoutItems = items;
 	}
 
-	// Resolve a layout entry against the window's current folder, collapsing the
-	// "." segments so "./" resolves to the base folder itself.
+	// Resolve a layout entry against the window's current folder. `~` expands to
+	// the home directory; "." segments are collapsed so "./" resolves to the base
+	// folder itself.
 	function resolveEntryPath(itemSpec) {
 		const base = layoutEngine.directory ? String(layoutEngine.directory.path) : "";
-		let resolved = itemSpec;
-		if (!itemSpec.startsWith("/")) {
-			if (!base)
-				return itemSpec;
-			resolved = base + "/" + itemSpec;
-		}
-		return resolved.replace(/\/\.\//g, "/").replace(/\/\.$/, "").replace(/\/+$/, "") || "/";
+		return String(pathUtils.resolve_path(base, itemSpec));
 	}
 
 	function updateLayout() {
@@ -105,12 +104,13 @@ RowLayout {
 			}
 
 			if (isPath) {
-				// A layout entry that resolves to the window's current folder shares its
-				// Directory (and therefore its config), so view settings changed through
-				// the menus apply to this pane immediately.
-				const base = layoutEngine.directory ? String(layoutEngine.directory.path) : "";
-				const isCurrentFolder = base !== "" && layoutEngine.resolveEntryPath(itemSpec) === layoutEngine.resolveEntryPath(base);
-				if (!isCurrentFolder) {
+				// An entry that denotes the window's folder itself ("./") follows
+				// navigation and shares its Directory (and config), so view settings
+				// changed through the menus apply to this pane immediately. Every
+				// other entry — absolute paths and "~" included — is pinned to its
+				// own folder instead.
+				const followsWindow = itemSpec.replace(/\/+$/, "") === ".";
+				if (!followsWindow) {
 					const customDir = Qt.createQmlObject('import Hishell; Directory {}', obj);
 					if (customDir) {
 						customDir.path = Qt.binding(() => layoutEngine.resolveEntryPath(itemSpec));

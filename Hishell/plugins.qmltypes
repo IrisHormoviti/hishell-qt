@@ -48,6 +48,12 @@ Module {
 			type: "string"
 			Parameter { name: "path"; type: "string" }
 		}
+		Method {
+			name: "resolve_path"
+			type: "string"
+			Parameter { name: "base"; type: "string" }
+			Parameter { name: "spec"; type: "string" }
+		}
 	}
 	Component {
 		name: "SelectionManager"

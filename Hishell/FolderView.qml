@@ -608,6 +608,14 @@ Item {
 	Connections {
 		target: folderView.directory
 
+		// A rebuild re-resolves every icon to its plain MIME icon, so thumbnail
+		// requests must be re-issued for the visible items afterwards.
+		function onModelReset() {
+			folderView.thumbRequested = ({});
+			folderView.thumbRequestKey = "";
+			folderView.scheduleThumbnails();
+		}
+
 		function onPathChanged() {
 			const current = String(folderView.directory.path);
 			const previous = folderView.lastPath;

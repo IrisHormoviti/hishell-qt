@@ -23,6 +23,8 @@
 #include <QMimeType>
 #include <QRandomGenerator>
 #include <QSaveFile>
+#include <QStandardPaths>
+#include <QStringList>
 #include <QUrl>
 #include <QVariantMap>
 #include <QWindow>
@@ -327,6 +329,32 @@ void hishell_hook_menu_key(void)
 const char *hishell_file_uri(const char *path)
 {
 	g_result = QUrl::fromLocalFile(QString::fromUtf8(path)).toEncoded(QUrl::FullyEncoded);
+	return g_result.constData();
+}
+
+// The shared-mime-info content type for a path (e.g. "image/x-aseprite").
+// Uses QMimeDatabase so globs and magic rules from the system MIME database
+// are honoured, matching what KDE applications (Dolphin) resolve.
+const char *hishell_mime_type(const char *path)
+{
+	const QMimeDatabase db;
+	g_result = db.mimeTypeForFile(QString::fromUtf8(path), QMimeDatabase::MatchDefault)
+		.name()
+		.toUtf8();
+	return g_result.constData();
+}
+
+// Directories holding external freedesktop "*.thumbnailer" definitions, one
+// per line. Resolved through QStandardPaths so $XDG_DATA_HOME and
+// $XDG_DATA_DIRS are honoured instead of hard-coding the conventional paths.
+const char *hishell_thumbnailer_dirs()
+{
+	QStringList dirs;
+	const QStringList dataDirs = QStandardPaths::standardLocations(QStandardPaths::GenericDataLocation);
+	for (const QString &dataDir : dataDirs) {
+		dirs << dataDir + QStringLiteral("/thumbnailers");
+	}
+	g_result = dirs.join(QLatin1Char('\n')).toUtf8();
 	return g_result.constData();
 }
 

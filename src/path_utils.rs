@@ -79,6 +79,15 @@ pub struct PathUtils {
 			}
 		}
 	),
+
+	/// Resolve a layout entry against the folder the window is showing: `~` and
+	/// `~/sub` expand against the home directory, absolute paths are kept as-is,
+	/// and anything else joins the base. `.` and `..` segments are collapsed.
+	resolve_path: qt_method!(
+		fn resolve_path(&self, base: String, spec: String) -> String {
+			Self::resolve_spec(&base, &spec)
+		}
+	),
 }
 
 impl PathUtils {
@@ -95,5 +104,40 @@ impl PathUtils {
 		} else {
 			p.to_string()
 		}
+	}
+
+	fn resolve_spec(base: &str, spec: &str) -> String {
+		let spec = spec.trim();
+		let base = base.trim();
+
+		// Before the window's folder is known a relative entry is passed through
+		// untouched, so the panes pick it up once the base is set.
+		if base.is_empty() && !spec.starts_with('/') && !spec.starts_with('~') {
+			return spec.to_string();
+		}
+
+		let joined = if spec == "~" || spec.starts_with("~/") {
+			match dirs::home_dir().map(|home| home.to_string_lossy().to_string()) {
+				Some(home) if spec == "~" => home,
+				Some(home) => format!("{}/{}", home, &spec[2..]),
+				None => spec.to_string(),
+			}
+		} else if spec.starts_with('/') {
+			spec.to_string()
+		} else {
+			format!("{}/{}", base, spec)
+		};
+
+		let mut parts: Vec<&str> = Vec::new();
+		for part in joined.split('/') {
+			match part {
+				"" | "." => {}
+				".." => {
+					parts.pop();
+				}
+				other => parts.push(other),
+			}
+		}
+		format!("/{}", parts.join("/"))
 	}
 }
