@@ -19,6 +19,11 @@ Kirigami.ApplicationWindow {
 	// The pane that follows the window's own folder; it owns the keyboard
 	// whenever nothing else does, so typing filters the window's folder.
 	property Item primaryFolderView: null
+	// The view owning the pane cursor and the view owning the selection; the
+	// item actions fall back to the cursor so a focused item can be trashed,
+	// copied and so on like a selected one.
+	property Item focusedFolderView: null
+	property Item selectionFolderView: null
 	property alias focusManager: focusManager
 	property alias dragDropHandler: dragDropHandler
 	property alias dropValidator: dropValidator

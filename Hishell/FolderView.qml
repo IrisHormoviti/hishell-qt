@@ -461,6 +461,10 @@ Item {
 			folderView.rootWindow.selectionManager = null;
 		if (folderView.rootWindow && folderView.rootWindow.primaryFolderView === folderView)
 			folderView.rootWindow.primaryFolderView = null;
+		if (folderView.rootWindow && folderView.rootWindow.focusedFolderView === folderView)
+			folderView.rootWindow.focusedFolderView = null;
+		if (folderView.rootWindow && folderView.rootWindow.selectionFolderView === folderView)
+			folderView.rootWindow.selectionFolderView = null;
 		if (folderView.focusManager && folderView.paneId > 0)
 			folderView.focusManager.release_pane(folderView.paneId);
 	}
@@ -472,8 +476,10 @@ Item {
 			// Adopt this view's selection when it is focused, but never let an
 			// empty pane take the actions over: opening a popup can bounce the
 			// focus to a sibling pane and would otherwise clear them.
-			if (folderView.rootWindow && folderView.selectionManager.selection_active)
+			if (folderView.rootWindow && folderView.selectionManager.selection_active) {
 				folderView.rootWindow.selectionManager = folderView.selectionManager;
+				folderView.rootWindow.selectionFolderView = folderView;
+			}
 			if (folderView.focusManager && folderView.paneId > 0)
 				folderView.focusManager.activate_pane(folderView.paneId);
 			folderView.updateFocusItems();
@@ -485,8 +491,10 @@ Item {
 	Connections {
 		target: folderView.selectionManager
 		function onSelection_changed() {
-			if (folderView.rootWindow)
+			if (folderView.rootWindow) {
 				folderView.rootWindow.selectionManager = folderView.selectionManager;
+				folderView.rootWindow.selectionFolderView = folderView;
+			}
 		}
 	}
 
@@ -524,6 +532,10 @@ Item {
 		target: folderView.focusManager
 		function onFocus_changed() {
 			const fm = folderView.focusManager;
+			// Keep the window's item actions pointed at the pane holding the
+			// cursor, even when the keyboard sits elsewhere (popup, dialog).
+			if (fm && folderView.rootWindow && fm.current_pane === folderView.paneId)
+				folderView.rootWindow.focusedFolderView = folderView;
 			// Follow the cursor when it moves into this pane, but never take the
 			// keyboard back from an open popup.
 			if (fm && fm.view_focused && fm.current_pane === folderView.paneId && !folderView.activeFocus)

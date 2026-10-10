@@ -18,10 +18,29 @@ Item {
 	readonly property bool hasSelection: selectedCount > 0
 	readonly property bool isSingleSelection: selectedCount === 1
 
-	readonly property bool isFirstSelectedDir: (isSingleSelection && fileManager) ? fileManager.is_directory(firstSelectedPath) : false
+	// The item under the pane cursor stands in for a selection while nothing is
+	// selected, so the actions work on the focused item too.
+	readonly property string focusedPath: {
+		const fm = actionManager.window ? actionManager.window.focusManager : null;
+		if (!fm || !fm.focus_active)
+			return "";
+		return String(fm.focused_path);
+	}
+	readonly property var targetPathList: actionManager.hasSelection ? actionManager.selectedPathList : (actionManager.focusedPath !== "" ? [actionManager.focusedPath] : [])
+	readonly property bool hasTarget: actionManager.targetPathList.length > 0
+	readonly property bool isSingleTarget: actionManager.targetPathList.length === 1
+	readonly property string firstTargetPath: actionManager.targetPathList.length > 0 ? actionManager.targetPathList[0] : ""
+	// The directory the target lives in; a layout can show several folders, so the
+	// owning view decides where paths open and what gets reloaded afterwards.
+	readonly property var targetFolderView: actionManager.hasSelection
+		? (actionManager.window ? actionManager.window.selectionFolderView : null)
+		: (actionManager.window ? actionManager.window.focusedFolderView : null)
+	readonly property Directory targetDirectory: (actionManager.targetFolderView && actionManager.targetFolderView.directory) ? actionManager.targetFolderView.directory : actionManager.directory
 
-	// Default application of the single selected file, used by the Open action
-	readonly property string openAppPath: (isSingleSelection && !isFirstSelectedDir) ? firstSelectedPath : ""
+	readonly property bool isFirstTargetDir: (isSingleTarget && fileManager) ? fileManager.is_directory(firstTargetPath) : false
+
+	// Default application of the single target file, used by the Open action
+	readonly property string openAppPath: (isSingleTarget && !isFirstTargetDir) ? firstTargetPath : ""
 	readonly property var openApp: {
 		if (openAppPath === "" || !fileManager)
 			return null;
@@ -34,13 +53,13 @@ Item {
 	}
 	readonly property string openAppIcon: openApp ? String(openApp.icon) : ""
 
-	readonly property bool isImageSelected: {
-		if (!hasSelection || !fileManager)
+	readonly property bool isImageTarget: {
+		if (!hasTarget || !fileManager)
 			return false;
-		if (isSingleSelection)
-			return fileManager.is_image_file(firstSelectedPath);
-		for (let i = 0; i < selectedPathList.length; i++) {
-			if (!fileManager.is_image_file(selectedPathList[i]))
+		if (isSingleTarget)
+			return fileManager.is_image_file(firstTargetPath);
+		for (let i = 0; i < targetPathList.length; i++) {
+			if (!fileManager.is_image_file(targetPathList[i]))
 				return false;
 		}
 		return true;
@@ -161,9 +180,9 @@ Item {
 		if (!groupData)
 			return false;
 		if (groupData.contexts.indexOf("items") !== -1)
-			return hasSelection;
+			return hasTarget;
 		if (groupData.contexts.indexOf("files") !== -1)
-			return isImageSelected;
+			return isImageTarget;
 		return true;
 	}
 
@@ -179,25 +198,25 @@ Item {
 			openAction.execute(path, sourceItem, false);
 	}
 
-	readonly property bool isSelectedLink: actionManager.hasSelection
-		&& actionManager.selectedPathList.length === 1
-		&& actionManager.directory
-		&& actionManager.directory.is_link(actionManager.firstSelectedPath)
+	readonly property bool isTargetLink: actionManager.hasTarget
+		&& actionManager.isSingleTarget
+		&& actionManager.targetDirectory
+		&& actionManager.targetDirectory.is_link(actionManager.firstTargetPath)
 
 	property alias executeAction: executeAction
 	Action {
 		id: executeAction
-		text: actionManager.isSelectedLink ? qsTr("Open &Link") : qsTr("&Execute")
-		icon.name: actionManager.isSelectedLink ? "open-link" : "system-run"
-		readonly property bool available: actionManager.hasSelection
-			&& actionManager.selectedPathList.every(path => actionManager.directory.is_execute_target(path))
+		text: actionManager.isTargetLink ? qsTr("Open &Link") : qsTr("&Execute")
+		icon.name: actionManager.isTargetLink ? "open-link" : "system-run"
+		readonly property bool available: actionManager.hasTarget
+			&& actionManager.targetPathList.every(path => actionManager.targetDirectory.is_execute_target(path))
 		enabled: available
 
 		function execute(targetPath: string, sourceItem: Item) {
-			const paths = targetPath !== "" ? [targetPath] : actionManager.selectedPathList;
+			const paths = targetPath !== "" ? [targetPath] : actionManager.targetPathList;
 			for (let i = 0; i < paths.length; i++) {
 				const path = paths[i];
-				if (!actionManager.directory.is_execute_target(path))
+				if (!actionManager.targetDirectory.is_execute_target(path))
 					continue;
 				if (sourceItem) {
 					const layout = sourceItem.contentLayout;
@@ -212,7 +231,7 @@ Item {
 						externalOpenAnimationEffect.restart();
 					});
 				}
-				actionManager.directory.execute_action(path);
+				actionManager.targetDirectory.execute_action(path);
 			}
 		}
 
@@ -222,13 +241,14 @@ Item {
 	property alias openAction: openAction
 	Action {
 		id: openAction
+		shortcut: "Ctrl+O"
 		text: actionManager.openApp ? qsTr("O&pen with %1").arg(actionManager.openApp.name) : qsTr("O&pen")
 		icon.name: actionManager.openAppIcon !== "" && actionManager.openAppIcon.indexOf("/") === -1 ? actionManager.openAppIcon : "open-link"
 		icon.source: actionManager.openAppIcon.indexOf("/") !== -1 ? actionManager.openAppIcon : ""
-		enabled: actionManager.hasSelection
+		enabled: actionManager.hasTarget
 
 		function execute(targetPath: string, sourceItem: Item, inNewWindow = false) {
-			const paths = targetPath !== "" ? [targetPath] : actionManager.selectedPathList;
+			const paths = targetPath !== "" ? [targetPath] : actionManager.targetPathList;
 			for (let i = 0; i < paths.length; i++) {
 				const p = paths[i];
 				// Opening a folder in place resets the view's model and destroys the
@@ -250,15 +270,15 @@ Item {
 				}
 
 				if (inNewWindow) {
-					actionManager.directory.open_in_new_window(p);
+					actionManager.targetDirectory.open_in_new_window(p);
 				} else {
-					actionManager.directory.open_path(p);
+					actionManager.targetDirectory.open_path(p);
 				}
 			}
 		}
 
 		onTriggered: {
-			if (!actionManager.hasSelection)
+			if (!actionManager.hasTarget)
 				return;
 			execute("", null, false);
 		}
@@ -270,18 +290,18 @@ Item {
 		text: qsTr("Navigate")
 		icon.name: "folder-open-symbolic"
 		shortcut: "Shift+Return"
-		enabled: actionManager.hasSelection && actionManager.selectedCount == 1
+		enabled: actionManager.isSingleTarget
 
 		function execute(targetPath: string, sourceItem: Item) {
-			const paths = targetPath !== "" ? [targetPath] : actionManager.selectedPathList;
+			const paths = targetPath !== "" ? [targetPath] : actionManager.targetPathList;
 			for (let i = 0; i < paths.length; i++) {
 				const p = paths[i];
-				actionManager.directory.open_path(p);
+				actionManager.targetDirectory.open_path(p);
 			}
 		}
 
 		onTriggered: {
-			if (!actionManager.hasSelection)
+			if (!actionManager.hasTarget)
 				return;
 			execute("", null, false);
 		}
@@ -293,12 +313,12 @@ Item {
 		text: qsTr("Open in Win&dow")
 		icon.name: "window-new-symbolic"
 		shortcut: "Ctrl+N"
-		enabled: actionManager.hasSelection
+		enabled: actionManager.hasTarget
 		onTriggered: {
-			if (!actionManager.hasSelection) {
+			if (!actionManager.hasTarget) {
 				actionManager.directory.open_in_new_window(actionManager.directory.path);
 			} else {
-				const paths = actionManager.selectedPathList;
+				const paths = actionManager.targetPathList;
 				for (let i = 0; i < paths.length; i++) {
 					openAction.execute(paths[i], null, true);
 				}
@@ -312,10 +332,10 @@ Item {
 		text: qsTr("Open &With...")
 		icon.name: "system-run"
 		shortcut: "Ctrl+Alt+O"
-		enabled: actionManager.isSingleSelection
+		enabled: actionManager.isSingleTarget
 		onTriggered: {
-			if (actionManager.isSingleSelection)
-				actionManager.openWith(actionManager.firstSelectedPath);
+			if (actionManager.isSingleTarget)
+				actionManager.openWith(actionManager.firstTargetPath);
 		}
 	}
 
@@ -327,9 +347,9 @@ Item {
 		text: qsTr("&Copy")
 		icon.name: "edit-copy"
 		shortcut: "Ctrl+C"
-		enabled: actionManager.hasSelection
+		enabled: actionManager.hasTarget
 		onTriggered: {
-			const paths = actionManager.selectedPathList.join("\n");
+			const paths = actionManager.targetPathList.join("\n");
 			if (actionManager.fileManager)
 				actionManager.fileManager.copy_paths_to_clipboard(paths);
 		}
@@ -340,9 +360,9 @@ Item {
 		text: qsTr("C&ut")
 		icon.name: "edit-cut"
 		shortcut: "Ctrl+X"
-		enabled: actionManager.hasSelection
+		enabled: actionManager.hasTarget
 		onTriggered: {
-			const paths = actionManager.selectedPathList.join("\n");
+			const paths = actionManager.targetPathList.join("\n");
 			if (actionManager.fileManager)
 				actionManager.fileManager.cut_paths_to_clipboard(paths);
 		}
@@ -353,16 +373,16 @@ Item {
 		text: qsTr("&Duplicate")
 		icon.name: "edit-copy"
 		shortcut: "Ctrl+D"
-		enabled: actionManager.hasSelection
+		enabled: actionManager.hasTarget
 		onTriggered: {
-			const paths = actionManager.selectedPathList;
+			const paths = actionManager.targetPathList;
 			let anyOk = false;
 			for (let i = 0; i < paths.length; i++) {
 				if (actionManager.fileManager && actionManager.fileManager.duplicate_file(paths[i]))
 					anyOk = true;
 			}
-			if (anyOk && actionManager.directory)
-				actionManager.directory.reload();
+			if (anyOk && actionManager.targetDirectory)
+				actionManager.targetDirectory.reload();
 		}
 	}
 
@@ -371,9 +391,9 @@ Item {
 		text: qsTr("Create &Link")
 		icon.name: "edit-link"
 		shortcut: "Ctrl+Shift+L"
-		enabled: actionManager.hasSelection
+		enabled: actionManager.hasTarget
 		onTriggered: {
-			const paths = actionManager.selectedPathList;
+			const paths = actionManager.targetPathList;
 			let anyOk = false;
 			for (let i = 0; i < paths.length; i++) {
 				const p = paths[i];
@@ -383,8 +403,8 @@ Item {
 				if (actionManager.fileManager && actionManager.fileManager.create_link(p, dest))
 					anyOk = true;
 			}
-			if (anyOk && actionManager.directory)
-				actionManager.directory.reload();
+			if (anyOk && actionManager.targetDirectory)
+				actionManager.targetDirectory.reload();
 		}
 	}
 
@@ -393,11 +413,22 @@ Item {
 		text: qsTr("&Rename")
 		icon.name: "edit-rename"
 		shortcut: "F2"
-		enabled: actionManager.isSingleSelection
+		enabled: actionManager.isSingleTarget
 		onTriggered: {
-			if (actionManager.isSingleSelection) {
-				actionManager.openRenameDialog(actionManager.firstSelectedPath);
+			if (actionManager.isSingleTarget) {
+				actionManager.openRenameDialog(actionManager.firstTargetPath);
 			}
+		}
+	}
+
+	Action {
+		id: editPermissionsAction
+		text: qsTr("Permissions...")
+		icon.name: "edit-rename"
+		shortcut: "Ctrl+P"
+		enabled: actionManager.hasTarget
+		onTriggered: {
+			// FIXME
 		}
 	}
 
@@ -406,9 +437,9 @@ Item {
 		text: qsTr("&Trash")
 		icon.name: "user-trash"
 		shortcut: "Delete"
-		enabled: actionManager.hasSelection
+		enabled: actionManager.hasTarget
 		onTriggered: {
-			const paths = actionManager.selectedPathList;
+			const paths = actionManager.targetPathList;
 			let anyOk = false;
 			for (let i = 0; i < paths.length; i++) {
 				if (actionManager.fileManager && actionManager.fileManager.trash_file(paths[i]))
@@ -416,8 +447,8 @@ Item {
 			}
 			if (actionManager.selectionManager)
 				actionManager.selectionManager.clear();
-			if (anyOk && actionManager.directory)
-				actionManager.directory.reload();
+			if (anyOk && actionManager.targetDirectory)
+				actionManager.targetDirectory.reload();
 		}
 	}
 
@@ -430,12 +461,34 @@ Item {
 	Action {
 		id: goUpAction
 		text: qsTr("Go &Up")
-		icon.name: "go-up-symbolic"
+		icon.name: "arrow-up-symbolic"
 		shortcut: "Alt+Up"
 		enabled: actionManager.directory && actionManager.directory.path !== "/"
 		onTriggered: {
 			if (actionManager.directory)
 				actionManager.directory.go_up();
+		}
+	}
+
+	Action {
+		id: goBackAction
+		text: qsTr("Go &Back")
+		icon.name: "arrow-left-symbolic"
+		shortcut: "Alt+Left"
+		enabled: actionManager.directory
+		onTriggered: {
+			// FIXME
+		}
+	}
+
+	Action {
+		id: goForwardAction
+		text: qsTr("Go &Forward")
+		icon.name: "arrow-right-symbolic"
+		shortcut: "Alt+Right"
+		enabled: actionManager.directory
+		onTriggered: {
+			// FIXME
 		}
 	}
 
@@ -449,6 +502,17 @@ Item {
 			// Full reload: re-reads the folder contents and its config.
 			if (actionManager.directory)
 				actionManager.directory.reload();
+		}
+	}
+
+	Action {
+		id: searchAction
+		text: qsTr("Search")
+		icon.name: "search"
+		shortcut: "Ctrl+F"
+		enabled: actionManager.directory !== null
+		onTriggered: {
+			// TODO: Implement
 		}
 	}
 
@@ -499,17 +563,6 @@ Item {
 		}
 	}
 
-	Action {
-		id: searchAction
-		text: "Search..."
-		icon.name: "file-search-symbolic"
-		shortcut: "Ctrl+L"
-		enabled: !actionManager.hasSelection
-		onTriggered: {
-			// FIXME
-		}
-	}
-
 
 	// New Group
 	readonly property var newActionsGroup: [newFolderAction, newTextFileAction]
@@ -548,16 +601,16 @@ Item {
 		text: qsTr("Rotate &Clockwise")
 		icon.name: "object-rotate-right"
 		shortcut: "Ctrl+R"
-		enabled: actionManager.isImageSelected
+		enabled: actionManager.isImageTarget
 		onTriggered: {
-			const paths = actionManager.selectedPathList;
+			const paths = actionManager.targetPathList;
 			let anyOk = false;
 			for (let i = 0; i < paths.length; i++) {
 				if (actionManager.fileManager && actionManager.fileManager.rotate_image(paths[i], 90))
 					anyOk = true;
 			}
-			if (anyOk && actionManager.directory)
-				actionManager.directory.reload();
+			if (anyOk && actionManager.targetDirectory)
+				actionManager.targetDirectory.reload();
 		}
 	}
 
@@ -566,16 +619,16 @@ Item {
 		text: qsTr("Rotate Counter-Clock&wise")
 		icon.name: "object-rotate-left"
 		shortcut: "Ctrl+Shift+R"
-		enabled: actionManager.isImageSelected
+		enabled: actionManager.isImageTarget
 		onTriggered: {
-			const paths = actionManager.selectedPathList;
+			const paths = actionManager.targetPathList;
 			let anyOk = false;
 			for (let i = 0; i < paths.length; i++) {
 				if (actionManager.fileManager && actionManager.fileManager.rotate_image(paths[i], 270))
 					anyOk = true;
 			}
-			if (anyOk && actionManager.directory)
-				actionManager.directory.reload();
+			if (anyOk && actionManager.targetDirectory)
+				actionManager.targetDirectory.reload();
 		}
 	}
 
@@ -615,8 +668,8 @@ Item {
 			renameDialog.accept();
 			if (actionManager.selectionManager)
 				actionManager.selectionManager.clear();
-			if (actionManager.directory)
-				actionManager.directory.rename_free_position(renameDialog.originalName, trimmed);
+			if (actionManager.targetDirectory)
+				actionManager.targetDirectory.rename_free_position(renameDialog.originalName, trimmed);
 		}
 
 		title: qsTr("Rename")
