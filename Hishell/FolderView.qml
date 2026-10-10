@@ -33,6 +33,11 @@ Item {
 	property bool folderDropActive: false
 	property string folderDropPath: ""
 
+	// Custom in-window reposition drag: the selection is previewed and moved
+	// directly instead of starting an OS drag-and-drop sequence.
+	property bool repositionDragActive: false
+	property bool repositionAnimating: false
+
 	// Selection state is owned per view so selection mode and the selection
 	// toolbar stay inside the pane instead of the whole window.
 	SelectionManager {
@@ -117,6 +122,7 @@ Item {
 		}
 		mgr.select_all(paths);
 	}
+
 
 	readonly property var gridMetrics: {
 		const cfg = folderView.config;
@@ -705,37 +711,205 @@ Item {
 		}
 	}
 
+	// True when the given window/scene point lies outside the window content.
+	function repositionCursorOutsideWindow(wx, wy) {
+		const win = folderView.Window.window;
+		if (!win || !win.contentItem)
+			return false;
+		return wx < 0 || wy < 0 || wx > win.contentItem.width || wy > win.contentItem.height;
+	}
+
+	// Map the selected paths that live in this folder to their file names.
+	function selectedNameMap(paths) {
+		const dirPath = String(folderView.directory.path);
+		const selected = {};
+		for (let i = 0; i < paths.length; i++) {
+			const sp = String(paths[i]);
+			const sep = sp.lastIndexOf("/");
+			if (sep < 0 || sp.substring(0, sep) !== dirPath)
+				continue;
+			selected[sp] = sp.substring(sep + 1);
+		}
+		return selected;
+	}
+
+	// Gather the current free-placement slot of every selected item so its
+	// arrangement can be reproduced elsewhere.
+	function selectedSlotEntries(selected) {
+		const metrics = folderView.gridMetrics;
+		const entries = [];
+		if (!metrics.free || !metrics.slots)
+			return entries;
+		for (let i = 0; i < itemRepeater.count; i++) {
+			const item = itemRepeater.itemAt(i);
+			if (!item || selected[item.path] === undefined)
+			continue;
+			const slot = metrics.slots[i];
+			if (!slot)
+				continue;
+			entries.push({ name: selected[item.path], path: item.path, title: item.title, icon: item.icon, c: slot.c, r: slot.r });
+		}
+		return entries;
+	}
+
+	// The grabbed item is the anchor; without one, use the top-left of the block.
+	function anchorEntry(entries, mainPath) {
+		for (let i = 0; i < entries.length; i++) {
+			if (entries[i].path === mainPath)
+				return entries[i];
+		}
+		let anchor = entries[0];
+		for (let i = 1; i < entries.length; i++) {
+			const e = entries[i];
+			if (e.c < anchor.c || (e.c === anchor.c && e.r < anchor.r))
+				anchor = e;
+		}
+		return anchor;
+	}
+
+	// Begin a custom, in-window reposition drag for the given selection.
+	function beginRepositionDrag(mainPath, paths, wx, wy, hotspotX, hotspotY) {
+		const cfg = folderView.config;
+		if (!cfg || cfg.sort !== 3 || cfg.view_mode !== 0 || !paths || paths.length === 0)
+			return false;
+		const metrics = folderView.gridMetrics;
+		if (!metrics.free || !metrics.slots || metrics.slots.length === 0)
+			return false;
+
+		const entries = folderView.selectedSlotEntries(folderView.selectedNameMap(paths));
+		if (entries.length === 0)
+			return false;
+
+		const anchor = folderView.anchorEntry(entries, mainPath);
+		const itemW = metrics.itemWidth;
+		const itemH = metrics.itemHeight;
+		const gap = metrics.gap;
+		const previewItems = [];
+		for (let i = 0; i < entries.length; i++) {
+			const e = entries[i];
+			previewItems.push({
+				path: e.path,
+				title: e.title,
+				icon: e.icon,
+				x: (e.c - anchor.c) * (itemW + gap),
+				y: (e.r - anchor.r) * (itemH + gap),
+				w: itemW,
+				h: itemH
+			});
+		}
+
+		const handler = folderView.rootWindow ? folderView.rootWindow.dragDropHandler : null;
+		if (handler) {
+			handler.reposition_preview = JSON.stringify({ hotspotX: hotspotX, hotspotY: hotspotY, gridSize: (cfg.grid_size ? cfg.grid_size : 64), items: previewItems });
+			handler.reposition_active = true;
+		}
+		folderView.repositionDragActive = true;
+		folderView.updateRepositionDrag(wx, wy);
+		return true;
+	}
+
+	function updateRepositionDrag(wx, wy) {
+		if (!folderView.repositionDragActive)
+			return;
+		const local = folderView.mapFromItem(null, wx, wy);
+		folderView.updateFreeDropTarget(local.x, local.y);
+		const handler = folderView.rootWindow ? folderView.rootWindow.dragDropHandler : null;
+		if (handler) {
+			handler.update_cursor(wx, wy);
+			handler.reposition_active = !folderView.folderDropActive;
+		}
+	}
+
+	function cancelRepositionDrag() {
+		folderView.repositionDragActive = false;
+		folderView.freeDropCol = -1;
+		folderView.freeDropRow = -1;
+		folderView.resetFolderDrop();
+		const handler = folderView.rootWindow ? folderView.rootWindow.dragDropHandler : null;
+		if (handler) {
+			handler.reposition_preview = "";
+			handler.reposition_active = false;
+		}
+	}
+
+	function endRepositionDrag(wx, wy) {
+		if (!folderView.repositionDragActive)
+			return;
+		const handler = folderView.rootWindow ? folderView.rootWindow.dragDropHandler : null;
+		const local = folderView.mapFromItem(null, wx, wy);
+		const slot = folderView.freeSlotAt(local.x, local.y);
+		const dropFolder = folderView.folderDropActive ? folderView.folderDropPath : "";
+		folderView.cancelRepositionDrag();
+
+		if (dropFolder !== "" && handler) {
+			const fm = folderView.rootWindow ? folderView.rootWindow.fileManager : null;
+			const uris = handler.drag_uris ? handler.drag_uris.join("\n") : "";
+			const action = handler.drag_action ? String(handler.drag_action) : "move";
+			if (uris.length > 0 && fm && fm.process_uris_action(dropFolder, uris, action))
+				folderView.directory.reload();
+			return;
+		}
+
+		folderView.applyRepositionToSlot(slot.col, slot.row);
+	}
+
+	// Move the selection to the given slot, preserving its arrangement.
+	function applyRepositionToSlot(col, row) {
+		const handler = folderView.rootWindow ? folderView.rootWindow.dragDropHandler : null;
+		if (!handler || !handler.drag_source_paths || handler.drag_source_paths.length === 0)
+			return false;
+		const metrics = folderView.gridMetrics;
+		if (!metrics.free || !metrics.slots || metrics.slots.length === 0)
+			return false;
+
+		const entries = folderView.selectedSlotEntries(folderView.selectedNameMap(handler.drag_source_paths));
+		if (entries.length === 0)
+			return false;
+
+		// Anchor the grabbed item on the target slot and shift the whole group so
+		// nothing is clamped off the top/left edge.
+		const anchor = folderView.anchorEntry(entries, String(handler.drag_main_path));
+		let dCol = col - anchor.c;
+		let dRow = row - anchor.r;
+		let minCol = 0;
+		let minRow = 0;
+		for (let i = 0; i < entries.length; i++) {
+			minCol = Math.min(minCol, entries[i].c + dCol);
+			minRow = Math.min(minRow, entries[i].r + dRow);
+		}
+		dCol -= minCol;
+		dRow -= minRow;
+
+		folderView.repositionAnimating = true;
+		for (let i = 0; i < entries.length; i++) {
+			const e = entries[i];
+			folderView.directory.set_free_position(e.name, e.c + dCol, e.r + dRow);
+		}
+		repositionAnimTimer.restart();
+		return true;
+	}
+
 	function repositionDroppedItems(drop) {
 		const cfg = folderView.config;
 		if (!cfg || cfg.sort !== 3 || cfg.view_mode !== 0)
 			return false;
 		const metrics = folderView.gridMetrics;
-		if (!metrics.free || !metrics.slots)
+		if (!metrics.free || !metrics.slots || metrics.slots.length === 0)
 			return false;
 		const handler = folderView.rootWindow ? folderView.rootWindow.dragDropHandler : null;
 		if (!handler || !handler.drag_source_paths || handler.drag_source_paths.length === 0)
 			return false;
 
-		const dirPath = String(folderView.directory.path);
 		const slot = folderView.freeSlotAt(drop.x, drop.y);
-		const col = slot.col;
-		const row = slot.row;
+		return folderView.applyRepositionToSlot(slot.col, slot.row);
+	}
 
-		let moved = false;
-		let placed = 0;
-		for (let i = 0; i < handler.drag_source_paths.length; i++) {
-			const sp = String(handler.drag_source_paths[i]);
-			const sep = sp.lastIndexOf("/");
-			if (sep < 0 || sp.substring(0, sep) !== dirPath)
-				continue;
-			const name = sp.substring(sep + 1);
-			const c = col + (placed % metrics.columns);
-			const r = row + Math.floor((col + placed) / metrics.columns);
-			folderView.directory.set_free_position(name, c, r);
-			moved = true;
-			placed++;
-		}
-		return moved;
+	// Keeps the move animation armed only for the reposition that just happened.
+	Timer {
+		id: repositionAnimTimer
+		interval: 260
+		repeat: false
+		onTriggered: folderView.repositionAnimating = false
 	}
 
 	// Active Drop Highlight Border
@@ -894,16 +1068,6 @@ Item {
 				handler.tooltip_active = true;
 			}
 		}
-	}
-
-	DragTooltip {
-		property var dragHandler: folderView.rootWindow ? folderView.rootWindow.dragDropHandler : null
-
-		active: dragHandler ? dragHandler.tooltip_active : false
-		action: dragHandler ? dragHandler.drag_action : "copy"
-		reposition: dragHandler ? (dragHandler.reposition_active && !folderView.folderDropActive) : false
-		cursorX: dragHandler ? dragHandler.drag_cursor_x + 16 : 0
-		cursorY: dragHandler ? dragHandler.drag_cursor_y + 16 : 0
 	}
 
 	// ── Input Shortcuts ───

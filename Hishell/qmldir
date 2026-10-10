@@ -10,5 +10,6 @@ LayoutEngine LayoutEngine.qml
 ShellWindow ShellWindow.qml
 WindowOverlay WindowOverlay.qml
 DragTooltip DragTooltip.qml
+DragPreview DragPreview.qml
 ExecuteDialog ExecuteDialog.qml
 OpenWithDialog OpenWithDialog.qml

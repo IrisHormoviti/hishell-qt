@@ -49,11 +49,13 @@ pub struct DragDropHandler {
 	drag_cursor_y: qt_property!(f64; NOTIFY drag_cursor_changed),
 	tooltip_active: qt_property!(bool; WRITE set_tooltip_active NOTIFY tooltip_active_changed),
 	reposition_active: qt_property!(bool; WRITE set_reposition_active NOTIFY reposition_active_changed),
+	reposition_preview: qt_property!(String; WRITE set_reposition_preview NOTIFY reposition_preview_changed),
 	active_dragged_paths: qt_property!(QVariantList; WRITE set_active_dragged_paths NOTIFY active_dragged_paths_changed),
 	drag_icon_width: qt_property!(f64),
 	drag_icon_height: qt_property!(f64),
 	drag_uris: qt_property!(QVariantList),
 	drag_source_paths: qt_property!(QVariantList),
+	drag_main_path: qt_property!(String; NOTIFY drag_main_path_changed),
 	item_count: qt_property!(i32),
 	file_title: qt_property!(String),
 	file_icon: qt_property!(String),
@@ -65,7 +67,9 @@ pub struct DragDropHandler {
 	drag_cursor_changed: qt_signal!(),
 	tooltip_active_changed: qt_signal!(),
 	reposition_active_changed: qt_signal!(),
+	reposition_preview_changed: qt_signal!(),
 	active_dragged_paths_changed: qt_signal!(),
+	drag_main_path_changed: qt_signal!(),
 
 	track_mouse_shake: qt_method!(
 		fn track_mouse_shake(&mut self, x: f64, y: f64) {
@@ -125,6 +129,14 @@ pub struct DragDropHandler {
 		}
 	),
 
+	update_cursor: qt_method!(
+		fn update_cursor(&mut self, x: f64, y: f64) {
+			self.drag_cursor_x = x;
+			self.drag_cursor_y = y;
+			self.drag_cursor_changed();
+		}
+	),
+
 	reset: qt_method!(
 		fn reset(&mut self) {
 			self.active_dragged_paths = Default::default();
@@ -133,6 +145,7 @@ pub struct DragDropHandler {
 			self.tooltip_active_changed();
 			self.reposition_active = false;
 			self.reposition_active_changed();
+			self.set_reposition_preview(String::new());
 			self.set_shake_positions(&[]);
 		}
 	),
@@ -140,7 +153,7 @@ pub struct DragDropHandler {
 	set_drag_data: qt_method!(
 		fn set_drag_data(
 			&mut self,
-			_main_path: String,
+			main_path: String,
 			uris: QVariantList,
 			source_paths: QVariantList,
 			item_count: i32,
@@ -149,6 +162,8 @@ pub struct DragDropHandler {
 		) {
 			self.drag_uris = uris;
 			self.drag_source_paths = source_paths;
+			self.drag_main_path = main_path;
+			self.drag_main_path_changed();
 			self.item_count = item_count;
 			self.file_title = file_title.into();
 			self.file_icon = file_icon.into();
@@ -178,6 +193,7 @@ pub struct DragDropHandler {
 			self.tooltip_active_changed();
 			self.reposition_active = false;
 			self.reposition_active_changed();
+			self.set_reposition_preview(String::new());
 			self.drag_icon_width = 0.0;
 			self.drag_icon_height = 0.0;
 		}
@@ -196,6 +212,13 @@ impl DragDropHandler {
 		if self.reposition_active != val {
 			self.reposition_active = val;
 			self.reposition_active_changed();
+		}
+	}
+
+	pub fn set_reposition_preview(&mut self, val: String) {
+		if self.reposition_preview != val {
+			self.reposition_preview = val;
+			self.reposition_preview_changed();
 		}
 	}
 

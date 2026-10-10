@@ -130,6 +130,24 @@ Item {
 		}
 	}
 
+	// Free-placement repositioning animates the slot change; other layout
+	// changes (resize, scroll) keep snapping as before.
+	Behavior on x {
+		enabled: fileSlot.folderView ? fileSlot.folderView.repositionAnimating : false
+		NumberAnimation {
+			duration: fileSlot.animationDuration
+			easing.type: fileSlot.animationEase
+		}
+	}
+
+	Behavior on y {
+		enabled: fileSlot.folderView ? fileSlot.folderView.repositionAnimating : false
+		NumberAnimation {
+			duration: fileSlot.animationDuration
+			easing.type: fileSlot.animationEase
+		}
+	}
+
 	// ── Offscreen Visual Container for Multi-Drag Stack ──
 	Item {
 		id: stackPreviewContainer
@@ -563,14 +581,44 @@ Item {
 		property int startX: 0
 		property int startY: 0
 		property bool dragInitiated: false
+		property bool repositionDrag: false
 
 		Component.onDestruction: {
+			if (typeof dragDropHandler !== 'undefined' && mouseArea.repositionDrag) {
+				const fView = fileSlot.folderView;
+				if (fView)
+					fView.cancelRepositionDrag();
+				mouseArea.repositionDrag = false;
+			}
 			if (typeof dragDropHandler !== 'undefined' && mouseArea.dragStarted) {
 				localDragTarget.Drag.active = false;
 				dragDropHandler.active_dragged_paths = [];
 				dragDropHandler.tooltip_active = false;
 				dragDropHandler.end_drag();
 			}
+		}
+
+		function grabAndStartNativeDrag(wx, wy) {
+			const targetToGrab = contentLayout;
+
+			targetToGrab.grabToImage(function (result) {
+				if (mouseArea.isPressAndHoldActive) {
+					if (typeof dragDropHandler !== 'undefined' && dragDropHandler)
+						dragDropHandler.active_dragged_paths = [];
+					return;
+				}
+
+				localDragTarget.Drag.imageSource = result.url;
+				localDragTarget.Drag.hotSpot = Qt.point(Math.round(targetToGrab.width / 2), Math.round(targetToGrab.height / 2));
+
+				if (typeof dragDropHandler !== 'undefined' && dragDropHandler) {
+					dragDropHandler.track_mouse_shake(wx, wy);
+					dragDropHandler.begin_drag(result.url.toString(), targetToGrab.width, targetToGrab.height);
+				}
+
+				mouseArea.dragStarted = true;
+				localDragTarget.Drag.active = true;
+			});
 		}
 
 		function initiateDragPayload(mouse) {
@@ -623,45 +671,56 @@ Item {
 				dragDropHandler.set_drag_data(mainPath, uris, rawPaths, uris.length, fileSlot.title, fileSlot.icon);
 			}
 
-			const targetToGrab = contentLayout;
+			const pt = mouseArea.mapToItem(null, mouse.x, mouse.y);
 
-			targetToGrab.grabToImage(function (result) {
-				if (mouseArea.isPressAndHoldActive) {
-					if (typeof dragDropHandler !== 'undefined' && dragDropHandler)
-						dragDropHandler.active_dragged_paths = [];
-					return;
-				}
+			// A free-placement drag of items that already live in this folder is
+			// repositioned directly, without an OS drag, so the whole selection can
+			// follow the cursor and the move can be animated.
+			const fView = fileSlot.folderView;
+			if (fView && typeof fView.beginRepositionDrag === 'function' && fView.beginRepositionDrag(mainPath, rawPaths, pt.x, pt.y, mouse.x, mouse.y)) {
+				mouseArea.repositionDrag = true;
+				if (typeof dragDropHandler !== 'undefined' && dragDropHandler)
+					dragDropHandler.tooltip_active = true;
+				return;
+			}
 
-				localDragTarget.Drag.imageSource = result.url;
-				localDragTarget.Drag.hotSpot = Qt.point(Math.round(targetToGrab.width / 2), Math.round(targetToGrab.height / 2));
-
-				if (typeof dragDropHandler !== 'undefined' && dragDropHandler) {
-					const pt = mouseArea.mapToItem(null, mouse.x, mouse.y);
-					dragDropHandler.track_mouse_shake(pt.x, pt.y);
-					dragDropHandler.begin_drag(result.url.toString(), targetToGrab.width, targetToGrab.height);
-				}
-
-				mouseArea.dragStarted = true;
-				localDragTarget.Drag.active = true;
-			});
+			mouseArea.grabAndStartNativeDrag(pt.x, pt.y);
 		}
 
 		onPositionChanged: mouse => {
-			if (typeof dragDropHandler !== 'undefined') {
-				if (!mouseArea.dragStarted && !mouseArea.isPressAndHoldActive && mouseArea.drag.active) {
-					const deltaX = mouse.x - mouseArea.startX;
-					const deltaY = mouse.y - mouseArea.startY;
-					const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+			if (typeof dragDropHandler === 'undefined')
+				return;
 
-					if (distance > 10) {
-						mouseArea.initiateDragPayload(mouse);
+			if (mouseArea.repositionDrag) {
+				const pt = mouseArea.mapToItem(null, mouse.x, mouse.y);
+				const fView = fileSlot.folderView;
+				if (fView) {
+					if (fView.repositionCursorOutsideWindow(pt.x, pt.y)) {
+						// Hand the gesture over to the OS drag once it leaves the window.
+						mouseArea.repositionDrag = false;
+						fView.cancelRepositionDrag();
+						dragDropHandler.reposition_active = false;
+						mouseArea.grabAndStartNativeDrag(pt.x, pt.y);
+						return;
 					}
+					fView.updateRepositionDrag(pt.x, pt.y);
 				}
+				return;
+			}
 
-				if (mouseArea.dragStarted) {
-					const pt = mouseArea.mapToItem(null, mouse.x, mouse.y);
-					dragDropHandler.track_mouse_shake(pt.x, pt.y);
+			if (!mouseArea.dragStarted && !mouseArea.isPressAndHoldActive && mouseArea.drag.active) {
+				const deltaX = mouse.x - mouseArea.startX;
+				const deltaY = mouse.y - mouseArea.startY;
+				const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+				if (distance > 10) {
+					mouseArea.initiateDragPayload(mouse);
 				}
+			}
+
+			if (mouseArea.dragStarted) {
+				const pt = mouseArea.mapToItem(null, mouse.x, mouse.y);
+				dragDropHandler.track_mouse_shake(pt.x, pt.y);
 			}
 		}
 
@@ -670,6 +729,7 @@ Item {
 			if (mouse.button === Qt.LeftButton && typeof dragDropHandler !== 'undefined') {
 				mouseArea.isPressAndHoldActive = false;
 				mouseArea.dragInitiated = false;
+				mouseArea.repositionDrag = false;
 
 				mouseArea.startX = mouse.x;
 				mouseArea.startY = mouse.y;
@@ -679,6 +739,22 @@ Item {
 		onReleased: mouse => {
 			mouseArea.isPressAndHoldActive = false;
 			mouseArea.dragInitiated = false;
+
+			if (mouseArea.repositionDrag) {
+				const pt = mouseArea.mapToItem(null, mouse.x, mouse.y);
+				const fView = fileSlot.folderView;
+				if (fView)
+					fView.endRepositionDrag(pt.x, pt.y);
+				mouseArea.repositionDrag = false;
+				if (typeof dragDropHandler !== 'undefined' && dragDropHandler) {
+					dragDropHandler.active_dragged_paths = [];
+					dragDropHandler.tooltip_active = false;
+					dragDropHandler.reposition_active = false;
+				}
+				localDragTarget.Drag.active = false;
+				mouseArea.dragStarted = false;
+				return;
+			}
 
 			if (typeof dragDropHandler !== 'undefined' && dragDropHandler) {
 				dragDropHandler.active_dragged_paths = [];

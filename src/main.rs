@@ -117,6 +117,7 @@ fn main() {
 			"ActionGroupMenu.qml",
 			"ActionManager.qml",
 			"DragTooltip.qml",
+			"DragPreview.qml",
 			"ExecuteDialog.qml",
 			"FileSlot.qml",
 			"FolderView.qml",

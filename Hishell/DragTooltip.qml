@@ -27,16 +27,14 @@ Item {
 		}
 	}
 
-	Rectangle {
+	Kirigami.ShadowedRectangle {
 		id: bg
-		width: contentRow.implicitWidth + 20
-		height: contentRow.implicitHeight + 12
-		radius: 14
+		width: contentRow.implicitWidth + Kirigami.Units.mediumSpacing
+		height: contentRow.implicitHeight + Kirigami.Units.mediumSpacing
 
 		Kirigami.Theme.colorSet: Kirigami.Theme.Header
 		color: Qt.rgba(Kirigami.Theme.backgroundColor.r, Kirigami.Theme.backgroundColor.g, Kirigami.Theme.backgroundColor.b, 0.92)
-		border.color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.25)
-		border.width: 1
+		radius: Kirigami.Units.cornerRadius
 
 		RowLayout {
 			id: contentRow
