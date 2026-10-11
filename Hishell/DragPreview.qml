@@ -75,6 +75,8 @@ Item {
 			}
 			readonly property bool hasIcon: slotIcon !== ""
 			readonly property bool labelBeside: dragPreview.labelsBeside && hasIcon
+			// Mirrors FileSlot: without a label the icon fills the slot.
+			readonly property real iconDisplaySize: dragPreview.showLabels ? dragPreview.iconSize : Math.max(dragPreview.iconSize, Math.min(previewItem.width, previewItem.height) - Kirigami.Units.smallSpacing * 2)
 
 			GridLayout {
 				id: contentLayout
@@ -85,8 +87,8 @@ Item {
 				Item {
 					visible: previewItem.hasIcon
 					Layout.alignment: previewItem.labelBeside ? Qt.AlignVCenter : Qt.AlignHCenter
-					Layout.preferredWidth: dragPreview.iconSize
-					Layout.preferredHeight: dragPreview.iconSize
+					Layout.preferredWidth: previewItem.iconDisplaySize
+					Layout.preferredHeight: previewItem.iconDisplaySize
 
 					Loader {
 						id: previewIcon

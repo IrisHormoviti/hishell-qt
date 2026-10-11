@@ -59,8 +59,11 @@ Item {
 
 	readonly property size gridItemSize: {
 		const iconSize = folderView.config ? folderView.config.grid_size : 64;
-		if (folderView.labelsBesideIcons)
-			return Qt.size(Kirigami.Units.gridUnit * 10, Kirigami.Units.gridUnit * 2);
+		if (folderView.labelsBesideIcons) {
+			// The row grows with the icon so the label always keeps a usable width.
+			const labelWidth = Kirigami.Units.gridUnit * 7;
+			return Qt.size(Math.max(Kirigami.Units.gridUnit * 10, iconSize + labelWidth + Kirigami.Units.gridUnit * 2), Math.max(Kirigami.Units.gridUnit * 2, iconSize + Kirigami.Units.smallSpacing * 2));
+		}
 		return Qt.size(iconSize + Kirigami.Units.gridUnit * 3, iconSize + Kirigami.Units.gridUnit * 3);
 	}
 
@@ -617,7 +620,10 @@ Item {
 
 		const cfg = folderView.config;
 		const gridSize = cfg ? cfg.grid_size : 64;
-		const bucket = gridSize <= 128 ? 128 : (gridSize <= 256 ? 256 : (gridSize <= 512 ? 512 : 1024));
+		// Without labels the icons fill their slots, so ask for a thumbnail tier
+		// big enough for the whole slot instead of just the icon size.
+		const displaySize = cfg && !cfg.show_labels ? folderView.gridItemSize.width : gridSize;
+		const bucket = displaySize <= 128 ? 128 : (displaySize <= 256 ? 256 : (displaySize <= 512 ? 512 : 1024));
 		const key = String(dir.path) + "|" + bucket;
 		if (key !== folderView.thumbRequestKey) {
 			folderView.thumbRequestKey = key;
@@ -1416,8 +1422,8 @@ Item {
 					fileManager: folderView.rootWindow ? folderView.rootWindow.fileManager : null
 
 					dragDropHandler: folderView.rootWindow ? folderView.rootWindow.dragDropHandler : null
-					width: labelBesideIcon ? Kirigami.Units.gridUnit * 10 : gridSize + Kirigami.Units.gridUnit * 3
-					height: labelBesideIcon ? Kirigami.Units.gridUnit * 2 : gridSize + Kirigami.Units.gridUnit * 3
+					width: folderView.gridItemSize.width
+					height: folderView.gridItemSize.height
 					x: folderView.gridSlotX(index)
 					y: folderView.gridSlotY(index)
 

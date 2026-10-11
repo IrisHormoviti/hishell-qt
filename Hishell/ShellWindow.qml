@@ -42,6 +42,25 @@ Kirigami.ApplicationWindow {
 		id: directory
 	}
 
+	Connections {
+		target: directory
+
+		// Navigation (and the initial path) re-points the window icon at the
+		// folder being viewed.
+		function onPathChanged() {
+			Qt.callLater(() => root.refreshWindowIcon());
+		}
+	}
+
+	// A config change can set (or clear) the folder's custom icon, so the window
+	// icon follows it.
+	Connections {
+		target: directory.config
+		function onConfig_changed() {
+			Qt.callLater(() => root.refreshWindowIcon());
+		}
+	}
+
 	FileManager {
 		id: fileManager
 	}
@@ -64,6 +83,23 @@ Kirigami.ApplicationWindow {
 		running: true
 		repeat: true
 		onTriggered: focusManager.poll_gamepad()
+	}
+
+	// A folder may resolve to a thumbnail (an image-backed directory) rather than
+	// a themed icon; poll so the window icon catches up once it is generated.
+	Timer {
+		id: windowIconTimer
+		interval: 1000
+		running: true
+		repeat: true
+		onTriggered: root.refreshWindowIcon()
+	}
+
+	// The window (top level) icon mirrors the directory being viewed.
+	function refreshWindowIcon() {
+		if (!directory || directory.path === "")
+			return;
+		directory.apply_window_icon();
 	}
 
 	ActionManager {
@@ -92,6 +128,7 @@ Kirigami.ApplicationWindow {
 	Component.onCompleted: {
 		directory.config.load(initialPath);
 		directory.path = initialPath;
+		root.refreshWindowIcon();
 	}
 
 	// Whenever the keyboard is left unclaimed, hand it back to the window's own

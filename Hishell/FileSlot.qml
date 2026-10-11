@@ -23,6 +23,8 @@ Item {
 	property int gridSize: 64
 	property bool labelBesideIcon: gridSize < 32
 	property bool showLabels: true
+	// With no label the icon takes over the whole slot, so the view reads as a gallery.
+	readonly property real iconDisplaySize: fileSlot.showLabels ? fileSlot.gridSize : Math.max(fileSlot.gridSize, Math.min(fileSlot.width, fileSlot.height) - Kirigami.Units.smallSpacing * 2)
 	// Whether the label shows the file name instead of the item's title.
 	property bool labelShowsFilename: false
 	property bool fixedWidth: true
@@ -133,9 +135,12 @@ Item {
 	// The text the label shows; the other one is offered as a tooltip.
 	readonly property string labelText: fileSlot.labelShowsFilename || fileSlot.title === "" ? fileSlot.fileName : fileSlot.title
 	readonly property string tooltipText: {
+		const alternate = fileSlot.labelShowsFilename ? fileSlot.title : fileSlot.fileName;
+		if (!fileSlot.showLabels)
+			return alternate !== "" && alternate !== fileSlot.labelText ? fileSlot.labelText + "\n" + alternate : fileSlot.labelText;
 		if (fileSlot.title === "" || fileSlot.title === fileSlot.fileName)
 			return "";
-		return fileSlot.labelShowsFilename ? fileSlot.title : fileSlot.fileName;
+		return alternate;
 	}
 
 	// Dotfiles (hidden entries) are always dimmed so they read as secondary.
@@ -190,8 +195,8 @@ Item {
 		Item {
 			visible: fileSlot.showIcon
 			Layout.alignment: (fileSlot.labelBesideIcon && fileSlot.showIcon) ? Qt.AlignVCenter : Qt.AlignHCenter
-			Layout.preferredWidth: fileSlot.gridSize
-			Layout.preferredHeight: fileSlot.gridSize
+			Layout.preferredWidth: fileSlot.iconDisplaySize
+			Layout.preferredHeight: fileSlot.iconDisplaySize
 
 			Loader {
 				anchors.fill: parent

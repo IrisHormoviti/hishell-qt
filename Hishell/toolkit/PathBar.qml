@@ -511,10 +511,10 @@ RowLayout {
 	Popup {
 		id: completionPopup
 		parent: pathBar
-		x: editField.x
-		y: editField.y + editField.height
-		width: Math.max(editField.width + goButton.width + cancelButton.width + pathBar.spacing * 2, Kirigami.Units.gridUnit * 16)
-		height: Math.min(completionList.contentHeight, Kirigami.Units.gridUnit * 10)
+		// x: editField.x
+		// y: editField.y + editField.height
+		// width: Math.max(editField.width + goButton.width + cancelButton.width + pathBar.spacing * 2, Kirigami.Units.gridUnit * 16)
+		// height: Math.min(completionList.contentHeight, Kirigami.Units.gridUnit * 10)
 		padding: 0
 		focus: false
 		closePolicy: Popup.NoAutoClose

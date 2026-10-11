@@ -149,6 +149,10 @@ pub struct Directory {
 	config_prop: qt_property!(QVariant; READ get_config NOTIFY config_changed ALIAS config),
 	config_changed: qt_signal!(),
 
+	// Last icon source applied to the window, so the periodic refresh does not
+	// rebuild an unchanged icon.
+	last_window_icon: String,
+
 	title: qt_property!(String; READ get_title),
 	icon: qt_property!(String; READ get_icon NOTIFY path_changed),
 	has_meta: qt_property!(bool; READ get_has_meta NOTIFY path_changed),
@@ -266,6 +270,23 @@ pub struct Directory {
 					}
 				}
 			}
+		}
+	),
+
+	/// Points the top-level window icon at this folder's icon. A custom icon set
+	/// through the folder config (or its `.directory`) wins over the default
+	/// themed folder icon. Returns false when nothing could be applied.
+	apply_window_icon: qt_method!(
+		pub fn apply_window_icon(&mut self) -> bool {
+			let source = self.icon_source();
+			if source.is_empty() || source == self.last_window_icon {
+				return false;
+			}
+			if crate::kde_bridge::set_window_icon(&source) {
+				self.last_window_icon = source;
+				return true;
+			}
+			false
 		}
 	),
 
@@ -573,6 +594,27 @@ impl Directory {
 			return "folder".to_string();
 		}
 		get_icon(&self.path_str)
+	}
+
+	/// The icon source to use for this folder's window, preferring a custom icon
+	/// (from the folder's config / `.directory`) over the resolved default.
+	fn icon_source(&self) -> String {
+		if self.path_str.is_empty() {
+			return String::new();
+		}
+
+		let custom = self.config.pinned().borrow().icon.to_string();
+		if !custom.is_empty() {
+			// `Config.icon` already carries a `file://` prefix for path icons.
+			return custom;
+		}
+
+		let icon = get_icon(&self.path_str);
+		if icon.starts_with('/') {
+			format!("file://{}", icon)
+		} else {
+			icon
+		}
 	}
 
 	pub fn get_has_meta(&self) -> bool {

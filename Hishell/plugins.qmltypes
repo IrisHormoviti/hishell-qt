@@ -447,6 +447,10 @@ Module {
 			Parameter { name: "size"; type: "int" }
 		}
 		Method {
+			name: "apply_window_icon"
+			type: "bool"
+		}
+		Method {
 			name: "set_config"
 			type: "void"
 			Parameter { name: "section"; type: "string" }

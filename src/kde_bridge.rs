@@ -14,6 +14,7 @@ unsafe extern "C" {
 	fn hishell_portal_poll() -> i32;
 	fn hishell_send_key(key: i32) -> bool;
 	fn hishell_hook_menu_key();
+	fn hishell_set_window_icon(source: *const c_char) -> bool;
 	fn hishell_file_uri(path: *const c_char) -> *const c_char;
 	fn hishell_mime_type(path: *const c_char) -> *const c_char;
 	fn hishell_thumbnailer_dirs() -> *const c_char;
@@ -37,6 +38,16 @@ pub fn send_key(key: i32) -> bool {
 /// routed like the gamepad's menu button.
 pub fn hook_menu_key() {
 	unsafe { hishell_hook_menu_key() }
+}
+
+/// Applies an icon to the focused top-level window, so the task switcher and
+/// title bar show the current folder's icon. `source` is a themed icon name or
+/// a `file://` URI; an empty string clears the icon.
+pub fn set_window_icon(source: &str) -> bool {
+	let Ok(source) = CString::new(source) else {
+		return false;
+	};
+	unsafe { hishell_set_window_icon(source.as_ptr()) }
 }
 
 fn empty_payload() -> String {

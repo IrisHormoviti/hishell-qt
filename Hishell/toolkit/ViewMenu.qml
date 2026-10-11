@@ -121,15 +121,6 @@ Menu {
 				stepSize: 12
 				onMoved: viewMenu.setConfig("GridSize", value.toString())
 			}
-			TextMetrics {
-				id: charMetrics
-				text: "000"
-			}
-			Label {
-				text: gridSizeSlider.value
-				Layout.preferredWidth: charMetrics.width
-				horizontalAlignment: Text.AlignHCenter
-			}
 		}
 	}
 

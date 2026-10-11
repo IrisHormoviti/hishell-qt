@@ -323,6 +323,51 @@ void hishell_hook_menu_key(void)
 	application->installEventFilter(filter);
 }
 
+// Applies an icon (a themed name, a local path or a file:// URI) to the focused
+// top-level window. The mask is built from the pixmap's alpha channel so shaped
+// icons (folder silhouettes) do not render on an opaque square.
+bool hishell_set_window_icon(const char *source)
+{
+	// At startup the window exists before it takes focus, so fall back to the
+	// first top-level window rather than dropping the initial icon assignment.
+	QWindow *window = QGuiApplication::focusWindow();
+	if (!window) {
+		const auto windows = QGuiApplication::topLevelWindows();
+		if (!windows.isEmpty()) {
+			window = windows.first();
+		}
+	}
+	if (!window) {
+		return false;
+	}
+
+	if (!source || !*source) {
+		window->setIcon(QIcon());
+		return true;
+	}
+
+	const QString value = QString::fromUtf8(source);
+	const QIcon icon = value.startsWith(QLatin1String("file://"))
+		? QIcon(value)
+		: QIcon::fromTheme(value);
+	if (icon.isNull()) {
+		return false;
+	}
+
+	QIcon masked;
+	for (int size : {16, 22, 24, 32, 48, 64, 128, 256}) {
+		const QPixmap pixmap = icon.pixmap(size, size);
+		if (pixmap.isNull()) {
+			continue;
+		}
+		QPixmap copy = pixmap;
+		copy.setMask(copy.createHeuristicMask());
+		masked.addPixmap(copy);
+	}
+	window->setIcon(masked);
+	return true;
+}
+
 // The percent-encoded file:// URI that names an entry in the freedesktop
 // thumbnail cache. Matches the keys KDE applications write, so the same
 // cached thumbnails are shared in both directions.
