@@ -49,10 +49,29 @@ Module {
 			Parameter { name: "path"; type: "string" }
 		}
 		Method {
+			name: "path_exists"
+			type: "bool"
+			Parameter { name: "base"; type: "string" }
+			Parameter { name: "text"; type: "string" }
+		}
+		Method {
 			name: "resolve_path"
 			type: "string"
 			Parameter { name: "base"; type: "string" }
 			Parameter { name: "spec"; type: "string" }
+		}
+		Method {
+			name: "complete_path"
+			type: "string"
+			Parameter { name: "base"; type: "string" }
+			Parameter { name: "text"; type: "string" }
+			Parameter { name: "limit"; type: "int" }
+		}
+		Method {
+			name: "path_exists"
+			type: "bool"
+			Parameter { name: "base"; type: "string" }
+			Parameter { name: "text"; type: "string" }
 		}
 	}
 	Component {

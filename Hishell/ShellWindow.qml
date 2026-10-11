@@ -19,6 +19,9 @@ Kirigami.ApplicationWindow {
 	// The pane that follows the window's own folder; it owns the keyboard
 	// whenever nothing else does, so typing filters the window's folder.
 	property Item primaryFolderView: null
+	// The location bar shown in the window's layout, if any; the edit location
+	// action swaps it for a text box.
+	property Item pathBar: null
 	// The view owning the pane cursor and the view owning the selection; the
 	// item actions fall back to the cursor so a focused item can be trashed,
 	// copied and so on like a selected one.

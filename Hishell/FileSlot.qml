@@ -52,6 +52,12 @@ Item {
 	// Used for when this item is open in another view
 	property bool isActive: false
 
+	// Owner hooks for plain left clicks, used by the path bar to open the current
+	// folder's menu instead of reopening it: `pressHandler` is called on press
+	// and `clickHandler` replaces the default activation on click.
+	property var pressHandler: null
+	property var clickHandler: null
+
 	// Focus state passed from FolderView (independent of selection)
 	property bool focusActive: false
 	property bool isFocused: false
@@ -705,6 +711,8 @@ Item {
 		}
 
 		onPressed: mouse => {
+			if (mouse.button === Qt.LeftButton && fileSlot.pressHandler)
+				fileSlot.pressHandler(mouse);
 
 			if (mouse.button === Qt.LeftButton && typeof dragDropHandler !== 'undefined') {
 				mouseArea.isPressAndHoldActive = false;
@@ -769,9 +777,10 @@ Item {
 				}
 			} else if (mouse.modifiers & Qt.ControlModifier) {
 				fileSlot.selectionToggled(fileSlot.path, fileSlot.index);
-			} else {
-				if (fileSlot.actionManager)
-					fileSlot.actionManager.activatePath(fileSlot.path, fileSlot);
+			} else if (fileSlot.clickHandler) {
+				fileSlot.clickHandler(mouse);
+			} else if (fileSlot.actionManager) {
+				fileSlot.actionManager.activatePath(fileSlot.path, fileSlot);
 			}
 		}
 	}

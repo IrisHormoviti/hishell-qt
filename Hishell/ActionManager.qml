@@ -453,9 +453,10 @@ Item {
 	}
 
 	// Folder Group
-	readonly property var folderActionsGroup: [goUpAction, refreshAction, pasteAction, copyPathAction]
+	readonly property var folderActionsGroup: [editPathAction, goUpAction, searchAction, refreshAction, pasteAction, copyPathAction, openTerminalAction]
 	property alias goUpAction: goUpAction
 	property alias refreshAction: refreshAction
+	property alias editPathAction: editPathAction
 	property string pasteTargetPath: ""
 
 	Action {
@@ -516,6 +517,17 @@ Item {
 		}
 	}
 
+	Action {
+		id: openTerminalAction
+		text: qsTr("Open Terminal Here")
+		icon.name: "utilities-terminal-symbolic"
+		shortcut: "Ctrl+`"
+		enabled: actionManager.directory !== null
+		onTriggered: {
+			// TODO: Implement
+		}
+	}
+
 	function pasteInto(destPath) {
 		const dest = destPath || (actionManager.directory ? actionManager.directory.path : "");
 		if (dest && actionManager.fileManager) {
@@ -552,15 +564,32 @@ Item {
 	}
 
 	// Current Directory Group
+	function editLocation(initialText) {
+		const bar = actionManager.window ? actionManager.window.pathBar : null;
+		if (bar)
+			bar.startEditing(initialText);
+	}
+
 	Action {
 		id: editPathAction
 		text: "Edit Path"
 		icon.name: "text-field-framed-symbolic"
 		shortcut: "Ctrl+L"
-		enabled: !actionManager.hasSelection
-		onTriggered: {
-			// FIXME
-		}
+		onTriggered: actionManager.editLocation("")
+	}
+
+	Action {
+		id: editPathRootAction
+		text: "Edit Path from Root"
+		shortcut: "/"
+		onTriggered: actionManager.editLocation("/")
+	}
+
+	Action {
+		id: editPathHomeAction
+		text: "Edit Path from Home"
+		shortcut: "~"
+		onTriggered: actionManager.editLocation("~/")
 	}
 
 

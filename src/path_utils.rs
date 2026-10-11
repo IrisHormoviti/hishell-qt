@@ -80,12 +80,36 @@ pub struct PathUtils {
 		}
 	),
 
+	/// Whether `text` resolves to something that exists, with `base` resolving
+	/// relative text. Used to reject locations that cannot be navigated to; a
+	/// file is a valid target because opening it shows its folder.
+	path_exists: qt_method!(
+		fn path_exists(&self, base: String, text: String) -> bool {
+			let text = text.trim();
+			if text.is_empty() {
+				return false;
+			}
+			std::path::Path::new(&Self::resolve_spec(&base, text)).exists()
+		}
+	),
+
 	/// Resolve a layout entry against the folder the window is showing: `~` and
 	/// `~/sub` expand against the home directory, absolute paths are kept as-is,
 	/// and anything else joins the base. `.` and `..` segments are collapsed.
 	resolve_path: qt_method!(
 		fn resolve_path(&self, base: String, spec: String) -> String {
 			Self::resolve_spec(&base, &spec)
+		}
+	),
+
+	/// Directory entries matching the last segment of `text`, for the location
+	/// bar's completer. `base` resolves relative text. Returns a JSON array of
+	/// `{name, path, suffix, is_dir}` where `path` can be put straight back into
+	/// the text box and `suffix` is the part of it that is still missing; folders
+	/// are listed first and get a trailing slash so typing can continue into them.
+	complete_path: qt_method!(
+		fn complete_path(&self, base: String, text: String, limit: i32) -> String {
+			Self::complete(&base, &text, limit)
 		}
 	),
 }
@@ -104,6 +128,69 @@ impl PathUtils {
 		} else {
 			p.to_string()
 		}
+	}
+
+	fn complete(base: &str, text: &str, limit: i32) -> String {
+		let text = text.trim();
+		if text.is_empty() {
+			return "[]".to_string();
+		}
+		let limit = limit.clamp(1, 64) as usize;
+
+		// Split the text into the folder to list and the name prefix to match;
+		// the display prefix keeps `~` and relative text as the user typed it.
+		let (lookup_spec, display_prefix, prefix) = if text == "~" {
+			("~/".to_string(), "~/".to_string(), String::new())
+		} else if let Some(idx) = text.rfind('/') {
+			let split = text[..=idx].to_string();
+			(split.clone(), split, text[idx + 1..].to_string())
+		} else {
+			(String::new(), String::new(), text.to_string())
+		};
+
+		let lookup = Self::resolve_spec(base, &lookup_spec);
+		let Ok(read) = std::fs::read_dir(&lookup) else {
+			return "[]".to_string();
+		};
+
+		let prefix_lower = prefix.to_lowercase();
+		let show_hidden = prefix.starts_with('.');
+		let mut entries: Vec<(String, bool)> = Vec::new();
+		for entry in read.flatten() {
+			let name = entry.file_name().to_string_lossy().to_string();
+			if !show_hidden && name.starts_with('.') {
+				continue;
+			}
+			if !name.to_lowercase().starts_with(&prefix_lower) {
+				continue;
+			}
+			entries.push((name, entry.path().is_dir()));
+		}
+		entries.sort_by(|a, b| {
+			b.1.cmp(&a.1)
+				.then_with(|| a.0.to_lowercase().cmp(&b.0.to_lowercase()))
+		});
+		entries.truncate(limit);
+
+		let suggestions: Vec<serde_json::Value> = entries
+			.iter()
+			.map(|(name, is_dir)| {
+				let rest: String = name.chars().skip(prefix.chars().count()).collect();
+				let path = if *is_dir {
+					format!("{}{}/", display_prefix, name)
+				} else {
+					format!("{}{}", display_prefix, name)
+				};
+				let suffix = if *is_dir { format!("{}/", rest) } else { rest };
+				serde_json::json!({
+					"name": name,
+					"path": path,
+					"suffix": suffix,
+					"is_dir": is_dir,
+				})
+			})
+			.collect();
+		serde_json::Value::Array(suggestions).to_string()
 	}
 
 	fn resolve_spec(base: &str, spec: &str) -> String {
