@@ -67,12 +67,6 @@ Module {
 			Parameter { name: "text"; type: "string" }
 			Parameter { name: "limit"; type: "int" }
 		}
-		Method {
-			name: "path_exists"
-			type: "bool"
-			Parameter { name: "base"; type: "string" }
-			Parameter { name: "text"; type: "string" }
-		}
 	}
 	Component {
 		name: "SelectionManager"
@@ -365,6 +359,7 @@ Module {
 		Property { name: "smooth_scrolling"; type: "bool"; isReadonly: true }
 		Property { name: "show_labels"; type: "bool"; isReadonly: true }
 		Property { name: "grid_labels_beside_icons"; type: "bool"; isReadonly: true }
+		Property { name: "label_text"; type: "u8"; isReadonly: true }
 		Property { name: "view_mode"; type: "u8"; isReadonly: true }
 		Property { name: "sort"; type: "u8"; isReadonly: true }
 		Property { name: "sort_date_mode"; type: "u8"; isReadonly: true }

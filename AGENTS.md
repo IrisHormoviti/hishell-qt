@@ -27,6 +27,8 @@
   registered in Rust.
 - New modules: `drag_handler.rs`, `selection_manager.rs`, `focus_manager.rs`, `gamepad.rs`, `path_utils.rs`,
   `drop_validator.rs`, `layout_engine.rs`
+- AppImage desktop entries and icons are read directly from the appended SquashFS image by
+  `appimage.rs` + `squashfs.rs`; no external tools are involved.
 
 ## Configuration
 
@@ -45,7 +47,6 @@
 - Qt6 development packages (Core, Gui, Qml, Quick)
 - CMake ≥ 3.20
 - pkg-config
-- bsdtar
 - ImageMagick (`magick` or `convert`)
 - ffmpegthumbnailer (optional; video thumbnails fall back to Rust fallback)
 

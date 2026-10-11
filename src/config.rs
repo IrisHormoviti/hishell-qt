@@ -395,6 +395,7 @@ pub struct Config {
 	pub smooth_scrolling: qt_property!(bool; NOTIFY config_changed),
 	pub show_labels: qt_property!(bool; NOTIFY config_changed),
 	pub grid_labels_beside_icons: qt_property!(bool; NOTIFY config_changed),
+	pub label_text: qt_property!(u8; NOTIFY config_changed),
 	pub view_mode: qt_property!(u8; NOTIFY config_changed),
 	pub sort: qt_property!(u8; NOTIFY config_changed),
 	pub sort_date_mode: qt_property!(u8; NOTIFY config_changed),
@@ -568,6 +569,12 @@ impl Config {
 		if changed!("Folder View", "GridLabelsBesidesIcons") {
 			self.grid_labels_beside_icons =
 				bool_value(get("Folder View", "GridLabelsBesidesIcons"), false);
+		}
+		if changed!("Folder View", "LabelText") {
+			self.label_text = match enum_value(get("Folder View", "LabelText"), "TITLE").as_str() {
+				"FILENAME" => 1,
+				_ => 0,
+			};
 		}
 		if changed!("Folder View", "GridHorizontalAlign") {
 			self.grid_horizontal_align =

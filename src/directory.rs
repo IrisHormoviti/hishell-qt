@@ -130,6 +130,7 @@ pub struct FileItem {
 	pub title: String,
 	pub path: String,
 	pub is_dir: bool,
+	pub is_symlink: bool,
 	pub is_dotfile: bool,
 	pub icon: String,
 	pub modified: u64,
@@ -427,7 +428,9 @@ impl Directory {
 				let entry_path = entry.path();
 				let p = entry_path.to_string_lossy().to_string();
 				let title = get_item_title(&entry_path);
-				let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+				let file_type = entry.file_type().ok();
+				let is_dir = file_type.map(|t| t.is_dir()).unwrap_or(false);
+				let is_symlink = file_type.map(|t| t.is_symlink()).unwrap_or(false);
 				let icon = get_icon(&p);
 
 				let (modified, created, accessed) = entry
@@ -446,6 +449,7 @@ impl Directory {
 					title,
 					path: p,
 					is_dir,
+					is_symlink,
 					is_dotfile: entry_path
 						.file_name()
 						.and_then(|n| n.to_str())
@@ -819,6 +823,7 @@ impl QAbstractListModel for Directory {
 			0x0102 => item.is_dir.into(),
 			0x0103 => QString::from(item.icon.as_str()).into(),
 			0x0104 => QString::from(item.title.as_str()).into(),
+			0x0105 => item.is_symlink.into(),
 			_ => QVariant::default(),
 		}
 	}
@@ -830,6 +835,7 @@ impl QAbstractListModel for Directory {
 		map.insert(0x0102, "is_dir".into());
 		map.insert(0x0103, "icon".into());
 		map.insert(0x0104, "title".into());
+		map.insert(0x0105, "is_symlink".into());
 		map
 	}
 }
@@ -843,6 +849,12 @@ fn time_ms(time: Option<SystemTime>) -> u64 {
 pub fn get_item_title(path: &Path) -> String {
 	if crate::config::entry_path(path).is_some() {
 		let entry = crate::desktop_entry::read(path);
+		if let Some(name) = entry.name.filter(|name| !name.is_empty()) {
+			return name;
+		}
+	}
+
+	if let Some(entry) = crate::appimage::desktop_entry(path) {
 		if let Some(name) = entry.name.filter(|name| !name.is_empty()) {
 			return name;
 		}
@@ -867,6 +879,11 @@ pub fn get_icon(path: &str) -> String {
 		if !icon.is_empty() {
 			return icon_source(icon, config::base_dir(path_buf));
 		}
+	}
+
+	// AppImages carry their own desktop entry and icon.
+	if let Some(icon) = crate::appimage::icon(path_buf) {
+		return format!("file://{}", icon.display());
 	}
 
 	if is_dir {

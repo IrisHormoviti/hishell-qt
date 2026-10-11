@@ -77,6 +77,9 @@ Menu {
 		id: scrollDirectionGroup
 	}
 	ButtonGroup {
+		id: labelTextGroup
+	}
+	ButtonGroup {
 		id: horizontalAlignGroup
 	}
 	ButtonGroup {
@@ -176,25 +179,6 @@ Menu {
 		}
 	}
 
-	Menu {
-		title: qsTr("Labels")
-		icon.name: "format-text"
-		popupType: Popup.Item
-		MenuItem {
-			text: qsTr("Show Labels")
-			checkable: true
-			checked: viewMenu.config ? viewMenu.config.show_labels : true
-			onToggled: viewMenu.setConfig("ShowLabels", String(checked))
-		}
-		MenuItem {
-			text: qsTr("Labels Beside Icons")
-			checkable: true
-			checked: viewMenu.config ? viewMenu.config.grid_labels_beside_icons : false
-			enabled: viewMenu.config ? viewMenu.config.show_labels : true
-			onToggled: viewMenu.setConfig("GridLabelsBesidesIcons", String(checked))
-		}
-	}
-
 	MenuSeparator {}
 
 	Menu {
@@ -287,6 +271,44 @@ Menu {
 			icon.name: "edit-reset"
 			enabled: viewMenu.hasFreePlacementPositions
 			onTriggered: viewMenu.resetFreePlacement()
+		}
+	}
+
+	Menu {
+		title: qsTr("Labels")
+		icon.name: "label"
+		popupType: Popup.Item
+		MenuItem {
+			text: qsTr("Show Labels")
+			checkable: true
+			checked: viewMenu.config ? viewMenu.config.show_labels : true
+			onToggled: viewMenu.setConfig("ShowLabels", String(checked))
+		}
+		MenuItem {
+			text: qsTr("Labels Beside Icons")
+			checkable: true
+			checked: viewMenu.config ? viewMenu.config.grid_labels_beside_icons : false
+			enabled: viewMenu.config ? viewMenu.config.show_labels : true
+			onToggled: viewMenu.setConfig("GridLabelsBesidesIcons", String(checked))
+		}
+		MenuSeparator {}
+		MenuItem {
+			text: qsTr("Show Titles")
+			checkable: true
+			ButtonGroup.group: labelTextGroup
+			checked: viewMenu.config ? viewMenu.config.label_text === 0 : true
+			enabled: viewMenu.config ? viewMenu.config.show_labels : true
+			objectName: "TITLE"
+			onTriggered: viewMenu.setConfig("LabelText", "TITLE")
+		}
+		MenuItem {
+			text: qsTr("Show File Names")
+			checkable: true
+			ButtonGroup.group: labelTextGroup
+			checked: viewMenu.config ? viewMenu.config.label_text === 1 : false
+			enabled: viewMenu.config ? viewMenu.config.show_labels : true
+			objectName: "FILENAME"
+			onTriggered: viewMenu.setConfig("LabelText", "FILENAME")
 		}
 	}
 
@@ -431,7 +453,7 @@ Menu {
 
 	Menu {
 		title: qsTr("Wallpaper")
-		icon.name: "preferences-desktop-wallpaper"
+		icon.name: "games-config-background-symbolic"
 		popupType: Popup.Item
 		MenuItem {
 			text: qsTr("Set Wallpaper...")
@@ -450,7 +472,7 @@ Menu {
 
 	Menu {
 		title: qsTr("Stash")
-		icon.name: "pane-hide"
+		icon.name: "folder-stash-symbolic"
 		MenuItem {
 			text: qsTr("Show Stash")
 			checkable: true

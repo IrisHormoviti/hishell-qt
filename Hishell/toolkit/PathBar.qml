@@ -397,6 +397,7 @@ RowLayout {
 				actionManager: pathBar.window.actionManager
 
 				is_dir: true
+				is_symlink: false
 				index: delegateRoot.index
 				gridSize: Kirigami.Units.iconSizes.smallMedium
 				labelBesideIcon: true

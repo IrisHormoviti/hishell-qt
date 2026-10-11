@@ -8,7 +8,7 @@ use std::fs;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, ExitStatus, Output, Stdio};
+use std::process::{Child, Command, ExitStatus};
 use std::sync::{Condvar, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant, UNIX_EPOCH};
@@ -474,11 +474,21 @@ fn generate(job: &Job) -> Result<PathBuf, String> {
 		return Ok(dst);
 	}
 
-	// AppImages carry their icon; pull it out directly.
-	if ext == "appimage"
-		&& try_extract_icon_from_appimage(src, &dst, size, &uri, mtime, file_size).unwrap_or(false)
-	{
-		return Ok(dst);
+	// AppImages carry their icon; thumbnailing the extracted icon beats decoding
+	// the whole image.
+	if ext == "appimage" {
+		if let Some(icon) = crate::appimage::icon(src) {
+			if crate::kde_bridge::thumbnail_image(
+				&icon.to_string_lossy(),
+				&dst.to_string_lossy(),
+				size,
+				&uri,
+				mtime,
+				file_size,
+			) {
+				return Ok(dst);
+			}
+		}
 	}
 
 	// Images decode in-process through Qt, which scales while decoding the way
@@ -768,33 +778,6 @@ fn run_command_with_timeout(command: &mut Command, timeout: Duration) -> Option<
 	wait_with_timeout(&mut child, timeout)
 }
 
-/// Runs a command capturing its output, with the same timeout. The pipes are
-/// drained on reader threads so a chatty child cannot deadlock.
-fn output_with_timeout(command: &mut Command, timeout: Duration) -> Option<Output> {
-	command.stdout(Stdio::piped()).stderr(Stdio::piped());
-	let mut child = command.spawn().ok()?;
-	let mut stdout = child.stdout.take()?;
-	let mut stderr = child.stderr.take()?;
-	let out_thread = thread::spawn(move || {
-		let mut buf = Vec::new();
-		let _ = stdout.read_to_end(&mut buf);
-		buf
-	});
-	let err_thread = thread::spawn(move || {
-		let mut buf = Vec::new();
-		let _ = stderr.read_to_end(&mut buf);
-		buf
-	});
-	let status = wait_with_timeout(&mut child, timeout);
-	let stdout = out_thread.join().unwrap_or_default();
-	let stderr = err_thread.join().unwrap_or_default();
-	status.map(|status| Output {
-		status,
-		stdout,
-		stderr,
-	})
-}
-
 // ── Format specific extractors ──────────────────────────────────────────────
 
 fn extract_preview_from_kra(
@@ -851,76 +834,4 @@ fn extract_preview_from_kra(
 	}
 
 	Ok(false)
-}
-
-fn try_extract_icon_from_appimage(
-	src: &Path,
-	dst: &Path,
-	size: u32,
-	uri: &str,
-	mtime: i64,
-	file_size: u64,
-) -> Result<bool, String> {
-	let mut list_command = Command::new("bsdtar");
-	list_command.arg("-tf").arg(src.as_os_str());
-	let Some(listing) = output_with_timeout(&mut list_command, COMMAND_TIMEOUT) else {
-		return Ok(false);
-	};
-	if !listing.status.success() {
-		return Ok(false);
-	}
-	let listing = String::from_utf8_lossy(&listing.stdout);
-
-	let mut candidate: Option<String> = None;
-	for line in listing.lines() {
-		let line = line.trim();
-		let lower = line.to_lowercase();
-		let is_image = lower.ends_with(".png")
-			|| lower.ends_with(".svg")
-			|| lower.ends_with(".xpm")
-			|| lower.ends_with(".jpg")
-			|| lower.ends_with(".jpeg");
-		if !is_image {
-			continue;
-		}
-		if !(lower.contains("/icons/")
-			|| lower.contains("/pixmaps/")
-			|| lower.contains("/apps/")
-			|| lower.contains("icon"))
-		{
-			continue;
-		}
-		if candidate.is_none()
-			|| lower.contains("128")
-			|| lower.contains("256")
-			|| lower.contains("512")
-		{
-			candidate = Some(line.to_string());
-			if lower.contains("256") || lower.contains("512") {
-				break;
-			}
-		}
-	}
-
-	let Some(candidate) = candidate else {
-		return Ok(false);
-	};
-
-	let mut extract_command = Command::new("bsdtar");
-	extract_command
-		.arg("-xOf")
-		.arg(src.as_os_str())
-		.arg(&candidate);
-	let Some(extracted) = output_with_timeout(&mut extract_command, COMMAND_TIMEOUT) else {
-		return Ok(false);
-	};
-	if !extracted.status.success() {
-		return Ok(false);
-	}
-	let Ok(img) = image::load_from_memory(&extracted.stdout) else {
-		return Ok(false);
-	};
-	let fitted = fit_resize(&img, size);
-	save_thumb(&fitted, dst, uri, mtime, file_size)?;
-	Ok(true)
 }

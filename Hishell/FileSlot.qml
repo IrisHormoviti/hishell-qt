@@ -23,9 +23,11 @@ Item {
 	property int gridSize: 64
 	property bool labelBesideIcon: gridSize < 32
 	property bool showLabels: true
+	// Whether the label shows the file name instead of the item's title.
+	property bool labelShowsFilename: false
 	property bool fixedWidth: true
 	property bool showIcon: icon !== ""
-	property bool is_symlink: false
+	required property bool is_symlink
 	required property int index
 	property bool is_dir: false
 
@@ -120,11 +122,24 @@ Item {
 
 	implicitWidth: contentLayout.implicitWidth + (fileSlot.labelBesideIcon && fileSlot.showIcon && fileSlot.showLabels ? Kirigami.Units.largeSpacing * 2 : Kirigami.Units.smallSpacing * 2)
 	implicitHeight: contentLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
-	// Dotfiles (hidden entries) are always dimmed so they read as secondary.
-	readonly property bool isDotfile: {
-		const name = fileSlot.path.substring(fileSlot.path.lastIndexOf("/") + 1);
-		return name.startsWith(".");
+	// The on-disk name, used by the FILENAME label mode and the tooltip.
+	readonly property string fileName: {
+		const path = fileSlot.path;
+		const slash = path.lastIndexOf("/");
+		const name = slash >= 0 ? path.substring(slash + 1) : path;
+		return name !== "" ? name : path;
 	}
+
+	// The text the label shows; the other one is offered as a tooltip.
+	readonly property string labelText: fileSlot.labelShowsFilename || fileSlot.title === "" ? fileSlot.fileName : fileSlot.title
+	readonly property string tooltipText: {
+		if (fileSlot.title === "" || fileSlot.title === fileSlot.fileName)
+			return "";
+		return fileSlot.labelShowsFilename ? fileSlot.title : fileSlot.fileName;
+	}
+
+	// Dotfiles (hidden entries) are always dimmed so they read as secondary.
+	readonly property bool isDotfile: fileSlot.fileName.startsWith(".")
 	opacity: {
 		if (fileSlot.dragDropHandler && fileSlot.dragDropHandler.active_dragged_paths && fileSlot.dragDropHandler.active_dragged_paths.indexOf(fileSlot.path) !== -1)
 			return 0.2;
@@ -215,10 +230,8 @@ Item {
 			visible: fileSlot.showLabels
 			Layout.alignment: fileSlot.labelBesideIcon ? Qt.AlignVCenter : Qt.AlignHCenter
 
-			property string title: fileSlot.title == "" ? fileSlot.path.substring(fileSlot.path.lastIndexOf("/") + 1) : fileSlot.title
-
 			text: {
-				let t = title;
+				let t = fileSlot.labelText;
 
 				let idx = t.lastIndexOf('.');
 				if (idx > 0 && !(t.startsWith('.') && t.indexOf('.', 1) === -1)) {
@@ -784,4 +797,9 @@ Item {
 			}
 		}
 	}
+
+	// Hovering an item reveals the text its label is not showing.
+	ToolTip.visible: fileSlot.tooltipText !== "" && mouseArea.containsMouse && !fileSlot.isDraggingThisSlot && !(fileSlot.dragDropHandler && fileSlot.dragDropHandler.tooltip_active)
+	ToolTip.text: fileSlot.tooltipText
+	ToolTip.delay: 700
 }

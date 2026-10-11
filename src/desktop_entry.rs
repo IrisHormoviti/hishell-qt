@@ -1,3 +1,5 @@
+use crate::config_parser::ConfigValue;
+use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
 
@@ -36,7 +38,19 @@ impl DesktopEntry {
 }
 
 pub fn read(path: &Path) -> DesktopEntry {
-	let values = crate::config::load_entry(path);
+	from_values(&crate::config::load_entry(path))
+}
+
+/// Parses desktop entry content that does not live in a file on disk, such as
+/// the entry embedded in an AppImage.
+pub fn parse(content: &str) -> DesktopEntry {
+	let (mut sections, _) =
+		crate::config_parser::ConfigParser::parse_str(content, "<desktop entry>");
+	let values = sections.remove("Desktop Entry").unwrap_or_default();
+	from_values(&values)
+}
+
+fn from_values(values: &HashMap<String, ConfigValue>) -> DesktopEntry {
 	let url = values
 		.iter()
 		.filter(|(key, _)| key.as_str() == "URL" || key.starts_with("URL["))

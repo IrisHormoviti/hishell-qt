@@ -93,92 +93,98 @@ impl ConfigParser {
 		HashMap<String, HashMap<String, ConfigValue>>,
 		Vec<ConfigError>,
 	) {
-		let mut config = HashMap::new();
-		let mut errors = Vec::new();
 		let path_str = path.to_string_lossy().to_string();
 
 		match fs::read_to_string(path) {
-			Ok(content) => {
-				let mut current_section: Option<String> = None;
-				let mut section_map = HashMap::new();
-
-				for (index, raw) in content.lines().enumerate() {
-					let line = raw.trim();
-					if line.is_empty() || line.starts_with(';') || line.starts_with('#') {
-						continue;
-					}
-
-					if line.starts_with('[') {
-						if line.ends_with(']') {
-							if let Some(section) = current_section.take() {
-								config.insert(section, std::mem::take(&mut section_map));
-							}
-							current_section = Some(line[1..line.len() - 1].to_string());
-						} else {
-							errors.push(ConfigError {
-								file: Some(path_str.clone()),
-								message: format!(
-									"{}:{}: malformed section header: {}",
-									path_str,
-									index + 1,
-									line
-								),
-							});
-						}
-					} else if let Some(idx) = line.find('=') {
-						if current_section.is_some() {
-							let key = line[..idx].trim().to_string();
-							let val_str = line[idx + 1..].trim();
-							let value = if current_section.as_deref() == Some("Desktop Entry")
-								&& key == "Exec"
-							{
-								ConfigValue::String(if val_str == "\"\"" {
-									String::new()
-								} else {
-									val_str.to_string()
-								})
-							} else {
-								Self::parse_value(val_str)
-							};
-							section_map.insert(key, value);
-						} else {
-							errors.push(ConfigError {
-								file: Some(path_str.clone()),
-								message: format!(
-									"{}:{}: '{}' is not inside a [section]",
-									path_str,
-									index + 1,
-									line
-								),
-							});
-						}
-					} else {
-						errors.push(ConfigError {
-							file: Some(path_str.clone()),
-							message: format!(
-								"{}:{}: malformed line: {}",
-								path_str,
-								index + 1,
-								line
-							),
-						});
-					}
-				}
-
-				if let Some(section) = current_section.take() {
-					config.insert(section, section_map);
-				}
-			}
+			Ok(content) => Self::parse_str(&content, &path_str),
 			Err(err) => {
 				// A missing config file is expected; only report files that
 				// exist but could not be read.
+				let mut errors = Vec::new();
 				if path.exists() {
 					errors.push(ConfigError {
 						file: Some(path_str.clone()),
 						message: format!("{}: {}", path_str, err),
 					});
 				}
+				(HashMap::new(), errors)
 			}
+		}
+	}
+
+	/// Parses config content that does not come from a file, such as the desktop
+	/// entry embedded in an AppImage.
+	pub fn parse_str(
+		content: &str,
+		source: &str,
+	) -> (
+		HashMap<String, HashMap<String, ConfigValue>>,
+		Vec<ConfigError>,
+	) {
+		let mut config = HashMap::new();
+		let mut errors = Vec::new();
+		let mut current_section: Option<String> = None;
+		let mut section_map = HashMap::new();
+
+		for (index, raw) in content.lines().enumerate() {
+			let line = raw.trim();
+			if line.is_empty() || line.starts_with(';') || line.starts_with('#') {
+				continue;
+			}
+
+			if line.starts_with('[') {
+				if line.ends_with(']') {
+					if let Some(section) = current_section.take() {
+						config.insert(section, std::mem::take(&mut section_map));
+					}
+					current_section = Some(line[1..line.len() - 1].to_string());
+				} else {
+					errors.push(ConfigError {
+						file: Some(source.to_string()),
+						message: format!(
+							"{}:{}: malformed section header: {}",
+							source,
+							index + 1,
+							line
+						),
+					});
+				}
+			} else if let Some(idx) = line.find('=') {
+				if current_section.is_some() {
+					let key = line[..idx].trim().to_string();
+					let val_str = line[idx + 1..].trim();
+					let value =
+						if current_section.as_deref() == Some("Desktop Entry") && key == "Exec" {
+							ConfigValue::String(if val_str == "\"\"" {
+								String::new()
+							} else {
+								val_str.to_string()
+							})
+						} else {
+							Self::parse_value(val_str)
+						};
+					section_map.insert(key, value);
+				} else {
+					errors.push(ConfigError {
+						file: Some(source.to_string()),
+						message: format!(
+							"{}:{}: '{}' is not inside a [section]",
+							source,
+							index + 1,
+							line
+						),
+					});
+				}
+			} else {
+				errors.push(ConfigError {
+					file: Some(source.to_string()),
+					message: format!("{}:{}: malformed line: {}", source, index + 1, line),
+				});
+			}
+		}
+
+		if let Some(section) = current_section.take() {
+			config.insert(section, section_map);
 		}
 
 		(config, errors)

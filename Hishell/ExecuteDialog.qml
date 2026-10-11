@@ -30,7 +30,7 @@ Dialog {
 		spacing: Kirigami.Units.largeSpacing
 
 		Kirigami.Icon {
-			source: execDialog.fileManager.get_icon(execDialog.filePath)
+			source: execDialog.fileManager ? execDialog.fileManager.get_icon(execDialog.filePath) : ""
 			Layout.alignment: Qt.AlignHCenter
 		}
 

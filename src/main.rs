@@ -1,3 +1,4 @@
+mod appimage;
 mod config;
 mod config_parser;
 mod desktop_entry;
@@ -11,6 +12,7 @@ mod image_utils;
 mod kde_bridge;
 mod path_utils;
 mod selection_manager;
+mod squashfs;
 mod thumbnailer;
 
 use crate::config::Config;

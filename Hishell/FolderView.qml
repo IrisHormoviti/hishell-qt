@@ -11,7 +11,7 @@ Item {
 	property ShellWindow window
 	readonly property ShellWindow rootWindow: folderView.window
 	property Directory directory
-	property Config config: directory.config
+	property Config config: directory ? directory.config : null
 	readonly property bool horizontalScroll: folderView.config ? folderView.config.scroll_horizontal : false
 	readonly property bool filterActive: folderView.directory ? String(folderView.directory.filter).length > 0 : false
 	property FocusManager focusManager: folderView.rootWindow ? folderView.rootWindow.focusManager : null
@@ -712,6 +712,8 @@ Item {
 	}
 
 	readonly property string folderName: {
+		if (!folderView.directory)
+			return "/";
 		let path = folderView.directory.path.toString();
 		if (!path || path === "/" || path === ".")
 			return "/";
@@ -1419,9 +1421,10 @@ Item {
 					x: folderView.gridSlotX(index)
 					y: folderView.gridSlotY(index)
 
-					gridSize: folderView.config.grid_size
-					showLabels: folderView.config.show_labels
+					gridSize: folderView.config ? folderView.config.grid_size : 64
+					showLabels: folderView.config ? folderView.config.show_labels : true
 					labelBesideIcon: folderView.labelsBesideIcons
+					labelShowsFilename: folderView.config ? folderView.config.label_text === 1 : false
 					selectionActive: selectionManager ? selectionManager.selection_active : false
 					focusActive: folderView.focusOwned && folderView.focusManager && folderView.focusManager.current_pane === folderView.paneId
 					focusBorderSource: folderView.focusBorderSource
