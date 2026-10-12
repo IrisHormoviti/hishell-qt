@@ -53,14 +53,25 @@ fn build_kde_bridge() {
 	build.include(&out_dir);
 
 	for component in ["KService", "KIO", "KIOCore", "KIOGui", "KCoreAddons"] {
-		let include_dir = format!("/usr/include/KF6/{component}");
-		if !Path::new(&include_dir).is_dir() {
+		// KF6 headers normally live under /usr/include/KF6, but a cross build
+		// (RG DS Plus sysroot) keeps them under the sysroot prefix. Honour a
+		// KF6_INCLUDE_PATH override, then try the sysroot the pkg-config setup
+		// points at, then the plain system location.
+		let include_dir = env::var("KF6_INCLUDE_PATH")
+			.map(|base| PathBuf::from(base).join(component))
+			.or_else(|_| {
+				env::var("PKG_CONFIG_SYSROOT_DIR")
+					.map(|sysroot| PathBuf::from(sysroot).join("usr/include/KF6").join(component))
+			})
+			.unwrap_or_else(|_| PathBuf::from(format!("/usr/include/KF6/{component}")));
+		if !include_dir.is_dir() {
 			panic!(
-				"KDE Frameworks 6 headers not found at {include_dir}.\n\
+				"KDE Frameworks 6 headers not found at {}.\n\
 				Install the KF6 development packages to build hishell-qt:\n\
 				\u{20} Arch:   sudo pacman -S kservice kio\n\
 				\u{20} Debian: sudo apt install libkf6service-dev libkf6kio-dev libkf6coreaddons-dev\n\
-				\u{20} Fedora: sudo dnf install kf6-kservice-devel kf6-kio-devel kf6-kcoreaddons-devel"
+				\u{20} Fedora: sudo dnf install kf6-kservice-devel kf6-kio-devel kf6-kcoreaddons-devel",
+				include_dir.display()
 			);
 		}
 		build.include(&include_dir);

@@ -350,6 +350,8 @@ Module {
 		Property { name: "header_layout"; type: "string"; isReadonly: true }
 		Property { name: "native_menubar"; type: "bool"; isReadonly: true }
 		Property { name: "native_titlebar"; type: "bool"; isReadonly: true }
+		Property { name: "screen_name"; type: "string"; isReadonly: true }
+		Property { name: "maximized"; type: "bool"; isReadonly: true }
 		Property { name: "grid_size"; type: "u16"; isReadonly: true }
 		Property { name: "grid_horizontal_align"; type: "u8"; isReadonly: true }
 		Property { name: "grid_vertical_align"; type: "u8"; isReadonly: true }

@@ -422,9 +422,11 @@ Item {
 	function openDirectoryMenu() {
 		if (folderView.rootWindow)
 			folderView.rootWindow.actionManager.pasteTargetPath = "";
-		const menu = folderView.directoryMenu;
+		directoryMenuLoader.active = true;
+		const menu = directoryMenuLoader.item;
 		if (!menu)
 			return;
+		menu.parent = folderView;
 		const position = folderView.mapToItem(menu.parent, 0, 0);
 		menu.x = position.x;
 		menu.y = position.y;
@@ -760,11 +762,23 @@ Item {
 
 	// Context menu for the folder being viewed. Formerly an undefined attached
 	// object named "ContextMenu"; see FileSlot.qml for why that was replaced.
-	property ShellContextMenu directoryMenu: ShellContextMenu {
-		actionManager: folderView.rootWindow.actionManager
-		directory: folderView.directory
-		targetIsBackground: true
+	// Lazy for the same reason as FileSlot's: it is only needed when opened.
+	Loader {
+		id: directoryMenuLoader
+		active: false
+		sourceComponent: directoryMenuComponent
 	}
+
+	Component {
+		id: directoryMenuComponent
+		ShellContextMenu {
+			actionManager: folderView.rootWindow.actionManager
+			directory: folderView.directory
+			targetIsBackground: true
+		}
+	}
+
+	readonly property ShellContextMenu directoryMenu: directoryMenuLoader.item
 
 	MouseArea {
 		id: backgroundMouseArea

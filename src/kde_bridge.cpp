@@ -14,6 +14,9 @@
 #include <QDBusUnixFileDescriptor>
 #include <QDebug>
 #include <QGuiApplication>
+#include <QHash>
+#include <QIcon>
+#include <QSize>
 #include <QImageReader>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -112,6 +115,20 @@ protected:
 	}
 };
 
+// The application-trader lookups answer the same thing for every file sharing a
+// content type, so cache the JSON by MIME name. They are re-evaluated whenever
+// the focused item changes, and the trader can be slow: on a system without a
+// KService database (no ksycoca, as on the RG DS Plus) every call rebuilds or
+// scans, stalling the GUI thread for hundreds of milliseconds per focus.
+static QHash<QString, QByteArray> g_defaultAppCache;
+static QHash<QString, QByteArray> g_openWithCache;
+
+extern "C" void hishell_clear_app_cache()
+{
+	g_defaultAppCache.clear();
+	g_openWithCache.clear();
+}
+
 extern "C" {
 
 const char *hishell_open_with_apps(const char *path)
@@ -119,6 +136,18 @@ const char *hishell_open_with_apps(const char *path)
 	const QMimeDatabase db;
 	const QMimeType mime = db.mimeTypeForFile(QString::fromUtf8(path));
 	const QString mimeName = mime.name();
+	// An unknown content type resolves no applications; skip the trader, which
+	// would otherwise log "mimeType \"\" not found" and do the slow lookup.
+	if (mimeName.isEmpty()) {
+		g_result = QByteArrayLiteral("{\"mime\":\"\",\"mimeDescription\":\"\",\"apps\":[]}");
+		return g_result.constData();
+	}
+
+	if (auto it = g_openWithCache.constFind(mimeName); it != g_openWithCache.constEnd()) {
+		g_result = it.value();
+		return g_result.constData();
+	}
+
 	const KService::Ptr preferred = KApplicationTrader::preferredService(mimeName);
 
 	QJsonArray apps;
@@ -139,6 +168,7 @@ const char *hishell_open_with_apps(const char *path)
 	root["mimeDescription"] = mime.comment();
 	root["apps"] = apps;
 	g_result = QJsonDocument(root).toJson(QJsonDocument::Compact);
+	g_openWithCache.insert(mimeName, g_result);
 	return g_result.constData();
 }
 
@@ -176,13 +206,26 @@ const char *hishell_default_app(const char *path)
 	const QString filePath = QString::fromUtf8(path);
 	if (!filePath.isEmpty()) {
 		const QMimeDatabase db;
-		const QMimeType mime = db.mimeTypeForFile(filePath);
-		const KService::Ptr service = KApplicationTrader::preferredService(mime.name());
+		const QString mimeName = db.mimeTypeForFile(filePath).name();
+		if (mimeName.isEmpty()) {
+			// Unknown content type: there is no default application and the
+			// trader would only stall on a missing service database.
+			g_result = QJsonDocument(app).toJson(QJsonDocument::Compact);
+			return g_result.constData();
+		}
+		if (auto it = g_defaultAppCache.constFind(mimeName); it != g_defaultAppCache.constEnd()) {
+			g_result = it.value();
+			return g_result.constData();
+		}
+		const KService::Ptr service = KApplicationTrader::preferredService(mimeName);
 		if (service) {
 			app["id"] = service->storageId();
 			app["name"] = service->name();
 			app["icon"] = service->icon();
 		}
+		g_result = QJsonDocument(app).toJson(QJsonDocument::Compact);
+		g_defaultAppCache.insert(mimeName, g_result);
+		return g_result.constData();
 	}
 	g_result = QJsonDocument(app).toJson(QJsonDocument::Compact);
 	return g_result.constData();
@@ -321,6 +364,35 @@ void hishell_hook_menu_key(void)
 	}
 	filter = new HishellMenuKeyFilter(application);
 	application->installEventFilter(filter);
+}
+
+// Force the themed icons the action menus use into QIconLoader's cache once, so
+// focusing an item never triggers a synchronous theme scan. The action icons are
+// fixed names (only their presence in the menu changes with the focused item),
+// and Qt's theme lookup stats every theme directory per icon — hundreds of
+// file probes per focus on this device's slow storage.
+extern "C" void hishell_warm_icons(void)
+{
+	static bool done = false;
+	if (done) {
+		return;
+	}
+	done = true;
+
+	static const char *const names[] = {
+		"system-run", "open-link", "window-new-symbolic", "folder-open-symbolic",
+		"arrow-up-symbolic", "view-refresh", "search", "edit-copy", "edit-cut",
+		"edit-rename", "edit-link", "user-trash", "folder", "folder-add",
+		"text-plain", "object-rotate-right", "object-rotate-left",
+		"utilities-terminal-symbolic", "text-field-framed-symbolic",
+		"edit-copy-path-symbolic",
+	};
+	for (const char *name : names) {
+		// Ask for the sizes the actions render at; QIconLoader caches per name.
+		for (int size : {16, 22, 24, 32, 48, 64}) {
+			(void)QIcon::fromTheme(QString::fromLatin1(name)).pixmap(QSize(size, size));
+		}
+	}
 }
 
 // Applies an icon (a themed name, a local path or a file:// URI) to the focused

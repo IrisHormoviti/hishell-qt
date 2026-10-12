@@ -17,6 +17,8 @@ unsafe extern "C" {
 	fn hishell_set_window_icon(source: *const c_char) -> bool;
 	fn hishell_file_uri(path: *const c_char) -> *const c_char;
 	fn hishell_mime_type(path: *const c_char) -> *const c_char;
+	fn hishell_clear_app_cache();
+	fn hishell_warm_icons();
 	fn hishell_thumbnailer_dirs() -> *const c_char;
 	fn hishell_thumbnail_image(
 		src: *const c_char,
@@ -38,6 +40,12 @@ pub fn send_key(key: i32) -> bool {
 /// routed like the gamepad's menu button.
 pub fn hook_menu_key() {
 	unsafe { hishell_hook_menu_key() }
+}
+
+/// Pre-resolves the action-menu icons once, so focusing an item does not pay for
+/// a synchronous icon-theme scan. See the C++ side for why.
+pub fn warm_icons() {
+	unsafe { hishell_warm_icons() }
 }
 
 /// Applies an icon to the focused top-level window, so the task switcher and
@@ -152,11 +160,17 @@ pub fn set_default(mime: &str, storage_id: &str) -> bool {
 	if mime.is_empty() || storage_id.is_empty() {
 		return false;
 	}
-	Command::new("gio")
+	let ok = Command::new("gio")
 		.args(["mime", mime, storage_id])
 		.status()
 		.map(|status| status.success())
-		.unwrap_or(false)
+		.unwrap_or(false);
+	if ok {
+		// The default application for this content type changed; drop the
+		// cached trader results so the next lookup sees the new setting.
+		unsafe { hishell_clear_app_cache() };
+	}
+	ok
 }
 
 /// Percent-encoded `file://` URI used as a freedesktop thumbnail cache key.

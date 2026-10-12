@@ -16,7 +16,7 @@ Menu {
 	title: group.title
 
 	Repeater {
-		model: groupMenu.group.actions
+		model: groupMenu.actionManager ? groupMenu.actionManager.groupActions(groupMenu.group.id) : []
 		delegate: MenuItem {
 			required property Action modelData
 			action: modelData

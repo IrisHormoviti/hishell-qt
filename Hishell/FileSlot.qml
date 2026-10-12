@@ -102,20 +102,39 @@ Item {
 	// "ContextMenu", which was never defined; Qt 6.8 rejects it with
 	// "Non-existent attached object" and marks FileSlot unavailable, which in
 	// turn breaks FolderView and PathBar.
-	property ShellContextMenu contextMenu: ShellContextMenu {
-		actionManager: fileSlot.actionManager
-		targetIsDir: fileSlot.is_dir
-		targetIsImage: fileSlot.fileManager && fileSlot.fileManager.is_image_file(fileSlot.path)
+	//
+	// Built lazily: a folder can hold hundreds of slots, and each context menu
+	// instantiates a ViewMenu plus every action group — thousands of QMenu
+	// items whose themed icons Qt would resolve eagerly, which dominated
+	// startup and made focusing items feel slow on the device. The menu is only
+	// needed when one is actually opened.
+	Loader {
+		id: contextMenuLoader
+		active: false
+		sourceComponent: contextMenuComponent
 	}
+
+	Component {
+		id: contextMenuComponent
+		ShellContextMenu {
+			actionManager: fileSlot.actionManager
+			targetIsDir: fileSlot.is_dir
+			targetIsImage: fileSlot.fileManager && fileSlot.fileManager.is_image_file(fileSlot.path)
+		}
+	}
+
+	readonly property ShellContextMenu contextMenu: contextMenuLoader.item
 
 	function openContextMenu() {
 		if (fileSlot.actionManager)
 			fileSlot.actionManager.pasteTargetPath = fileSlot.is_dir ? fileSlot.path : "";
 		fileSlot.contextMenuRequested(fileSlot.path, fileSlot.index);
 
-		const menu = fileSlot.contextMenu;
+		contextMenuLoader.active = true;
+		const menu = contextMenuLoader.item;
 		if (!menu)
 			return null;
+		menu.parent = fileSlot;
 		const position = fileSlot.mapToItem(menu.parent, 0, fileSlot.height);
 		menu.x = position.x;
 		menu.y = position.y;

@@ -1,15 +1,22 @@
 #!/bin/bash
 # Collects a self-contained aarch64 deployment bundle for hishell-qt
 # from this Debian trixie sysroot. Run inside the chroot.
+#
+# The binary comes from the host cross-build (scripts/build.sh), staged at
+# /build/hishell/target/aarch64-unknown-linux-gnu/<profile>/hishell-qt; falls
+# back to the in-chroot path for the slow build.
 set -eo pipefail
 
+PROFILE="${1:-debug}"
 BUNDLE=/build/bundle
 QT=/usr/lib/aarch64-linux-gnu/qt6
 rm -rf "$BUNDLE"
 mkdir -p "$BUNDLE/lib" "$BUNDLE/qtplugins" "$BUNDLE/qml" "$BUNDLE/share/icons" "$BUNDLE/config"
 
 # --- main binary ---
-cp /build/hishell/target/release/hishell-qt "$BUNDLE/"
+BIN=/build/hishell/target/aarch64-unknown-linux-gnu/$PROFILE/hishell-qt
+[ -f "$BIN" ] || BIN=/build/hishell/target/$PROFILE/hishell-qt
+cp "$BIN" "$BUNDLE/"
 
 # --- app config (default.cfg is read relative to the working directory) ---
 cp /build/hishell/config/default.cfg "$BUNDLE/config/default.cfg"
@@ -58,13 +65,16 @@ add_lib() {
 }
 
 # repeat passes until no new dependencies appear
+# (process substitution is avoided: /dev/fd may be missing in a minimal chroot)
 while :; do
 	before=${#SEEN[@]}
+	find "$BUNDLE" -type f \( -name "*.so*" -o -name "hishell-qt" \) > /tmp/.bundle-files
 	while read -r f; do
+		ldd "$f" 2>/dev/null | awk '/=>/ && $3 != "" {print $3}' > /tmp/.bundle-deps
 		while read -r dep; do
 			[ -n "$dep" ] && [ -f "$dep" ] && add_lib "$dep"
-		done < <(ldd "$f" 2>/dev/null | awk '/=>/ && $3 != "" {print $3}')
-	done < <(find "$BUNDLE" -type f \( -name "*.so*" -o -name "hishell-qt" \))
+		done < /tmp/.bundle-deps
+	done < /tmp/.bundle-files
 	after=${#SEEN[@]}
 	[ "$before" = "$after" ] && break
 done

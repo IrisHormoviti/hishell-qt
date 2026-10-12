@@ -110,51 +110,72 @@ Item {
 	}
 
 	// Group Contexts
+	//
+	// The descriptor array is deliberately kept identity-stable across focus
+	// changes: QML models that rebuild when the array identity changes would
+	// otherwise destroy and recreate every menu item (and re-resolve every
+	// action icon) on each focus move — and, because `openGroup` depends on
+	// `executeAction.available`, that happened continuously. Actions are read
+	// through `groupActions()` instead of being embedded here.
 	readonly property var menuGroups: [
 		{
 			id: "open",
 			title: qsTr("&Open"),
-			actions: openGroup,
 			contexts: ["items"],
 			submenu: false
 		},
 		{
 			id: "edit",
 			title: qsTr("&Edit"),
-			actions: editGroup,
 			contexts: ["items"],
 			submenu: false
 		},
 		{
 			id: "image",
 			title: qsTr("&Image"),
-			actions: imageGroup,
 			contexts: ["files"],
 			submenu: false
 		},
 		{
 			id: "new",
 			title: qsTr("&New"),
-			actions: newActionsGroup,
 			contexts: ["directory"],
 			submenu: true
 		},
 		{
 			id: "directory",
 			title: qsTr("&Folder"),
-			actions: folderActionsGroup,
 			contexts: ["directory", "folders"],
 			submenu: false
 		},
 		{
 			id: "view",
 			title: qsTr("View"),
-			actions: [],
 			contexts: ["directory"],
 			submenu: true,
 			customMenu: "ViewMenu"
 		}
 	]
+
+	// The actions for a group, resolved on demand so the descriptor array above
+	// stays constant even when the available actions change.
+	function groupActions(id) {
+		switch (id) {
+		case "open":
+			return actionManager.openGroup;
+		case "edit":
+			return actionManager.editGroup;
+		case "image":
+			return actionManager.imageGroup;
+		case "new":
+			return actionManager.newActionsGroup;
+		case "directory":
+			return actionManager.folderActionsGroup;
+		default:
+			return [];
+		}
+	}
+
 
 	function group(id) {
 		for (let i = 0; i < menuGroups.length; i++) {
@@ -173,7 +194,7 @@ Item {
 		const groups = groupsFor(context);
 		for (let i = 0; i < groups.length; i++) {
 			if (groups[i].submenu !== true)
-				actions = actions.concat(groups[i].actions);
+				actions = actions.concat(actionManager.groupActions(groups[i].id));
 		}
 		return actions;
 	}

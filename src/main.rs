@@ -148,6 +148,7 @@ fn main() {
 	engine.load_file("qrc:///Hishell/ShellWindow.qml".into());
 
 	kde_bridge::hook_menu_key();
+	kde_bridge::warm_icons();
 
 	gamepad::init();
 

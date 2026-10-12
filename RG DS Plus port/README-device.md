@@ -123,6 +123,12 @@ These were needed to make the app run on Qt 6.8.2 / weston 14. Each is minimal.
 6. **`ShellContextMenu.qml` null-safety** — `actionManager.group("new")` can
    return `null`; the Instantiator model now filters it, removing
    "Unable to assign [undefined] to objectName" warnings.
+7. **Focus stall fixed (`src/kde_bridge.cpp`)** — see "Focus stall" below.
+   `hishell_default_app()` / `hishell_open_with_apps()` return immediately when
+   the MIME type is empty (what this OS returns for binary files, since it ships
+   no shared-mime-info database) instead of calling `KApplicationTrader`, and
+   the trader results are cached by MIME name. `src/kde_bridge.rs` clears the
+   cache when the default app changes.
 
 ## Device configuration
 
@@ -205,46 +211,77 @@ The panels are 1024×768, which leaves the stock sizes too small to hit reliably
 with a finger. `run.sh` sets `QT_SCALE_FACTOR` (default `1.5`); override it with
 `HISHELL_SCALE` (e.g. `HISHELL_SCALE=2`).
 
-## Build environment (reproducible)
+### Focus stall (fixed)
+
+Moving the cursor onto some files used to freeze the UI for ~0.25–1 s. It only
+happened on non-folders, because `ActionManager.openApp` (used for the *Open
+with …* label and icon) is skipped for directories but runs on every focused
+file.
+
+`ActionManager` re-evaluates `get_default_app(path)` → `KApplicationTrader`
+whenever the focused item changes. This OS ships **no shared-mime-info database
+and no KService database**, so:
+
+- `QMimeDatabase::mimeTypeForFile()` returns an **empty** MIME type for binary
+  files, and
+- `KApplicationTrader::preferredService("")` then takes its slow fallback path
+  and logs `kf.service.services: KApplicationTrader: mimeType "" not found`,
+  blocking the GUI thread for hundreds of ms each time.
+
+An `strace` of an automated focus sweep (a uinput virtual keyboard) showed the
+main thread stalling up to **960 ms**, with a blank gap right before the
+`KApplicationTrader` warning. `kde_bridge.cpp` now short-circuits the empty-MIME
+case and caches results by MIME name; the same sweep afterwards shows **no
+main-thread gaps over 100 ms and zero trader warnings**.
+
+## Building (fast path — use this)
+
+Only the **C++ bridge** needs the sysroot; the Rust side cross-compiles
+**natively** on the host. Building *inside* the sysroot under qemu-user instead
+takes ~50 min cold and re-runs on every change; this path is ~1.5 min cold and
+**~15 s incremental**.
 
 ```bash
-mkdir -p /tmp/opencode/rgds && cd /tmp/opencode/rgds
-sudo debootstrap --arch=arm64 --foreign --variant=minbase \
-    trixie trixie-aarch64 http://deb.debian.org/debian
-sudo cp /usr/bin/qemu-aarch64-static trixie-aarch64/usr/bin/
-sudo mount -t proc proc trixie-aarch64/proc
-sudo mount --bind /sys trixie-aarch64/sys
-sudo mount --bind /dev trixie-aarch64/dev
-sudo mount --bind /dev/pts trixie-aarch64/dev/pts
-sudo chroot trixie-aarch64 /debootstrap/debootstrap --second-stage
-# apt sources + resolv.conf, then:
-sudo chroot trixie-aarch64 /bin/sh -c 'export DEBIAN_FRONTEND=noninteractive;
-  apt-get update && apt-get install -y --no-install-recommends \
-    build-essential pkg-config cmake git curl ca-certificates file \
-    qt6-base-dev qt6-declarative-dev qt6-tools-dev qt6-wayland-dev \
-    qml6-module-qtquick qml6-module-qtquick-controls \
-    qml6-module-qtquick-layouts qml6-module-qtquick-dialogs \
-    qml6-module-qtqml-workerscript qml6-module-qtquick-templates \
-    qml6-module-qtquick-window qml6-module-qtquick-shapes \
-    libkf6service-dev libkf6kio-dev libkf6coreaddons-dev libkf6guiaddons-dev \
-    qml6-module-org-kde-kirigami kirigami2-dev \
-    qt6-svg-dev qt6-svg-plugins libqt6svg6 kf6-breeze-icon-theme'
-sudo chroot trixie-aarch64 /bin/sh -c 'export RUSTUP_HOME=/opt/rustup \
-  CARGO_HOME=/opt/cargo RUSTUP_INIT_SKIP_PATH_CHECK=yes; \
-  curl -sSf https://sh.rustup.rs -o /tmp/rustup.sh; \
-  sh /tmp/rustup.sh -y --no-modify-path --default-toolchain 1.99.0 --profile minimal'
+# one-off (a few minutes, ~2 GB)
+"RG DS Plus port/setup-sysroot.sh"          # creates /tmp/opencode/rgds/trixie-aarch64
+
+# every iteration
+"RG DS Plus port/build.sh"                  # --debug (default) or --release
+"RG DS Plus port/deploy.sh"                 # scp to root@192.168.31.28:/opt/hishell
 ```
 
-Copy the project into `/build/hishell` (excluding `target/ build/ dist/ .git/
-.cargo/`) and build:
+`build.sh` needs, on the host: `cargo`, `aarch64-linux-gnu-gcc/g++`,
+`qemu-user-static`, and the `aarch64-unknown-linux-gnu` Rust target (installed
+automatically). It sets up, around `cargo build --target aarch64-unknown-linux-gnu`:
+
+- `PKG_CONFIG_*` / `QT_INCLUDE_PATH` / `KF6_INCLUDE_PATH` / `MOC` pointed at the
+  sysroot (the sysroot's Qt 6.8 `moc`, run under qemu — ~1 s);
+- `-rpath-link` into the sysroot for the Qt/KF6 transitive deps;
+- a host-side `/lib/aarch64-linux-gnu` symlink farm: Debian's `libm.so` is a
+  linker script with **absolute** paths (`/lib/aarch64-linux-gnu/libm.so.6`,
+  `/lib/ld-linux-aarch64.so.1`) that otherwise do not resolve outside a real
+  multiarch rootfs.
+
+`build.rs` honours `KF6_INCLUDE_PATH` / `PKG_CONFIG_SYSROOT_DIR` so the KF6
+headers are found under the sysroot instead of the hard-coded `/usr/include/KF6`.
+
+### Bundle → device install path
+
+The Rust binary is the same either way; only the *bundle* (Qt/KF6 libs, QML,
+plugins, icon theme under `/opt/hishell`) comes from `collect_bundle.sh`. For
+iterating on app code you only need to replace the binary
+(`deploy.sh` does exactly that). Re-run the full bundle collection only when the
+shipped Qt/KF6 set or the QML modules change.
+
+### Slow path (fallback, builds entirely inside the sysroot under qemu)
 
 ```bash
-sudo chroot trixie-aarch64 /bin/bash -lc '
+# inside the sysroot:
+sudo chroot /tmp/opencode/rgds/trixie-aarch64 /bin/bash -lc '
   export RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo PATH=/opt/cargo/bin:$PATH
-  cd /build/hishell && cargo build --release'   # debug: drop --release
+  cd /build/hishell && cargo build'
 ```
 
-Then collect the bundle with `device/collect_bundle.sh` (run inside the chroot).
 
 ## Key findings worth remembering
 
@@ -284,9 +321,9 @@ Then collect the bundle with `device/collect_bundle.sh` (run inside the chroot).
   core dump (`core_pattern`, `ulimit -c unlimited`) plus the host `gdb`
   (`--enable-targets=all`, `set sysroot` to the dump rootfs) should give a
   backtrace if it recurs.
-- **Brief freeze when focusing some files** (a ~1 s userspace stall on the GUI
-  thread, seen under `strace` as a gap with no syscalls). Not rendering-related
-  (GPU is in use). Not resolved.
+- **Fixed: brief freeze when focusing some files.** Was a ~0.25–1 s GUI-thread
+  stall from `KApplicationTrader` on an empty MIME type (see "Focus stall"
+  above). Fixed and verified.
 - **The focus border renders wrong** — four separate corner borders instead of
   one clipped frame (`sourceClipRect` on the SVG does not clip as intended). A
   pre-existing app issue.
