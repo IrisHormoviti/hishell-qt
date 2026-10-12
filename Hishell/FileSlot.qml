@@ -343,25 +343,16 @@ Item {
 			scale: focusBorderScale + focusIndicator.pulse * focusBorderMovment
 			opacity: 0.95 - focusIndicator.pulse * 0.35
 
-			// Rasterise the vector art at the size the corners are drawn at,
-			// in device pixels, so it is never resampled; the clip rects live
-			// in that same pixel space. The container scale is included so the
-			// art is still rendered at its largest drawn size.
-			readonly property int cornerPixels: {
-				const window = fileSlot.Window.window;
-				const ratio = window ? window.devicePixelRatio : 1;
-				const ceiling = fileSlot.focusBorderScale + Math.abs(fileSlot.focusBorderMovment);
-				return Math.max(1, Math.ceil(focusIndicator.cornerSize * ratio * ceiling));
-			}
-
+			// Each corner is its own 32x32 document holding one bracket, drawn
+			// straight at the corner size. The corners used to be clipped out of
+			// one raster, which broke whenever sourceSize and sourceClipRect were
+			// not in the same coordinate space (anything but a 1:1 pixel ratio).
 			Image {
 				anchors.left: parent.left
 				anchors.top: parent.top
 				width: focusIndicator.cornerSize
 				height: focusIndicator.cornerSize
-				source: fileSlot.focusBorderSource
-				sourceSize: Qt.size(focusCorners.cornerPixels * 2, focusCorners.cornerPixels * 2)
-				sourceClipRect: Qt.rect(0, 0, focusCorners.cornerPixels, focusCorners.cornerPixels)
+				source: fileSlot.focusBorderSource + "-0.svg"
 				smooth: true
 			}
 
@@ -370,9 +361,7 @@ Item {
 				anchors.top: parent.top
 				width: focusIndicator.cornerSize
 				height: focusIndicator.cornerSize
-				source: fileSlot.focusBorderSource
-				sourceSize: Qt.size(focusCorners.cornerPixels * 2, focusCorners.cornerPixels * 2)
-				sourceClipRect: Qt.rect(focusCorners.cornerPixels, 0, focusCorners.cornerPixels, focusCorners.cornerPixels)
+				source: fileSlot.focusBorderSource + "-1.svg"
 				smooth: true
 			}
 
@@ -381,9 +370,7 @@ Item {
 				anchors.bottom: parent.bottom
 				width: focusIndicator.cornerSize
 				height: focusIndicator.cornerSize
-				source: fileSlot.focusBorderSource
-				sourceSize: Qt.size(focusCorners.cornerPixels * 2, focusCorners.cornerPixels * 2)
-				sourceClipRect: Qt.rect(focusCorners.cornerPixels, focusCorners.cornerPixels, focusCorners.cornerPixels, focusCorners.cornerPixels)
+				source: fileSlot.focusBorderSource + "-2.svg"
 				smooth: true
 			}
 
@@ -392,9 +379,7 @@ Item {
 				anchors.bottom: parent.bottom
 				width: focusIndicator.cornerSize
 				height: focusIndicator.cornerSize
-				source: fileSlot.focusBorderSource
-				sourceSize: Qt.size(focusCorners.cornerPixels * 2, focusCorners.cornerPixels * 2)
-				sourceClipRect: Qt.rect(0, focusCorners.cornerPixels, focusCorners.cornerPixels, focusCorners.cornerPixels)
+				source: fileSlot.focusBorderSource + "-3.svg"
 				smooth: true
 			}
 		}

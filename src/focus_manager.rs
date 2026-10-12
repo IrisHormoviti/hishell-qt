@@ -38,16 +38,51 @@ fn write_border_asset(color: &str) -> Option<String> {
 	let directory = dirs::cache_dir()?.join("hishell");
 	fs::create_dir_all(&directory).ok()?;
 
-	// Keyed by content as well as colour, so editing the asset yields a new
-	// file and URL, which also invalidates the image cache on the QML side.
+	// Keyed by content as well as colour, so editing the asset yields new files
+	// and URLs, which also invalidates the image cache on the QML side.
 	let digest = md5::compute(format!("{color}:{source}").as_bytes());
-	let path = directory.join(format!("focus-border-{:x}.svg", digest));
-	if !path.exists() {
-		fs::write(&path, source.replace("#ffffff", color)).ok()?;
+	let prefix = directory.join(format!("focus-border-{:x}", digest));
+
+	// One document per corner, each a 32x32 viewBox of the quadrant holding a
+	// single bracket. The QML side then draws four plain images at the corner
+	// size. Clipping one raster into quadrants relied on sourceClipRect being in
+	// the same coordinate space as the rasterised sourceSize, which is not the
+	// case once the device pixel ratio is not 1 (e.g. under QT_SCALE_FACTOR): the
+	// clip then only grabbed a fraction of the art and drew broken corners.
+	for (index, (x, y)) in CORNERS.iter().enumerate() {
+		let path = prefix.with_file_name(format!(
+			"{}-{}.svg",
+			prefix.file_name().unwrap_or_default().to_string_lossy(),
+			index
+		));
+		if !path.exists() {
+			let corner = format!(
+				"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+				 <svg xmlns=\"http://www.w3.org/2000/svg\" width=\"32\" height=\"32\" \
+				 viewBox=\"{x} {y} 32 32\" fill=\"none\">\n\
+				 <path d=\"{d}\" stroke=\"{color}\" stroke-width=\"7.5\" \
+				 stroke-linecap=\"butt\" stroke-linejoin=\"bevel\" />\n\
+				 </svg>\n",
+				d = CORNER_PATHS[index],
+			);
+			fs::write(&path, corner).ok()?;
+		}
 	}
 
-	Some(format!("file://{}", path.to_string_lossy()))
+	Some(format!("file://{}", prefix.to_string_lossy()))
 }
+
+/// Quadrant origin of each corner in the source document, in the order the QML
+/// draws them: top-left, top-right, bottom-right, bottom-left.
+const CORNERS: [(i32, i32); 4] = [(0, 0), (32, 0), (32, 32), (0, 32)];
+
+/// The single bracket path of each corner, taken from the source document.
+const CORNER_PATHS: [&str; 4] = [
+	"M 8,27.744298 V 14 c 0,-4 2.000431,-6.0587208 6,-6 l 10.352255,0.1519897",
+	"M 36.407692,8 H 50 c 4,0 5.977762,2.000062 6,6 l 0.07599,13.668303",
+	"M 56,37.319628 V 50 c 0,4 -2,6 -6,6 H 36.255702",
+	"M 24.048277,56 H 14 C 10,56 8,54 8,50 V 37.319627",
+];
 
 /// Focus state of one file view. A window hosts a pane per view, and each pane
 /// keeps its own cursor so that only the pane the focus is in reacts.
