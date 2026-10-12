@@ -10,7 +10,9 @@ Menu {
 	readonly property bool groupVisible: actionManager.isMenuGroupVisible(group.id)
 	readonly property bool submenu: group.submenu === true
 
-	popupType: Popup.Native
+	readonly property var config: actionManager && actionManager.directory ? actionManager.directory.config : null
+	// See ViewMenu.qml: native popups are separate windows and are opt-in.
+	popupType: (groupMenu.config && groupMenu.config.native_menus) ? Popup.Native : Popup.Item
 
 	objectName: group.id
 	title: group.title

@@ -386,6 +386,11 @@ pub struct Config {
 	pub bottom_layout: qt_property!(String; NOTIFY config_changed),
 	pub header_layout: qt_property!(String; NOTIFY config_changed),
 	pub native_menubar: qt_property!(bool; NOTIFY config_changed),
+	// Draw menus as native platform popups instead of in-window ones. Off by
+	// default: a native popup is a separate window the compositor places on its
+	// own, which on multi-output setups lands on the wrong output and can crash
+	// when reopened.
+	pub native_menus: qt_property!(bool; NOTIFY config_changed),
 	pub native_titlebar: qt_property!(bool; NOTIFY config_changed),
 	// Name of the screen/output to open on (e.g. "DSI-2" on the RG DS Plus, whose
 	// bottom touch panel is the second output). Empty means the platform default.
@@ -564,6 +569,9 @@ impl Config {
 		}
 		if changed!("Layout", "NativeMenuBar") {
 			self.native_menubar = bool_value(get("Layout", "NativeMenuBar"), false);
+		}
+		if changed!("Layout", "NativeMenus") {
+			self.native_menus = bool_value(get("Layout", "NativeMenus"), false);
 		}
 		if changed!("Layout", "NativeTitleBar") {
 			self.native_titlebar = bool_value(get("Layout", "NativeTitleBar"), true);

@@ -349,6 +349,7 @@ Module {
 		Property { name: "bottom_layout"; type: "string"; isReadonly: true }
 		Property { name: "header_layout"; type: "string"; isReadonly: true }
 		Property { name: "native_menubar"; type: "bool"; isReadonly: true }
+		Property { name: "native_menus"; type: "bool"; isReadonly: true }
 		Property { name: "native_titlebar"; type: "bool"; isReadonly: true }
 		Property { name: "screen_name"; type: "string"; isReadonly: true }
 		Property { name: "maximized"; type: "bool"; isReadonly: true }

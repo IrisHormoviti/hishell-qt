@@ -580,7 +580,12 @@ Item {
 		pressAndHoldInterval: 300
 		cursorShape: Qt.PointingHandCursor
 
-		drag.target: localDragTarget
+		// Touch drags scroll the view; a slot can only be dragged once it has
+		// been held (which selects it). A mouse keeps the immediate-drag
+		// behaviour, so touch leaves drag.target unset until the hold.
+		property bool touchInput: false
+		readonly property bool dragAllowed: mouseArea.touchInput ? mouseArea.isPressAndHoldActive : !mouseArea.isPressAndHoldActive
+		drag.target: (mouseArea.touchInput && !mouseArea.isPressAndHoldActive) ? null : localDragTarget
 		drag.axis: Drag.XAndYAxis
 
 		property DragDropHandler dragDropHandler: fileSlot.dragDropHandler ? fileSlot.dragDropHandler : null
@@ -611,7 +616,7 @@ Item {
 			const targetToGrab = contentLayout;
 
 			targetToGrab.grabToImage(function (result) {
-				if (mouseArea.isPressAndHoldActive) {
+				if (!mouseArea.dragAllowed) {
 					if (typeof dragDropHandler !== 'undefined' && dragDropHandler)
 						dragDropHandler.active_dragged_paths = [];
 					return;
@@ -717,7 +722,7 @@ Item {
 				return;
 			}
 
-			if (!mouseArea.dragStarted && !mouseArea.isPressAndHoldActive && mouseArea.drag.active) {
+			if (!mouseArea.dragStarted && mouseArea.dragAllowed && mouseArea.drag.active) {
 				const deltaX = mouse.x - mouseArea.startX;
 				const deltaY = mouse.y - mouseArea.startY;
 				const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
@@ -734,6 +739,8 @@ Item {
 		}
 
 		onPressed: mouse => {
+			mouseArea.touchInput = mouse.source !== Qt.MouseEventNotSynthesized;
+
 			if (mouse.button === Qt.LeftButton && fileSlot.pressHandler)
 				fileSlot.pressHandler(mouse);
 

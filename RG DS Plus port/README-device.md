@@ -92,6 +92,10 @@ zstd, and their transitive deps.
    (`/mnt/mod/ctrl/sw`) keeps the entry consistent. The stock file had **no
    trailing newline**, which had to be fixed first or the row corrupts the last
    entry.
+5. **`rootfs/usr/bin/micro`** — new: the `micro` terminal text editor
+   (v2.0.15, static aarch64) so text files can be edited over SSH. The stock OS
+   ships no editor (`vi`/`nano` absent). Self-contained Go binary; it carries a
+   built-in terminfo fallback, so it works despite the minimal `/etc/terminfo`.
 
 ## Source changes (in `~/Projects/hishell-qt`)
 
@@ -129,6 +133,23 @@ These were needed to make the app run on Qt 6.8.2 / weston 14. Each is minimal.
    no shared-mime-info database) instead of calling `KApplicationTrader`, and
    the trader results are cached by MIME name. `src/kde_bridge.rs` clears the
    cache when the default app changes.
+8. **View-menu crash and off-screen menus fixed (`toolkit/ViewMenu.qml`,
+   `toolkit/ActionGroupMenu.qml`, `src/config.rs`)** — the menus used
+   `popupType: Popup.Native`. This platform has no native-menu support, so Qt
+   fell back to a **separate platform popup window**. The compositor places
+   that window on its own, so on the two-panel device it landed on the wrong
+   output ("wraps onto the top screen"), and reopening a submenu segfaulted
+   inside `libwayland-client` (a dangling popup proxy — the crash core showed
+   `SIGSEGV` at `libwayland-client.so.0.23.1`). Menus are now **in-window
+   popups** (`Popup.Item`) by default, positioned relative to the menu bar so
+   they cannot leave the screen. A new `[Layout] NativeMenus` key restores the
+   native behaviour for platforms whose compositor supports native menus.
+9. **Touch drag scrolls instead of dragging a slot (`FileSlot.qml`)** — dragging
+   on an icon started a drag-and-drop at once, so the grid could only be scrolled
+   from empty space. Touch input (detected from the synthesized mouse event's
+   `source`) now leaves `drag.target` unset, so the drag goes to the `Flickable`
+   and the view scrolls; a slot only becomes draggable after a press-and-hold
+   (which selects it). A mouse still drags immediately, as before.
 
 ## Device configuration
 
@@ -139,6 +160,7 @@ which is where the app reads its global config because `HOME=/`):
 |---|---|---|
 | `Maximized` | `true` | open fullscreen, covering the launcher |
 | `NativeTitleBar` | `false` | weston has no server-side decorations; the in-window header carries the controls |
+| `NativeMenus` | `false` | native popups are separate windows that land on the wrong output and crash when reopened; keep menus in-window |
 | `GridSize` | `96` | touch-friendly hit targets |
 | `Sort` | `ALPHABETICAL` | predictable on a file card |
 | `NavigationType` | `IN_PLACE` | one window |
@@ -314,19 +336,22 @@ sudo chroot /tmp/opencode/rgds/trixie-aarch64 /bin/bash -lc '
 
 ## Known issues / not finished
 
-- **Intermittent crash when a context menu opens.** Seen once: the app
-  segfaulted (`SIGSEGV`, exit 139) right after the context-menu `xdg_popup` was
-  configured. It has not reproduced since, and a later attempt opened the same
-  menu fine, so the trigger is not known. The device binary is unstripped, so a
-  core dump (`core_pattern`, `ulimit -c unlimited`) plus the host `gdb`
-  (`--enable-targets=all`, `set sysroot` to the dump rootfs) should give a
-  backtrace if it recurs.
+- **Fixed: crash when navigating the View menu / menus landing on the wrong
+  screen.** Root cause was `popupType: Popup.Native` (see source change 8): the
+  separate popup window was placed by the compositor on the top panel and
+  reopening a submenu segfaulted in `libwayland-client`. The earlier
+  "intermittent crash when a context menu opens" was the same class of bug —
+  the context menu reuses `ViewMenu`/`ActionGroupMenu`, so it also created a
+  native popup. Menus are now in-window popups and both symptoms are gone
+  (confirmed on the device by reproducing the exact menu path that crashed).
 - **Fixed: brief freeze when focusing some files.** Was a ~0.25–1 s GUI-thread
   stall from `KApplicationTrader` on an empty MIME type (see "Focus stall"
   above). Fixed and verified.
-- **The focus border renders wrong** — four separate corner borders instead of
-  one clipped frame (`sourceClipRect` on the SVG does not clip as intended). A
-  pre-existing app issue.
+- **Fixed: the focus border rendered wrong.** The four corner brackets were
+  clipped out of one raster with `sourceClipRect`, which does not clip as
+  intended once the device pixel ratio is not 1. Each corner is now its own
+  small SVG (`src/focus_manager.rs`) drawn by a plain `Image` (`FileSlot.qml`),
+  with no clipping. Fixed in commit `823c70a`.
 - **The top panel is unused** — only the bottom is wired up.
 - **The stock menu can crash after output swapping.** Once, after the app had
   been run (and the outputs were left swapped by the old `run.sh`), navigating

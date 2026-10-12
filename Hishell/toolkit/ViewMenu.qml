@@ -10,6 +10,10 @@ Menu {
 	property var config: directory ? directory.config : null
 	property bool isLocal: directory ? directory.has_meta : false
 	readonly property string viewConfigGroupName: "Folder View"
+	// Native platform menus are separate windows the compositor places on its
+	// own; on multi-output targets they can land on the wrong output and crash
+	// when reopened, so in-window popups are the default.
+	readonly property int menuPopupType: (viewMenu.config && viewMenu.config.native_menus) ? Popup.Native : Popup.Item
 	readonly property bool hasFreePlacementPositions: {
 		if (!viewMenu.config)
 			return false;
@@ -24,7 +28,7 @@ Menu {
 	height: contentHeight
 
 	title: qsTr("&View")
-	popupType: Popup.Native
+	popupType: viewMenu.menuPopupType
 
 	// Write a setting to a config section. The scope follows the General/Here tab:
 	// the global config, or this folder's own .directory.
@@ -175,7 +179,7 @@ Menu {
 	Menu {
 		title: qsTr("Sort By...")
 		icon.name: "view-sort"
-		popupType: Popup.Item
+		popupType: viewMenu.menuPopupType
 		MenuItem {
 			text: qsTr("Newest")
 			checkable: true
@@ -194,6 +198,7 @@ Menu {
 		}
 		Menu {
 			title: qsTr("Which date...")
+			popupType: viewMenu.menuPopupType
 			MenuItem {
 				text: qsTr("Modified")
 				checkable: true
@@ -230,6 +235,7 @@ Menu {
 		}
 		Menu {
 			title: qsTr("Which name...")
+			popupType: viewMenu.menuPopupType
 			MenuItem {
 				text: qsTr("Title")
 				checkable: true
@@ -268,7 +274,7 @@ Menu {
 	Menu {
 		title: qsTr("Labels")
 		icon.name: "label"
-		popupType: Popup.Item
+		popupType: viewMenu.menuPopupType
 		MenuItem {
 			text: qsTr("Show Labels")
 			checkable: true
@@ -306,7 +312,7 @@ Menu {
 	Menu {
 		title: qsTr("Arrange")
 		icon.name: "format-justify-fill"
-		popupType: Popup.Item
+		popupType: viewMenu.menuPopupType
 
 		MenuItem {
 			contentItem: RowLayout {
@@ -335,6 +341,7 @@ Menu {
 
 		Menu {
 			title: qsTr("Scroll Direction")
+			popupType: viewMenu.menuPopupType
 			MenuItem {
 				text: qsTr("Vertical")
 				checkable: true
@@ -354,6 +361,7 @@ Menu {
 		}
 		Menu {
 			title: qsTr("Horizontal Align")
+			popupType: viewMenu.menuPopupType
 			MenuItem {
 				text: qsTr("Fill")
 				checkable: true
@@ -389,6 +397,7 @@ Menu {
 		}
 		Menu {
 			title: qsTr("Vertical Align")
+			popupType: viewMenu.menuPopupType
 			MenuItem {
 				text: qsTr("Fill")
 				checkable: true
@@ -427,7 +436,7 @@ Menu {
 	Menu {
 		title: qsTr("Navigation")
 		icon.name: "transform-move"
-		popupType: Popup.Item
+		popupType: viewMenu.menuPopupType
 		MenuItem {
 			text: qsTr("Center Focus")
 			checkable: true
@@ -445,7 +454,7 @@ Menu {
 	Menu {
 		title: qsTr("Wallpaper")
 		icon.name: "games-config-background-symbolic"
-		popupType: Popup.Item
+		popupType: viewMenu.menuPopupType
 		MenuItem {
 			text: qsTr("Set Wallpaper...")
 			icon.name: "document-open"
