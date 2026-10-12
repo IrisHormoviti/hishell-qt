@@ -11,7 +11,9 @@ MenuBar {
 
 	readonly property ActionManager actionManager: window ? window.actionManager : null
 	
-	property ShellWindow window
+	// Untyped to avoid the ShellWindow <-> MenuBar cyclic dependency; see
+	// ActionManager.qml for the explanation.
+	property var window
 	property Directory directory
 	property Config config: directory ? directory.config : null
 	property bool isLocal: directory ? directory.has_meta : false

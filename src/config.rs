@@ -185,8 +185,10 @@ const EXPECTED_KEYS: &[(&str, &str, ExpectedKind)] = &[
 	("Layout", "Header", ExpectedKind::Array),
 	("Layout", "NativeMenuBar", ExpectedKind::Bool),
 	("Layout", "NativeTitleBar", ExpectedKind::Bool),
+	("Layout", "Screen", ExpectedKind::Str),
 	("Folder View", "Wallpaper", ExpectedKind::Str),
 	("Folder View", "GridSize", ExpectedKind::Num),
+	("Folder View", "Maximized", ExpectedKind::Bool),
 	("Folder View", "ShowLabels", ExpectedKind::Bool),
 	("Folder View", "GridLabelsBesidesIcons", ExpectedKind::Bool),
 	(
@@ -385,6 +387,13 @@ pub struct Config {
 	pub header_layout: qt_property!(String; NOTIFY config_changed),
 	pub native_menubar: qt_property!(bool; NOTIFY config_changed),
 	pub native_titlebar: qt_property!(bool; NOTIFY config_changed),
+	// Name of the screen/output to open on (e.g. "DSI-2" on the RG DS Plus, whose
+	// bottom touch panel is the second output). Empty means the platform default.
+	pub screen_name: qt_property!(String; NOTIFY config_changed),
+	// Open the window fullscreen. Set from the "Maximized" folder option; used
+	// on kiosk-style targets (e.g. the RG DS Plus) where the app has to cover
+	// the launcher.
+	pub maximized: qt_property!(bool; NOTIFY config_changed),
 
 	pub grid_size: qt_property!(u16; NOTIFY config_changed),
 	pub grid_horizontal_align: qt_property!(u8; NOTIFY config_changed),
@@ -559,9 +568,19 @@ impl Config {
 		if changed!("Layout", "NativeTitleBar") {
 			self.native_titlebar = bool_value(get("Layout", "NativeTitleBar"), true);
 		}
+		if changed!("Layout", "Screen") {
+			self.screen_name = match get("Layout", "Screen") {
+				Some(ConfigValue::String(v)) => v.clone(),
+				_ => String::new(),
+			}
+			.into();
+		}
 
 		if changed!("Folder View", "GridSize") {
 			self.grid_size = num_value(get("Folder View", "GridSize"), 64).max(0) as u16;
+		}
+		if changed!("Folder View", "Maximized") {
+			self.maximized = bool_value(get("Folder View", "Maximized"), false);
 		}
 		if changed!("Folder View", "ShowLabels") {
 			self.show_labels = bool_value(get("Folder View", "ShowLabels"), true);

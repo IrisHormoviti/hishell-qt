@@ -11,7 +11,9 @@ RowLayout {
 	property string errorString: ""
 
 	required property Directory directory
-	required property ShellWindow window
+	// Untyped to avoid the ShellWindow <-> LayoutEngine cyclic dependency; see
+	// ActionManager.qml for the explanation.
+	required property var window
 
 	property var layoutItems: []
 	property var _createdItems: []

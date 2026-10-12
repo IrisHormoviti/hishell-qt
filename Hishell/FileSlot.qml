@@ -11,7 +11,9 @@ Item {
 
 	required property string path
 
-	property ShellWindow window: Window.window as ShellWindow
+	// Untyped to avoid the ShellWindow <-> FileSlot cyclic dependency; see
+	// ActionManager.qml for the explanation.
+	property var window: Window.window
 	property alias contentLayout: contentLayout
 
 	property DragDropHandler dragDropHandler: window ? window.dragDropHandler : null
@@ -96,15 +98,14 @@ Item {
 	// Emitted before the attached context menu opens.
 	signal contextMenuRequested(string path, int idx)
 
-	ContextMenu.menu: ShellContextMenu {
+	// The context menu for this item. This used to be an attached object named
+	// "ContextMenu", which was never defined; Qt 6.8 rejects it with
+	// "Non-existent attached object" and marks FileSlot unavailable, which in
+	// turn breaks FolderView and PathBar.
+	property ShellContextMenu contextMenu: ShellContextMenu {
 		actionManager: fileSlot.actionManager
 		targetIsDir: fileSlot.is_dir
 		targetIsImage: fileSlot.fileManager && fileSlot.fileManager.is_image_file(fileSlot.path)
-	}
-	ContextMenu.onRequested: {
-		if (fileSlot.actionManager)
-			fileSlot.actionManager.pasteTargetPath = fileSlot.is_dir ? fileSlot.path : "";
-		fileSlot.contextMenuRequested(fileSlot.path, fileSlot.index);
 	}
 
 	function openContextMenu() {
@@ -112,7 +113,7 @@ Item {
 			fileSlot.actionManager.pasteTargetPath = fileSlot.is_dir ? fileSlot.path : "";
 		fileSlot.contextMenuRequested(fileSlot.path, fileSlot.index);
 
-		const menu = ContextMenu.menu;
+		const menu = fileSlot.contextMenu;
 		if (!menu)
 			return null;
 		const position = fileSlot.mapToItem(menu.parent, 0, fileSlot.height);

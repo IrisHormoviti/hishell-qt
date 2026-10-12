@@ -28,7 +28,14 @@ Menu {
 	}
 
 	Instantiator {
-		model: contextMenu.targetIsBackground ? [contextMenu.actionManager.group("new")] : []
+		// group() returns null when the group is absent; filter it out so the
+		// delegate never receives an undefined modelData.
+		model: {
+			if (!contextMenu.targetIsBackground || !contextMenu.actionManager)
+				return [];
+			const newGroup = contextMenu.actionManager.group("new");
+			return newGroup ? [newGroup] : [];
+		}
 		delegate: ActionGroupMenu {
 			required property var modelData
 			actionManager: contextMenu.actionManager

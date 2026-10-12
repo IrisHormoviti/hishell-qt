@@ -7,7 +7,10 @@ import Hishell
 Item {
 	id: actionManager
 
-	required property ShellWindow window
+	// Kept untyped on purpose: a typed ShellWindow property makes ShellWindow.qml
+	// and this file mutually dependent, which Qt 6.8 rejects as a cyclic
+	// dependency ("Type ShellWindow unavailable") and then never shows a window.
+	required property var window
 	required property Directory directory
 	property SelectionManager selectionManager: window ? window.selectionManager : null
 	property FileManager fileManager: window ? window.fileManager : null

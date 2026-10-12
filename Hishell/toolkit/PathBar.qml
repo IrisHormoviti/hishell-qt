@@ -10,7 +10,9 @@ RowLayout {
 	spacing: Kirigami.Units.mediumSpacing
 	Layout.fillWidth: true
 
-	property ShellWindow window
+	// Untyped to avoid the ShellWindow <-> PathBar cyclic dependency; see
+	// ActionManager.qml for the explanation.
+	property var window
 	property Directory directory
 	property string currentPath: pathBar.directory ? pathBar.directory.path : ""
 	property string homePath: String(window.fileManager.get_home_directory());

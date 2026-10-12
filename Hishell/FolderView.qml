@@ -8,8 +8,10 @@ import Hishell
 
 Item {
 	id: folderView
-	property ShellWindow window
-	readonly property ShellWindow rootWindow: folderView.window
+	// Untyped to avoid the ShellWindow <-> FolderView cyclic dependency; see
+	// ActionManager.qml for the explanation.
+	property var window
+	readonly property var rootWindow: folderView.window
 	property Directory directory
 	property Config config: directory ? directory.config : null
 	readonly property bool horizontalScroll: folderView.config ? folderView.config.scroll_horizontal : false
@@ -420,7 +422,7 @@ Item {
 	function openDirectoryMenu() {
 		if (folderView.rootWindow)
 			folderView.rootWindow.actionManager.pasteTargetPath = "";
-		const menu = ContextMenu.menu;
+		const menu = folderView.directoryMenu;
 		if (!menu)
 			return;
 		const position = folderView.mapToItem(menu.parent, 0, 0);
@@ -756,14 +758,12 @@ Item {
 		anchors.margins: 4
 	}
 
-	ContextMenu.menu: ShellContextMenu {
+	// Context menu for the folder being viewed. Formerly an undefined attached
+	// object named "ContextMenu"; see FileSlot.qml for why that was replaced.
+	property ShellContextMenu directoryMenu: ShellContextMenu {
 		actionManager: folderView.rootWindow.actionManager
 		directory: folderView.directory
 		targetIsBackground: true
-	}
-	ContextMenu.onRequested: {
-		if (folderView.rootWindow)
-			folderView.rootWindow.actionManager.pasteTargetPath = "";
 	}
 
 	MouseArea {

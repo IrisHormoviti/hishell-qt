@@ -9,7 +9,7 @@ Kirigami.ApplicationWindow {
 	id: root
 	width: 800
 	height: 600
-	visible: true
+	visible: false
 
 	flags: directory.config.native_titlebar ? Qt.Window : Qt.Window | Qt.FramelessWindowHint
 
@@ -58,6 +58,25 @@ Kirigami.ApplicationWindow {
 		target: directory.config
 		function onConfig_changed() {
 			Qt.callLater(() => root.refreshWindowIcon());
+			root.applyConfiguredScreen();
+		}
+	}
+
+	// Open on a named screen/output when the config asks for one. The RG DS Plus
+	// wants its bottom touch panel, which weston exposes as the second output
+	// ("DSI-2"); the default would be the first output (the top panel). The
+	// screen has to be selected *before* going fullscreen, because weston picks
+	// the output at fullscreen time and ignores later moves.
+	function applyConfiguredScreen() {
+		const name = directory.config.screen_name;
+		if (name && name.length > 0) {
+			const screens = Qt.application.screens;
+			for (let i = 0; i < screens.length; ++i) {
+				if (screens[i].name === name) {
+					root.screen = screens[i];
+					break;
+				}
+			}
 		}
 	}
 
@@ -129,6 +148,12 @@ Kirigami.ApplicationWindow {
 		directory.config.load(initialPath);
 		directory.path = initialPath;
 		root.refreshWindowIcon();
+		root.applyConfiguredScreen();
+		// Show only after the screen is chosen, so the compositor places the
+		// window on the requested output. "Maximized" then opens it fullscreen.
+		root.visible = true;
+		if (directory.config.maximized)
+			root.visibility = Window.FullScreen;
 	}
 
 	// Whenever the keyboard is left unclaimed, hand it back to the window's own
