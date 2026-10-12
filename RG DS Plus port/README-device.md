@@ -48,6 +48,7 @@ symlinks work) and has ~3 GB free.
 rootfs/opt/hishell/              (= /opt/hishell on device)
 ├── hishell-qt                   aarch64 binary (release)
 ├── run.sh                       launcher: env, GPU, screen/touch placement
+├── rgkeyd, rgkey-action.sh      global volume/power/back/lid hotkeys
 ├── qt.conf                      Qt plugin/QML paths
 ├── config/                      default.cfg (app defaults) + folder.cfg (device)
 ├── lib/                         Qt6, KF6, Kirigami + deps (157 libs)
@@ -61,6 +62,7 @@ rootfs/opt/hishell/              (= /opt/hishell on device)
 ROMS/Roms/APPS/Hishell.sh        menu launcher
 ROMS/Roms/APPS/Imgs/Hishell.png  menu icon (240×180)
 rootfs/mnt/mod/ctrl/configs/apps.tsv   one added row ("Hishell" × 10 languages)
+rootfs/etc/init.d/S55rgkeyd      starts rgkeyd at boot
 ```
 
 ### Bundled vs system libraries
@@ -96,6 +98,10 @@ zstd, and their transitive deps.
    (v2.0.15, static aarch64) so text files can be edited over SSH. The stock OS
    ships no editor (`vi`/`nano` absent). Self-contained Go binary; it carries a
    built-in terminfo fallback, so it works despite the minimal `/etc/terminfo`.
+6. **`rootfs/opt/hishell/rgkeyd` + `rgkey-action.sh`**, **`rootfs/etc/init.d/S55rgkeyd`**
+   — new: a small daemon that makes volume / power / back / lid global (see
+   "Global keys" below). The stock OS only handles those inside its launcher, so
+   an app in the foreground loses them.
 
 ## Source changes (in `~/Projects/hishell-qt`)
 
@@ -256,6 +262,48 @@ main thread stalling up to **960 ms**, with a blank gap right before the
 case and caches results by MIME name; the same sweep afterwards shows **no
 main-thread gaps over 100 ms and zero trader warnings**.
 
+## Global keys (volume / power / back / lid)
+
+On the stock OS the volume and power keys only work while the launcher menu
+(`dmenu.bin`) is on screen, and the back key and lid only do anything inside an
+app that handles them. None of it is handled by the compositor or a system
+service: the launcher app owns them, and it **exits** when it hands over to
+another app (`dmenu_ln` runs `sh /tmp/.next` afterwards). So as soon as any other
+app is foregrounded, those keys are dead.
+
+`rgkeyd` restores them globally. evdev delivers key events to *every* process
+with the device open, so the daemon reads all `/dev/input/event*` and runs the
+stock actions itself; it coexists with the launcher and stays idle while the
+launcher menu is up (that already handles the keys).
+
+| Key | Device / code | Action |
+|-----|---------------|--------|
+| Volume up / down | `event5` `KEY_VOLUMEUP`(115) / `KEY_VOLUMEDOWN`(114) | `pactl set-sink-volume @DEFAULT_SINK@ ±5%` |
+| Mute | `event5` `KEY_MUTE`(113) | `pactl set-sink-mute @DEFAULT_SINK@ toggle` |
+| Power | `event0` `KEY_POWER`(116) | `/mnt/vendor/ctrl/pwr_new.sh` (suspend) |
+| Back (held ≥ 700 ms) | `event4` `KEY_BACK`(158) | close the foreground app |
+| Lid closed | `/sys/class/anbernic_misc/hallkey` (2 = closed, 3 = open) | `/mnt/vendor/ctrl/pwr_new.sh` (suspend) |
+
+The lid has no input device; the hall switch is only exposed through the sysfs
+attribute (the `handle-misc` driver, IRQ "hall switch"), so the daemon polls it
+every 500 ms and suspends on the open→closed edge. Opening the lid needs no
+software: the hall IRQ is already an enabled wakeup source (`anbernic_misc`), so
+it resumes the SoC by itself.
+
+The power key is also a wake-up key, so after suspending the daemon ignores
+power presses for 3 s and lid-closed readings for 2 s; otherwise the wake press
+(or a stale reading) would put the device straight back to sleep.
+
+Back-to-close finds the app the same way the launcher tracks it: `dmenu_ln`
+runs it as a child (`sh /tmp/.next`), so killing that subtree makes `dmenu_ln`
+return and the menu reappear. `run.sh`'s `EXIT` trap then puts the screen layout
+back.
+
+The daemon lives next to the app bundle (`/opt/hishell/rgkeyd`, built with
+`build-keyd.sh`) and is started at boot by `/etc/init.d/S55rgkeyd`. Everything
+it does is in `rgkey-action.sh`, so the policy is easy to change without
+rebuilding.
+
 ## Building (fast path — use this)
 
 Only the **C++ bridge** needs the sysroot; the Rust side cross-compiles
@@ -375,6 +423,15 @@ sudo chroot /tmp/opencode/rgds/trixie-aarch64 /bin/bash -lc '
 - ABI: bundle provides `CXXABI_1.3.15`, needs ≤ `GLIBC_2.35`, target has 2.41.
 - Dependency closure: all `NEEDED` SONAMEs resolve.
 - ~110 MB RSS, comfortable in 1 GB.
+- **Global keys** (`rgkeyd`, driven through a uinput virtual keyboard):
+  volume up/down and mute change the PulseAudio sink while the daemon runs
+  (`/mnt/vendor/ctrl/pwr_new.sh` was exercised directly); the power key
+  suspended the device and the RTC alarm woke it, and a second press within the
+  3 s cooldown was ignored. Holding back (700 ms) closed a running app: the app
+  subtree went away, `dmenu.bin` came back, and `run.sh`'s trap restored
+  `/tmp/.weston_drm.conf`.
+- **Lid**: closing the lid suspended the device (four closes logged) and opening
+  it resumed via the hall wakeup IRQ, with no software involvement.
 
 ## Debugging notes
 
