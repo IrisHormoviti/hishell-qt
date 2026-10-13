@@ -633,4 +633,24 @@ Module {
 			Parameter { name: "color"; type: "string" }
 		}
 	}
+	Component {
+		name: "Sound"
+		prototype: "QObject"
+		exports: ["Hishell/Sound 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Property { name: "window"; type: "QVariant"; isReadonly: true }
+		Property { name: "enabled"; type: "bool"; isReadonly: true }
+		Signal { name: "enabled_changed" }
+		Method {
+			name: "play"
+			type: "bool"
+			Parameter { name: "event_id"; type: "string" }
+		}
+		Method {
+			name: "set_volume"
+			type: "void"
+			Parameter { name: "factor"; type: "double" }
+		}
+	}
 }

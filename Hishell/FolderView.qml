@@ -12,6 +12,18 @@ Item {
 	// ActionManager.qml for the explanation.
 	property var window
 	readonly property var rootWindow: folderView.window
+
+	// Event sounds (ClamOS XDG sound theme). Played through the window's sound
+	// object; a null window (or a missing theme) simply stays silent.
+	function playSound(name) {
+		if (folderView.rootWindow && folderView.rootWindow.sound)
+			folderView.rootWindow.sound.play(name);
+	}
+
+	// The path the focus sound last played for, so moving the cursor within one
+	// item does not retrigger it.
+	property string lastFocusSoundPath: ""
+
 	property Directory directory
 	property Config config: directory ? directory.config : null
 	readonly property bool horizontalScroll: folderView.config ? folderView.config.scroll_horizontal : false
@@ -400,6 +412,7 @@ Item {
 		if (!fm || !fm.focus_active || String(fm.focused_path) === "")
 			return;
 		if (mgr && mgr.selection_active) {
+			folderView.playSound("item-selected");
 			mgr.toggle_selection(String(fm.focused_path), fm.focused_index);
 			return;
 		}
@@ -539,6 +552,15 @@ Item {
 		target: folderView.focusManager
 		function onFocus_changed() {
 			const fm = folderView.focusManager;
+			// A focus sound on every cursor move, but only when the cursor really
+			// moved: focus_changed also fires for pane / active changes.
+			if (fm && fm.focus_active && fm.current_pane === folderView.paneId) {
+				const path = String(fm.focused_path);
+				if (path !== folderView.lastFocusSoundPath) {
+					folderView.lastFocusSoundPath = path;
+					folderView.playSound("item-focus");
+				}
+			}
 			// Keep the window's item actions pointed at the pane holding the
 			// cursor, even when the keyboard sits elsewhere (popup, dialog).
 			if (fm && folderView.rootWindow && fm.current_pane === folderView.paneId)
@@ -562,8 +584,10 @@ Item {
 				return;
 			const fm = folderView.focusManager;
 			const mgr = folderView.selectionManager;
-			if (mgr && fm && fm.focus_active && String(fm.focused_path) !== "")
+			if (mgr && fm && fm.focus_active && String(fm.focused_path) !== "") {
+				folderView.playSound("item-selected");
 				mgr.toggle_selection(String(fm.focused_path), fm.focused_index);
+			}
 		}
 		function onDirectory_menu_requested() {
 			if (folderView.focusOwned && folderView.focusManager.current_pane === folderView.paneId)
@@ -590,8 +614,14 @@ Item {
 				return;
 			}
 
-			if (folderView.rootWindow && folderView.rootWindow.actionManager)
-				folderView.rootWindow.actionManager.goUpAction.trigger();
+			// Back only sounds, and only goes up, when there is somewhere to go:
+			// at the root there is no back, and sounding anyway made every B press
+			// feel like an action.
+			const am = folderView.rootWindow ? folderView.rootWindow.actionManager : null;
+			if (am && am.goUpAction.enabled) {
+				folderView.playSound("return");
+				am.goUpAction.trigger();
+			}
 		}
 	}
 
@@ -1297,8 +1327,10 @@ Item {
 		case Qt.Key_Down: {
 			const direction = event.key === Qt.Key_Left ? "left" : event.key === Qt.Key_Right ? "right" : event.key === Qt.Key_Up ? "up" : "down";
 			fm.move_focus(direction);
-			if (shift && fm.focus_active && String(fm.focused_path) !== "")
+			if (shift && fm.focus_active && String(fm.focused_path) !== "") {
+				folderView.playSound("item-selected");
 				mgr.toggle_selection(String(fm.focused_path), fm.focused_index);
+			}
 			event.accepted = true;
 			break;
 		}
@@ -1312,6 +1344,7 @@ Item {
 			break;
 		case Qt.Key_Space:
 			if (fm.focus_active && String(fm.focused_path) !== "") {
+				folderView.playSound("item-selected");
 				mgr.toggle_selection(String(fm.focused_path), fm.focused_index);
 				event.accepted = true;
 			}
@@ -1372,12 +1405,98 @@ Item {
 			topMargin: folderView.filterActive ? filterBar.height + Kirigami.Units.mediumSpacing * 2 : Kirigami.Units.mediumSpacing
 		}
 
-		onContentYChanged: folderView.scheduleThumbnails()
-		onContentXChanged: folderView.scheduleThumbnails()
 		onHeightChanged: folderView.scheduleThumbnails()
 		onWidthChanged: folderView.scheduleThumbnails()
 		contentWidth: folderView.gridMetrics.contentWidth
 		contentHeight: folderView.gridMetrics.contentHeight
+
+		// Scroll feedback, 3DS style. The view can scroll on either axis — the
+		// layout picks which — so this follows whichever position actually
+		// moves instead of trusting the config, which described the grid's
+		// flow, not the flickable's. One tick fires per item crossed along the
+		// moving axis, so a slow drag ticks on the same boundaries as a fast
+		// flick. Both axes use the up/down vocabulary: a sideways grid must not
+		// sound like a different kind of movement.
+		//
+		// Reaching either end plays the "edge" sound once, then stays quiet
+		// until the position moves away from the end again.
+		readonly property real scrollStepX: folderView.gridItemSize.width + Kirigami.Units.mediumSpacing
+		readonly property real scrollStepY: folderView.gridItemSize.height + Kirigami.Units.mediumSpacing
+		property real scrollRemainderX: 0
+		property real scrollRemainderY: 0
+		property real lastScrollX: 0
+		property real lastScrollY: 0
+		property bool atScrollStart: true
+		property bool atScrollEnd: true
+
+		function updateScrollEdges() {
+			// Whichever axis can actually scroll is the one whose ends matter.
+			const maxX = Math.max(0, flickable.contentWidth - flickable.width);
+			const maxY = Math.max(0, flickable.contentHeight - flickable.height);
+			const horizontal = maxX > 1 && maxY <= 1;
+			const vertical = maxY > 1 && maxX <= 1;
+			const max = horizontal ? maxX : (vertical ? maxY : Math.max(maxX, maxY));
+			if (max <= 1) {
+				flickable.atScrollStart = true;
+				flickable.atScrollEnd = true;
+				return;
+			}
+			const pos = horizontal ? flickable.contentX : flickable.contentY;
+			const wasAtStart = flickable.atScrollStart;
+			const wasAtEnd = flickable.atScrollEnd;
+			flickable.atScrollStart = pos <= 1;
+			flickable.atScrollEnd = pos >= max - 1;
+			// Announce only when a real end is *reached*: the start is where the
+			// view rests, so arriving back there is not an "edge" event.
+			if (flickable.atScrollEnd && !wasAtEnd)
+				folderView.playSound("scroll-edge");
+			else if (flickable.atScrollStart && !wasAtStart)
+				folderView.playSound("scroll-edge");
+		}
+
+		function tickAxis(axis) {
+			const step = axis === "x" ? flickable.scrollStepX : flickable.scrollStepY;
+			if (step <= 0)
+				return;
+			const pos = axis === "x" ? flickable.contentX : flickable.contentY;
+			const last = axis === "x" ? flickable.lastScrollX : flickable.lastScrollY;
+			let remainder = (axis === "x" ? flickable.scrollRemainderX : flickable.scrollRemainderY) + (pos - last);
+			if (axis === "x") {
+				flickable.lastScrollX = pos;
+			} else {
+				flickable.lastScrollY = pos;
+			}
+			if (Math.abs(remainder) >= step) {
+				// One sound per axis, not per direction: scrolling sideways is
+				// one kind of movement (however it is oriented), and scrolling
+				// up or down is another. Two sounds total.
+				folderView.playSound(axis === "x" ? "scroll-left" : "scroll-up");
+				remainder = 0;
+			}
+			if (axis === "x")
+				flickable.scrollRemainderX = remainder;
+			else
+				flickable.scrollRemainderY = remainder;
+			flickable.updateScrollEdges();
+		}
+
+		onMovementStarted: {
+			flickable.scrollRemainderX = 0;
+			flickable.scrollRemainderY = 0;
+			flickable.lastScrollX = flickable.contentX;
+			flickable.lastScrollY = flickable.contentY;
+			flickable.updateScrollEdges();
+		}
+		onMovementEnded: flickable.updateScrollEdges()
+
+		onContentYChanged: {
+			folderView.scheduleThumbnails();
+			flickable.tickAxis("y");
+		}
+		onContentXChanged: {
+			folderView.scheduleThumbnails();
+			flickable.tickAxis("x");
+		}
 
 		ScrollBar.vertical: ScrollBar {
 			id: verticalScrollBar
@@ -1459,6 +1578,7 @@ Item {
 
 					onSelectionToggled: (p, idx) => {
 						folderView.forceActiveFocus();
+						folderView.playSound("item-selected");
 						if (selectionManager) {
 							selectionManager.toggle_selection(p, idx);
 						}
@@ -1466,6 +1586,7 @@ Item {
 
 					onShiftSelected: idx => {
 						folderView.forceActiveFocus();
+						folderView.playSound("item-selected");
 						if (selectionManager) {
 							if (!selectionManager.selection_active)
 								selectionManager.enter_selection_mode();
@@ -1476,6 +1597,7 @@ Item {
 
 					onPressHeld: (p, idx) => {
 						folderView.forceActiveFocus();
+						folderView.playSound("item-selected");
 						if (selectionManager) {
 							selectionManager.toggle_selection(p, idx);
 						}
@@ -1566,6 +1688,8 @@ Item {
 				flat: true
 				ToolTip.text: qsTr("Clear filter")
 				ToolTip.visible: hovered
+				onPressed: folderView.playSound("button-pressed")
+				onReleased: folderView.playSound("button-released")
 				onClicked: {
 					folderView.directory.clear_filter();
 					folderView.forceActiveFocus();
@@ -1672,6 +1796,8 @@ Item {
 			ToolTip.text: qsTr("Deselect")
 			ToolTip.visible: hovered
 			flat: true
+			onPressed: folderView.playSound("button-pressed")
+			onReleased: folderView.playSound("button-released")
 			onClicked: folderView.selectionManager.deselect_all()
 		}
 	}}
@@ -1680,5 +1806,6 @@ Item {
 		id: execDialog
 		directory: folderView.directory
 		fileManager: folderView.rootWindow ? folderView.rootWindow.fileManager : null
+		window: folderView.rootWindow
 	}
 }

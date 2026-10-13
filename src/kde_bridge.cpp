@@ -4,7 +4,10 @@
 #include <KIO/Job>
 #include <KService>
 #include <QCoreApplication>
+#include <QEvent>
 #include <QEventLoop>
+#include <QVariantList>
+#include <canberra.h>
 #include <QFileInfo>
 #include <QDBusConnection>
 #include <QDBusMessage>
@@ -113,6 +116,45 @@ protected:
 		}
 		return QObject::eventFilter(receiver, event);
 	}
+};
+
+// Qt Quick synthesises mouse-move (and therefore hover) events from a moving
+// touch point whenever nothing has grabbed it (see deliverTouchAsMouse in
+// qquickdeliveryagent.cpp: "no grabber, check if we care about mouse hover").
+// On a touch panel that paints hover effects — file items scaling up, tooltips,
+// menu and button highlights — as if a phantom mouse were following the finger.
+// There is no QML switch for it, so drop hover events while a touch is down; a
+// real mouse (hover with no active touch) is unaffected.
+class HishellTouchHoverFilter : public QObject
+{
+public:
+	using QObject::QObject;
+
+protected:
+	bool eventFilter(QObject *receiver, QEvent *event) override
+	{
+		switch (event->type()) {
+		case QEvent::TouchBegin:
+			m_touchActive = true;
+			break;
+		case QEvent::TouchEnd:
+		case QEvent::TouchCancel:
+			m_touchActive = false;
+			break;
+		case QEvent::HoverEnter:
+		case QEvent::HoverMove:
+		case QEvent::HoverLeave:
+			if (m_touchActive)
+				return true;
+			break;
+		default:
+			break;
+		}
+		return QObject::eventFilter(receiver, event);
+	}
+
+private:
+	bool m_touchActive = false;
 };
 
 // The application-trader lookups answer the same thing for every file sharing a
@@ -364,6 +406,96 @@ void hishell_hook_menu_key(void)
 	}
 	filter = new HishellMenuKeyFilter(application);
 	application->installEventFilter(filter);
+}
+
+// Stops Qt Quick from painting hover effects from touch movement. See the
+// HishellTouchHoverFilter comment for why.
+void hishell_suppress_touch_hover(void)
+{
+	static QObject *filter = nullptr;
+	if (filter) {
+		return;
+	}
+	QCoreApplication *application = QCoreApplication::instance();
+	if (!application) {
+		return;
+	}
+	filter = new HishellTouchHoverFilter(application);
+	application->installEventFilter(filter);
+}
+
+// --- event sounds (libcanberra) -------------------------------------------
+// ClamOS ships an XDG sound theme (the "3ds" theme in /usr/share/sounds). The
+// reference XDG client for those themes is libcanberra, so the app plays sounds
+// by event name ("dialog-error", "menu-popup", ...) rather than by file path.
+// Which file a name resolves to is entirely the theme's business.
+//
+// Three things have to be set that a plain ca_context_play() would not do:
+//   * the theme name: libcanberra defaults to the generic "freedesktop" theme
+//     and has no environment variable for it, so the client must pass it. An
+//     explicit CA_PROP_CANBERRA_XDG_THEME_NAME of "3ds" selects the set this OS
+//     ships.
+//   * the output profile: "stereo", the theme's only profile.
+//   * the language: the device locale is "C", which makes the lookup walk a
+//     pointless locale chain; forcing "C" (the spec's own fallback locale) goes
+//     straight to the unlocalised files.
+//
+// ca_context_play() is asynchronous: it hands the sample to the driver and
+// returns, so playing short events never blocks the UI thread.
+
+static ca_context *g_canberra = nullptr;
+
+// A missing sound or a missing driver is not an error the user should ever see;
+// the app must stay silent rather than crash or log on every tap.
+static bool canberra_ready(void)
+{
+	if (g_canberra) {
+		return true;
+	}
+	if (ca_context_create(&g_canberra) != CA_SUCCESS) {
+		g_canberra = nullptr;
+		return false;
+	}
+	ca_context_change_props(g_canberra,
+	                        CA_PROP_APPLICATION_NAME, "Hishell",
+	                        CA_PROP_APPLICATION_ID, "org.clamos.hishell",
+	                        CA_PROP_CANBERRA_XDG_THEME_NAME, "3ds",
+	                        CA_PROP_CANBERRA_XDG_THEME_OUTPUT_PROFILE, "stereo",
+	                        CA_PROP_MEDIA_LANGUAGE, "C",
+	                        nullptr);
+	return true;
+}
+
+// Play one event sound by its XDG name. Returns false if the context could not
+// be created or the sound could not be started; both are non-fatal.
+bool hishell_play_sound(const char *event_id)
+{
+	if (!event_id || !*event_id) {
+		return false;
+	}
+	if (!canberra_ready()) {
+		return false;
+	}
+	return ca_context_play(g_canberra, 0, CA_PROP_EVENT_ID, event_id, nullptr) == CA_SUCCESS;
+}
+
+// Set the process-wide volume for event sounds as a linear factor (1.0 = 100%).
+// This is the context's own volume, not PulseAudio's sink, so it cannot disturb
+// anything else playing on the device.
+void hishell_set_sound_volume(double factor)
+{
+	if (!canberra_ready()) {
+		return;
+	}
+	if (factor < 0.0) {
+		factor = 0.0;
+	}
+	if (factor > 1.0) {
+		factor = 1.0;
+	}
+	char buffer[32];
+	snprintf(buffer, sizeof(buffer), "%.4f", factor);
+	ca_context_change_props(g_canberra, CA_PROP_CANBERRA_VOLUME, buffer, nullptr);
 }
 
 // Force the themed icons the action menus use into QIconLoader's cache once, so

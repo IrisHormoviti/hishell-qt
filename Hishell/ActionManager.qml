@@ -15,6 +15,13 @@ Item {
 	property SelectionManager selectionManager: window ? window.selectionManager : null
 	property FileManager fileManager: window ? window.fileManager : null
 
+	// Event sounds (ClamOS XDG sound theme). Played through the window's sound
+	// object; a null window (or a missing theme) simply stays silent.
+	function playSound(name) {
+		if (actionManager.window && actionManager.window.sound)
+			actionManager.window.sound.play(name);
+	}
+
 	readonly property int selectedCount: selectionManager ? selectionManager.selected_count : 0
 	readonly property var selectedPathList: (selectedCount > 0 && selectionManager && selectionManager.selection_status) ? selectionManager.get_selected_path_list() : []
 	readonly property string firstSelectedPath: selectedPathList.length > 0 ? selectedPathList[0] : ""
@@ -145,7 +152,7 @@ Item {
 		{
 			id: "directory",
 			title: qsTr("&Folder"),
-			contexts: ["directory", "folders"],
+			contexts: ["folders"],
 			submenu: false
 		},
 		{
@@ -242,6 +249,7 @@ Item {
 				const path = paths[i];
 				if (!actionManager.targetDirectory.is_execute_target(path))
 					continue;
+				actionManager.playSound("app-launch");
 				if (sourceItem) {
 					const layout = sourceItem.contentLayout;
 					const globalPos = layout.mapToItem(actionManager, 0, 0);
@@ -279,6 +287,11 @@ Item {
 				// source item, taking any in-flight grab with it while the render
 				// thread is still using it. Only grab when the item survives the open.
 				const isDir = actionManager.fileManager && actionManager.fileManager.is_directory(p);
+				// A folder opens in place (a navigation); a file leaves the app for
+				// its handler. The 3DS makes the same distinction, and so does the
+				// theme: window-new for going into a folder, the launch sound for
+				// handing a file to another program.
+				actionManager.playSound(isDir ? "window-new" : "app-launch");
 				if (sourceItem && !(isDir && !inNewWindow)) {
 					const layout = sourceItem.contentLayout;
 					const globalPos = layout.mapToItem(actionManager, 0, 0);
@@ -469,6 +482,8 @@ Item {
 				if (actionManager.fileManager && actionManager.fileManager.trash_file(paths[i]))
 					anyOk = true;
 			}
+			if (anyOk)
+				actionManager.playSound("item-deleted");
 			if (actionManager.selectionManager)
 				actionManager.selectionManager.clear();
 			if (anyOk && actionManager.targetDirectory)
@@ -490,6 +505,9 @@ Item {
 		shortcut: "Alt+Up"
 		enabled: actionManager.directory && actionManager.directory.path !== "/"
 		onTriggered: {
+			// The back sound belongs to the back gesture, not to the action:
+			// the menu item that triggers this already plays the menu sound,
+			// and playing both made one press sound like two.
 			if (actionManager.directory)
 				actionManager.directory.go_up();
 		}
@@ -715,10 +733,12 @@ Item {
 				status = JSON.parse(actionManager.fileManager.rename_file(renameDialog.filePath, trimmed));
 			if (!status.ok) {
 				renameDialog.errorText = status.error;
+				actionManager.playSound("dialog-error");
 				renameField.forceActiveFocus();
 				return;
 			}
 			renameDialog.accept();
+			actionManager.playSound("dialog-ok");
 			if (actionManager.selectionManager)
 				actionManager.selectionManager.clear();
 			if (actionManager.targetDirectory)
@@ -729,10 +749,12 @@ Item {
 		modal: true
 		anchors.centerIn: parent
 		onOpened: {
+			actionManager.playSound("dialog-open");
 			renameDialog.errorText = "";
 			renameField.text = renameDialog.originalName;
 			renameField.forceActiveFocus();
 		}
+		onClosed: actionManager.playSound("dialog-open")
 
 		contentItem: ColumnLayout {
 			spacing: Kirigami.Units.smallSpacing
@@ -783,12 +805,19 @@ Item {
 				Button {
 					text: qsTr("OK")
 					highlighted: true
+					onPressed: actionManager.playSound("button-pressed")
+					onReleased: actionManager.playSound("button-released")
 					onClicked: renameDialog.applyRename()
 				}
 
 				Button {
 					text: qsTr("Cancel")
-					onClicked: renameDialog.reject()
+					onPressed: actionManager.playSound("button-pressed")
+					onReleased: actionManager.playSound("button-released")
+					onClicked: {
+						actionManager.playSound("dialog-cancel");
+						renameDialog.reject();
+					}
 				}
 			}
 		}
@@ -831,5 +860,6 @@ Item {
 	OpenWithDialog {
 		id: openWithDialog
 		fileManager: actionManager.fileManager
+		window: actionManager.window
 	}
 }

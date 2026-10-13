@@ -563,7 +563,7 @@ impl Config {
 		if changed!("Layout", "Header") {
 			self.header_layout = json_value(
 				get("Layout", "Header"),
-				r#"["toolkit/PathBar", "toolkit/Spacer", "toolkit/MenuBar"]"#,
+				r#"["toolkit/PathBar", "toolkit/Spacer", "toolkit/ViewButton", "toolkit/MenuBar"]"#,
 			)
 			.into();
 		}

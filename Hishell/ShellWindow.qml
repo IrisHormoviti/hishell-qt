@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 import QtQuick.Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
@@ -33,6 +34,7 @@ Kirigami.ApplicationWindow {
 	property alias fileManager: fileManager
 	property alias directory: directory
 	property alias actionManager: actionManager
+	property alias sound: sound
 
 	WindowOverlay {
 		enabled: !directory.config.native_titlebar
@@ -95,6 +97,15 @@ Kirigami.ApplicationWindow {
 	FocusManager {
 		id: focusManager
 		window: root
+	}
+
+	// Event sounds. ClamOS ships an XDG sound theme; this object is the only
+	// path the UI uses to play one, so volumes and the enabled setting live in
+	// one place. See ClamOS tools/make-sound-theme.sh for the theme.
+	Sound {
+		id: sound
+		window: root
+		enabled: true
 	}
 
 	Timer {

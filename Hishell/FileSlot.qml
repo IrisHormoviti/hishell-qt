@@ -73,6 +73,14 @@ Item {
 
 	property int currentDragCount: 1
 
+	// Event sounds (ClamOS XDG sound theme). Played through the window's sound
+	// object; a null window (or a missing theme) simply stays silent.
+	function playSound(name) {
+		const w = fileSlot.Window.window;
+		if (w && w.sound)
+			w.sound.play(name);
+	}
+
 	property bool isDraggingThisSlot: localDragTarget.Drag.active
 	onIsDraggingThisSlotChanged: {
 		if (!isDraggingThisSlot && mouseArea.dragStarted) {
@@ -523,6 +531,7 @@ Item {
 			if (uris.length > 0 && typeof fileManager !== 'undefined' && fileManager) {
 				const action = (typeof dragDropHandler !== 'undefined' && dragDropHandler.drag_action) ? dragDropHandler.drag_action : "copy";
 				if (fileManager.process_uris_action(fileSlot.path, uris, action)) {
+					fileSlot.playSound("drag-accept");
 					let p = fileSlot.parent;
 					while (p) {
 						if (p.directory) {
@@ -531,6 +540,8 @@ Item {
 						}
 						p = p.parent;
 					}
+				} else {
+					fileSlot.playSound("drag-fail");
 				}
 				drop.accept();
 			}
@@ -639,6 +650,7 @@ Item {
 			if (dragInitiated)
 				return;
 			dragInitiated = true;
+			fileSlot.playSound("drag-start");
 
 			const uris = [];
 			const rawPaths = [];
@@ -773,6 +785,12 @@ Item {
 				mouseArea.dragStarted = false;
 				return;
 			}
+
+			// Letting go of a drag that actually moved the item is the drop; a
+			// drop onto another folder reports drag-accept itself, so only the
+			// release back in place needs the sound here.
+			if (mouseArea.dragStarted)
+				fileSlot.playSound("drag-accept");
 
 			if (typeof dragDropHandler !== 'undefined' && dragDropHandler) {
 				dragDropHandler.active_dragged_paths = [];

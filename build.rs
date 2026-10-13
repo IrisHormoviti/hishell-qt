@@ -49,6 +49,12 @@ fn build_kde_bridge() {
 			build.include(module_dir);
 		}
 	}
+	// libcanberra (event sounds). The header lives in the sysroot for a cross
+	// build and under /usr/include otherwise; pkg-config reports the sysrooted
+	// include dir when PKG_CONFIG_SYSROOT_DIR is set.
+	if let Some(canberra_include) = pkg_config_include("libcanberra") {
+		build.include(canberra_include);
+	}
 	let out_dir = env::var("OUT_DIR").expect("OUT_DIR is missing");
 	build.include(&out_dir);
 
@@ -60,8 +66,11 @@ fn build_kde_bridge() {
 		let include_dir = env::var("KF6_INCLUDE_PATH")
 			.map(|base| PathBuf::from(base).join(component))
 			.or_else(|_| {
-				env::var("PKG_CONFIG_SYSROOT_DIR")
-					.map(|sysroot| PathBuf::from(sysroot).join("usr/include/KF6").join(component))
+				env::var("PKG_CONFIG_SYSROOT_DIR").map(|sysroot| {
+					PathBuf::from(sysroot)
+						.join("usr/include/KF6")
+						.join(component)
+				})
 			})
 			.unwrap_or_else(|_| PathBuf::from(format!("/usr/include/KF6/{component}")));
 		if !include_dir.is_dir() {
@@ -96,10 +105,31 @@ fn build_kde_bridge() {
 		"KF6KIOCore",
 		"KF6CoreAddons",
 		"Qt6DBus",
+		"canberra",
 	] {
 		println!("cargo:rustc-link-lib={lib}");
 	}
 	println!("cargo:rerun-if-changed=src/kde_bridge.cpp");
+}
+
+/// Ask pkg-config for a package's include directory. Returns None when
+/// pkg-config is absent or the package is not installed, so the build still
+/// falls back to the default search path.
+fn pkg_config_include(package: &str) -> Option<PathBuf> {
+	let output = Command::new("pkg-config")
+		.args(["--cflags-only-I", package])
+		.output()
+		.ok()?;
+	if !output.status.success() {
+		return None;
+	}
+	let text = String::from_utf8_lossy(&output.stdout);
+	for flag in text.split_whitespace() {
+		if let Some(dir) = flag.strip_prefix("-I") {
+			return Some(PathBuf::from(dir));
+		}
+	}
+	None
 }
 
 fn find_moc() -> PathBuf {

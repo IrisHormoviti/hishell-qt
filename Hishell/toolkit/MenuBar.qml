@@ -10,7 +10,7 @@ MenuBar {
 	id: rootMenuBar
 
 	readonly property ActionManager actionManager: window ? window.actionManager : null
-	
+
 	// Untyped to avoid the ShellWindow <-> MenuBar cyclic dependency; see
 	// ActionManager.qml for the explanation.
 	property var window
@@ -54,8 +54,21 @@ MenuBar {
 		id: viewMenu
 		directory: rootMenuBar.directory
 		isLocal: rootMenuBar.isLocal
-		onOpened: rootMenuBar.hasOpenMenu = true
-		onClosed: rootMenuBar.hasOpenMenu = rootMenuBar.isAnyMenuOpen()
+		window: rootMenuBar.window
+		onOpened: {
+			rootMenuBar.hasOpenMenu = true;
+			rootMenuBar.playSound("menu-open");
+		}
+		onClosed: {
+			rootMenuBar.hasOpenMenu = rootMenuBar.isAnyMenuOpen();
+			rootMenuBar.playSound("menu-close");
+		}
+	}
+
+	function playSound(name) {
+		const w = rootMenuBar.window;
+		if (w && w.sound)
+			w.sound.play(name);
 	}
 
 	function isAnyMenuOpen() {

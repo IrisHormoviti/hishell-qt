@@ -1040,27 +1040,18 @@ pub fn open_file(path: String) {
 }
 
 pub fn is_executable(path: &str) -> bool {
-	let path_buf = Path::new(path);
-
-	if let Ok(mut file) = std::fs::File::open(&path_buf) {
-		use std::io::Read;
-		let mut buffer = [0; 4];
-		if file.read_exact(&mut buffer).is_ok() {
-			if buffer == [0x7f, b'E', b'L', b'F'] || (buffer[0] == b'#' && buffer[1] == b'!') {
-				return true;
-			}
-		}
+	// Executability is a property of the file's content, not its mode bits.
+	// The ROM and SD cards are mounted vfat with `fmask=0000`, so every file
+	// there reports 0755 and a permission test would call a .nds ROM (or any
+	// other file) executable. A runnable program on Linux is an ELF image or a
+	// script starting with "#!"; anything else is handed to its MIME handler.
+	use std::io::Read;
+	let Ok(mut file) = std::fs::File::open(path) else {
+		return false;
+	};
+	let mut buffer = [0; 4];
+	if file.read_exact(&mut buffer).is_err() {
+		return false;
 	}
-
-	#[cfg(unix)]
-	{
-		use std::os::unix::fs::PermissionsExt;
-		if let Ok(meta) = std::fs::metadata(&path_buf) {
-			if meta.permissions().mode() & 0o111 != 0 {
-				return true;
-			}
-		}
-	}
-
-	false
+	buffer == [0x7f, b'E', b'L', b'F'] || &buffer[..2] == b"#!"
 }

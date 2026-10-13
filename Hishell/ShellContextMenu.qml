@@ -19,11 +19,25 @@ Menu {
 	// Folder the view settings apply to; defaults to the window's current folder.
 	property var directory: contextMenu.actionManager ? contextMenu.actionManager.directory : null
 
+	// Event sounds (ClamOS XDG sound theme).
+	function playSound(name) {
+		const w = contextMenu.actionManager ? contextMenu.actionManager.window : null;
+		if (w && w.sound)
+			w.sound.play(name);
+	}
+	onOpened: playSound("menu-open")
+	onClosed: playSound("menu-close")
+
 	Repeater {
 		model: contextMenu.targetIsBackground ? contextMenu.actionManager.actionsFor("directory") : []
 		delegate: MenuItem {
 			required property Action modelData
 			action: modelData
+			// Only when the menu is on screen; see ActionGroupMenu.qml.
+			onTriggered: {
+				if (contextMenu.visible)
+					contextMenu.playSound("menu-item");
+			}
 		}
 	}
 
@@ -50,6 +64,7 @@ Menu {
 		delegate: ViewMenu {
 			required property Directory modelData
 			directory: modelData
+			window: contextMenu.actionManager ? contextMenu.actionManager.window : null
 		}
 		onObjectAdded: (index, object) => contextMenu.addMenu(object)
 		onObjectRemoved: (index, object) => contextMenu.removeMenu(object)
@@ -60,6 +75,10 @@ Menu {
 		delegate: MenuItem {
 			required property Action modelData
 			action: modelData
+			onTriggered: {
+				if (contextMenu.visible)
+					contextMenu.playSound("menu-item");
+			}
 		}
 	}
 
@@ -73,6 +92,10 @@ Menu {
 		delegate: MenuItem {
 			required property Action modelData
 			action: modelData
+			onTriggered: {
+				if (contextMenu.visible)
+					contextMenu.playSound("menu-item");
+			}
 		}
 	}
 
@@ -81,6 +104,10 @@ Menu {
 		delegate: MenuItem {
 			required property Action modelData
 			action: modelData
+			onTriggered: {
+				if (contextMenu.visible)
+					contextMenu.playSound("menu-item");
+			}
 		}
 	}
 

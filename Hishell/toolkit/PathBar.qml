@@ -14,6 +14,12 @@ RowLayout {
 	// ActionManager.qml for the explanation.
 	property var window
 	property Directory directory
+
+	// Event sounds (ClamOS XDG sound theme).
+	function playSound(name) {
+		if (pathBar.window && pathBar.window.sound)
+			pathBar.window.sound.play(name);
+	}
 	property string currentPath: pathBar.directory ? pathBar.directory.path : ""
 	property string homePath: String(window.fileManager.get_home_directory());
 
@@ -496,6 +502,8 @@ RowLayout {
 		Layout.alignment: Qt.AlignVCenter
 		onPressedChanged: if (pressed)
 			pathBar.editingButtonPressed = true
+		onPressed: pathBar.playSound("button-pressed")
+		onReleased: pathBar.playSound("button-released")
 		onClicked: pathBar.navigateToText()
 	}
 
@@ -507,6 +515,8 @@ RowLayout {
 		Layout.alignment: Qt.AlignVCenter
 		onPressedChanged: if (pressed)
 			pathBar.editingButtonPressed = true
+		onPressed: pathBar.playSound("button-pressed")
+		onReleased: pathBar.playSound("button-released")
 		onClicked: pathBar.cancelEditing()
 	}
 

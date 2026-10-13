@@ -3,6 +3,7 @@
 ## Build & Run
 
 - **Build**: `cargo build` (Rust + Qt6, no separate QML compilation)
+- **QML is embedded at compile time** via `qmetaobject::qrc!` in `src/main.rs`. `build.rs` only watches `src/`, so editing a `.qml` file alone does not trigger a rebuild. After QML changes, `touch src/main.rs` (or `cargo clean -p hishell-qt`) before `cargo build`, or the running binary keeps the old QML.
 - **Run**: `cargo run` or `cargo run -- /path/to/folder`
     - Accepts `file://` URIs which are percent-decoded to absolute paths.
 - **CMake** is present in a `build/` directory but the default workflow is Cargo-only.

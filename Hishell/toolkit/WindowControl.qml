@@ -17,6 +17,13 @@ Button {
 
 	visible: !directory.config.native_titlebar
 
+	// Event sounds (ClamOS XDG sound theme).
+	function playSound(name) {
+		const w = control.Window.window;
+		if (w && w.sound)
+			w.sound.play(name);
+	}
+
 	background: Rectangle {
 		color: control.hovered ? Kirigami.Theme.highlightColor : Kirigami.Theme.textColor
 		radius: width / 2
@@ -28,5 +35,10 @@ Button {
 		}
 	}
 
-	onClicked: Qt.quit()
+	onPressed: control.playSound("button-pressed")
+	onReleased: control.playSound("button-released")
+	onClicked: {
+		control.playSound("window-close");
+		Qt.quit();
+	}
 }

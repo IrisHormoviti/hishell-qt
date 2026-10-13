@@ -7,62 +7,84 @@ import QtQuick.Dialogs
 Menu {
 	id: viewMenu
 	required property var directory
-	property var config: directory ? directory.config : null
-	property bool isLocal: directory ? directory.has_meta : false
-	readonly property string viewConfigGroupName: "Folder View"
+	// The owning window, for event sounds. A menu is not a visual child of the
+	// window, so `Window.window` is not reliable here; the owner passes it in.
+	property var window
+
+	// The menu and the ViewButton dialog act on the same shared settings
+	// object, so the two surfaces cannot drift apart. See ViewActions.qml.
+	ViewActions {
+		id: viewActions
+		directory: viewMenu.directory
+		window: viewMenu.window ? viewMenu.window : viewMenu.Window.window
+	}
+
+	readonly property var config: viewActions.config
+	// The General/Here tab switches the shared write scope.
+	property alias isLocal: viewActions.isLocal
+	readonly property bool hasFreePlacementPositions: viewActions.hasFreePlacementPositions
 	// Native platform menus are separate windows the compositor places on its
 	// own; on multi-output targets they can land on the wrong output and crash
 	// when reopened, so in-window popups are the default.
 	readonly property int menuPopupType: (viewMenu.config && viewMenu.config.native_menus) ? Popup.Native : Popup.Item
-	readonly property bool hasFreePlacementPositions: {
-		if (!viewMenu.config)
-			return false;
-		try {
-			const positions = JSON.parse(viewMenu.config.free_placement_positions);
-			return !!positions && Object.keys(positions).length > 0;
-		} catch (e) {
-			return false;
-		}
-	}
 	visible: false
 	height: contentHeight
 
 	title: qsTr("&View")
 	popupType: viewMenu.menuPopupType
 
-	// Write a setting to a config section. The scope follows the General/Here tab:
-	// the global config, or this folder's own .directory.
+	// All writes are delegated to the shared object; the scope follows the
+	// General/Here tab. Kept as methods so the menu body reads unchanged.
+	//
+	// Picking a menu item is a "decide" in the 3DS vocabulary, so every one of
+	// these setters plays it — except the ones the sliders and switches call,
+	// which have their own feedback and use the *Silent variants.
+	//
+	// The sound is gated on the menu being on screen: the same Action objects
+	// are triggered programmatically (a shortcut, the gamepad), and those must
+	// not sound like a menu choice.
+	function decideSound() {
+		if (viewMenu.visible)
+			viewActions.playSound("menu-item");
+	}
+
 	function setSectionConfig(section, key, value) {
-		if (viewMenu.directory)
-			viewMenu.directory.set_config(section, key, value, viewMenu.isLocal);
+		viewActions.setSectionConfig(section, key, value);
+		viewMenu.decideSound();
 	}
 
 	function setConfig(key, value) {
-		viewMenu.setSectionConfig(viewConfigGroupName, key, value);
+		viewActions.setConfig(key, value);
+		viewMenu.decideSound();
 	}
 
 	function setNavigationConfig(key, value) {
-		viewMenu.setSectionConfig("Folder Navigation", key, value);
+		viewActions.setNavigationConfig(key, value);
+		viewMenu.decideSound();
 	}
 
-	function setSort(value) {
-		viewMenu.setConfig("Sort", value);
+	// Set a value without the menu-decide sound, for controls that give their
+	// own feedback (sliders, switches).
+	function setConfigSilent(key, value) {
+		viewActions.setConfig(key, value);
 	}
 
 	function setViewMode(value) {
-		viewMenu.setConfig("ViewMode", value);
+		viewActions.setViewModeSilent(value);
+		viewMenu.decideSound();
+	}
+
+	function setSort(value) {
+		viewActions.setSortSilent(value);
+		viewMenu.decideSound();
 	}
 
 	function resetFreePlacement() {
-		if (viewMenu.directory)
-			viewMenu.directory.reset_free_positions();
+		viewActions.resetFreePlacement();
 	}
 
 	function pathFromUrl(url) {
-		let path = String(url);
-		if (path.startsWith("file://"))
-			path = path.substring(7);
-		return decodeURIComponent(path);
+		return viewActions.pathFromUrl(url);
 	}
 
 	ButtonGroup {
@@ -102,11 +124,17 @@ Menu {
 		currentIndex: viewMenu.isLocal ? 1 : 0
 		TabButton {
 			text: qsTr("General")
-			onClicked: viewMenu.isLocal = false
+			onClicked: {
+				viewMenu.isLocal = false;
+				viewActions.playSound("button-pressed");
+			}
 		}
 		TabButton {
 			text: qsTr("Here")
-			onClicked: viewMenu.isLocal = true
+			onClicked: {
+				viewMenu.isLocal = true;
+				viewActions.playSound("button-pressed");
+			}
 		}
 	}
 
@@ -117,13 +145,16 @@ Menu {
 			Label {
 				text: qsTr("Icon Size")
 			}
-			Slider {
+			ViewSlider {
 				id: gridSizeSlider
-				value: viewMenu.config ? viewMenu.config.grid_size : 64
+				boundValue: viewMenu.config ? viewMenu.config.grid_size : 64
 				from: 16
 				to: 256
 				stepSize: 12
-				onMoved: viewMenu.setConfig("GridSize", value.toString())
+				onMovedTo: value => viewMenu.setConfigSilent("GridSize", value.toString())
+				onDragStarted: viewActions.playSound("button-pressed")
+				onStepped: viewActions.playSound("slider-tick")
+				onReachedEdge: viewActions.playSound("scroll-edge")
 			}
 		}
 	}
@@ -158,6 +189,8 @@ Menu {
 				ToolTip.visible: hovered
 				ButtonGroup.group: viewModeGroup
 				objectName: "GRID"
+				onPressed: viewActions.playSound("button-pressed")
+				onReleased: viewActions.playSound("button-released")
 				onClicked: viewMenu.setViewMode("GRID")
 			}
 			ToolButton {
@@ -169,6 +202,8 @@ Menu {
 				ToolTip.visible: hovered
 				ButtonGroup.group: viewModeGroup
 				objectName: "LIST"
+				onPressed: viewActions.playSound("button-pressed")
+				onReleased: viewActions.playSound("button-released")
 				onClicked: viewMenu.setViewMode("LIST")
 			}
 		}
@@ -180,6 +215,8 @@ Menu {
 		title: qsTr("Sort By...")
 		icon.name: "view-sort"
 		popupType: viewMenu.menuPopupType
+		onOpened: viewActions.playSound("menu-open")
+		onClosed: viewActions.playSound("menu-close")
 		MenuItem {
 			text: qsTr("Newest")
 			checkable: true
@@ -199,6 +236,8 @@ Menu {
 		Menu {
 			title: qsTr("Which date...")
 			popupType: viewMenu.menuPopupType
+			onOpened: viewActions.playSound("menu-open")
+			onClosed: viewActions.playSound("menu-close")
 			MenuItem {
 				text: qsTr("Modified")
 				checkable: true
@@ -236,6 +275,8 @@ Menu {
 		Menu {
 			title: qsTr("Which name...")
 			popupType: viewMenu.menuPopupType
+			onOpened: viewActions.playSound("menu-open")
+			onClosed: viewActions.playSound("menu-close")
 			MenuItem {
 				text: qsTr("Title")
 				checkable: true
@@ -275,6 +316,8 @@ Menu {
 		title: qsTr("Labels")
 		icon.name: "label"
 		popupType: viewMenu.menuPopupType
+		onOpened: viewActions.playSound("menu-open")
+		onClosed: viewActions.playSound("menu-close")
 		MenuItem {
 			text: qsTr("Show Labels")
 			checkable: true
@@ -313,19 +356,21 @@ Menu {
 		title: qsTr("Arrange")
 		icon.name: "format-justify-fill"
 		popupType: viewMenu.menuPopupType
+		onOpened: viewActions.playSound("menu-open")
+		onClosed: viewActions.playSound("menu-close")
 
 		MenuItem {
 			contentItem: RowLayout {
 				Label {
 					text: qsTr("Lines")
 				}
-				Slider {
+				ViewSlider {
 					id: linesSlider
-					value: viewMenu.config ? viewMenu.config.grid_lines : 0
+					boundValue: viewMenu.config ? viewMenu.config.grid_lines : 0
 					from: 0
 					to: 10
 					stepSize: 1
-					onMoved: viewMenu.setConfig("Lines", value.toString())
+					onMovedTo: value => viewMenu.setConfig("Lines", value.toString())
 				}
 				TextMetrics {
 					id: autoMetrics
@@ -342,6 +387,8 @@ Menu {
 		Menu {
 			title: qsTr("Scroll Direction")
 			popupType: viewMenu.menuPopupType
+			onOpened: viewActions.playSound("menu-open")
+			onClosed: viewActions.playSound("menu-close")
 			MenuItem {
 				text: qsTr("Vertical")
 				checkable: true
@@ -362,6 +409,8 @@ Menu {
 		Menu {
 			title: qsTr("Horizontal Align")
 			popupType: viewMenu.menuPopupType
+			onOpened: viewActions.playSound("menu-open")
+			onClosed: viewActions.playSound("menu-close")
 			MenuItem {
 				text: qsTr("Fill")
 				checkable: true
@@ -398,6 +447,8 @@ Menu {
 		Menu {
 			title: qsTr("Vertical Align")
 			popupType: viewMenu.menuPopupType
+			onOpened: viewActions.playSound("menu-open")
+			onClosed: viewActions.playSound("menu-close")
 			MenuItem {
 				text: qsTr("Fill")
 				checkable: true
@@ -437,6 +488,8 @@ Menu {
 		title: qsTr("Navigation")
 		icon.name: "transform-move"
 		popupType: viewMenu.menuPopupType
+		onOpened: viewActions.playSound("menu-open")
+		onClosed: viewActions.playSound("menu-close")
 		MenuItem {
 			text: qsTr("Center Focus")
 			checkable: true
@@ -455,6 +508,8 @@ Menu {
 		title: qsTr("Wallpaper")
 		icon.name: "games-config-background-symbolic"
 		popupType: viewMenu.menuPopupType
+		onOpened: viewActions.playSound("menu-open")
+		onClosed: viewActions.playSound("menu-close")
 		MenuItem {
 			text: qsTr("Set Wallpaper...")
 			icon.name: "document-open"

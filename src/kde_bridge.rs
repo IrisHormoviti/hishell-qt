@@ -14,6 +14,9 @@ unsafe extern "C" {
 	fn hishell_portal_poll() -> i32;
 	fn hishell_send_key(key: i32) -> bool;
 	fn hishell_hook_menu_key();
+	fn hishell_suppress_touch_hover();
+	fn hishell_play_sound(event_id: *const c_char) -> bool;
+	fn hishell_set_sound_volume(factor: f64);
 	fn hishell_set_window_icon(source: *const c_char) -> bool;
 	fn hishell_file_uri(path: *const c_char) -> *const c_char;
 	fn hishell_mime_type(path: *const c_char) -> *const c_char;
@@ -40,6 +43,28 @@ pub fn send_key(key: i32) -> bool {
 /// routed like the gamepad's menu button.
 pub fn hook_menu_key() {
 	unsafe { hishell_hook_menu_key() }
+}
+
+/// Stops Qt Quick from painting hover effects when a finger moves over the
+/// touch panel. See the C++ side for why.
+pub fn suppress_touch_hover() {
+	unsafe { hishell_suppress_touch_hover() }
+}
+
+/// Play an XDG event sound by name through libcanberra (e.g. "dialog-error").
+/// Returns whether the sound was started; a missing sound or driver is not an
+/// error, so callers can ignore the result.
+pub fn play_sound(event_id: &str) -> bool {
+	let Ok(id) = CString::new(event_id) else {
+		return false;
+	};
+	println!("SOUNDDIAG {event_id}");
+	unsafe { hishell_play_sound(id.as_ptr()) }
+}
+
+/// Set the output volume for event sounds, 0.0..=1.0.
+pub fn set_sound_volume(factor: f64) {
+	unsafe { hishell_set_sound_volume(factor) }
 }
 
 /// Pre-resolves the action-menu icons once, so focusing an item does not pay for

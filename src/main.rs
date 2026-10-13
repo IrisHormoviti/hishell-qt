@@ -12,6 +12,7 @@ mod image_utils;
 mod kde_bridge;
 mod path_utils;
 mod selection_manager;
+mod sound;
 mod squashfs;
 mod thumbnailer;
 
@@ -43,6 +44,7 @@ fn main() {
 		unsafe { CStr::from_bytes_with_nul_unchecked(b"SelectionManager\0") };
 	static FOCUSMANAGER_STR: &CStr =
 		unsafe { CStr::from_bytes_with_nul_unchecked(b"FocusManager\0") };
+	static SOUND_STR: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Sound\0") };
 
 	let args: Vec<String> = std::env::args().collect();
 	fn percent_decode(input: &str) -> String {
@@ -111,6 +113,7 @@ fn main() {
 	qmetaobject::qml_register_type::<PathUtils>(IMPORT_NAME, 1, 0, PATHUTILS_STR);
 	qmetaobject::qml_register_type::<SelectionManager>(IMPORT_NAME, 1, 0, SELECTIONMANAGER_STR);
 	qmetaobject::qml_register_type::<FocusManager>(IMPORT_NAME, 1, 0, FOCUSMANAGER_STR);
+	qmetaobject::qml_register_type::<sound::Sound>(IMPORT_NAME, 1, 0, SOUND_STR);
 
 	qmetaobject::qrc!(load_qml_resources,
 		"Hishell" as "Hishell" {
@@ -132,7 +135,11 @@ fn main() {
 			"toolkit/MenuBar.qml" as "toolkit/MenuBar.qml",
 			"toolkit/PathBar.qml" as "toolkit/PathBar.qml",
 			"toolkit/Spacer.qml" as "toolkit/Spacer.qml",
+			"toolkit/ViewActions.qml" as "toolkit/ViewActions.qml",
+			"toolkit/ViewButton.qml" as "toolkit/ViewButton.qml",
+			"toolkit/ViewDialog.qml" as "toolkit/ViewDialog.qml",
 			"toolkit/ViewMenu.qml" as "toolkit/ViewMenu.qml",
+			"toolkit/ViewSlider.qml" as "toolkit/ViewSlider.qml",
 			"toolkit/WindowControl.qml" as "toolkit/WindowControl.qml",
 		}
 	);
@@ -148,6 +155,7 @@ fn main() {
 	engine.load_file("qrc:///Hishell/ShellWindow.qml".into());
 
 	kde_bridge::hook_menu_key();
+	kde_bridge::suppress_touch_hover();
 	kde_bridge::warm_icons();
 
 	gamepad::init();

@@ -13,8 +13,18 @@ Dialog {
 	property string mimeDescription: ""
 	property var apps: []
 	required property FileManager fileManager
+	property var window
 
-	popupType: Popup.Window
+	// Event sounds (ClamOS XDG sound theme).
+	function playSound(name) {
+		if (openWithDialog.window && openWithDialog.window.sound)
+			openWithDialog.window.sound.play(name);
+	}
+
+	// In-window popup: native (separate compositor) popups land on the wrong
+	// output on this two-panel device and have been seen to close the wrong
+	// window. See NativeMenus in the config for the same reasoning.
+	popupType: Popup.Item
 	title: qsTr("Open With")
 	modal: true
 	anchors.centerIn: parent
@@ -40,10 +50,12 @@ Dialog {
 	}
 
 	onOpened: {
+		openWithDialog.playSound("dialog-open");
 		rememberCheck.checked = false;
 		refresh();
 		appList.forceActiveFocus();
 	}
+	onClosed: openWithDialog.playSound("dialog-open")
 	onAccepted: openSelected()
 
 	ColumnLayout {
@@ -174,10 +186,14 @@ Dialog {
 			text: qsTr("Open")
 			enabled: appList.currentIndex >= 0
 			DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+			onPressed: openWithDialog.playSound("button-pressed")
+			onReleased: openWithDialog.playSound("button-released")
 		}
 		Button {
 			text: qsTr("Cancel")
 			DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
+			onPressed: openWithDialog.playSound("button-pressed")
+			onReleased: openWithDialog.playSound("button-released")
 		}
 	}
 }

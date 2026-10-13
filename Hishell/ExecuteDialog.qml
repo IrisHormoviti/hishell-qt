@@ -9,8 +9,18 @@ Dialog {
 	property string filePath: ""
 	required property Directory directory
 	required property FileManager fileManager
+	property var window
 
-	popupType: Popup.Window
+	// Event sounds (ClamOS XDG sound theme).
+	function playSound(name) {
+		if (execDialog.window && execDialog.window.sound)
+			execDialog.window.sound.play(name);
+	}
+
+	// In-window popup: native (separate compositor) popups land on the wrong
+	// output on this two-panel device and have been seen to close the wrong
+	// window. See NativeMenus in the config for the same reasoning.
+	popupType: Popup.Item
 
 	title: qsTr("Run Executable?")
 	modal: true
@@ -22,6 +32,7 @@ Dialog {
 		target: execDialog.directory
 		function onRequestExecutePrompt(path: string) {
 			execDialog.filePath = path;
+			execDialog.playSound("dialog-information");
 			execDialog.open();
 		}
 	}
@@ -45,10 +56,14 @@ Dialog {
 		Button {
 			text: qsTr("Run")
 			DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+			onPressed: execDialog.playSound("button-pressed")
+			onReleased: execDialog.playSound("button-released")
 		}
 		Button {
 			text: qsTr("Cancel")
 			DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
+			onPressed: execDialog.playSound("button-pressed")
+			onReleased: execDialog.playSound("button-released")
 		}
 	}
 
