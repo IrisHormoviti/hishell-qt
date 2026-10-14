@@ -62,6 +62,23 @@ pub fn push(input: Input) {
 	}
 }
 
+/// Drops every queued and in-flight input, and forgets the held-button and
+/// repeat state. Called when the shell takes the panels back from a guest: the
+/// presses that piled up while the shell was paused belong to the app, and a
+/// button still held at that moment must not fire the moment the shell resumes
+/// (which would relaunch the app that was just closed).
+pub fn discard() {
+	if let Ok(mut queue) = QUEUE.lock() {
+		queue.clear();
+	}
+	if let Ok(mut state) = STATE.lock() {
+		*state = State::default();
+	}
+	if let Ok(mut repeat) = REPEAT_STATE.lock() {
+		repeat.0 = None;
+	}
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn hishell_menu_key_pressed() {
 	push(Input::Menu);

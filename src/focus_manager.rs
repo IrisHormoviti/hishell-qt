@@ -496,12 +496,24 @@ pub struct FocusManager {
 				|| hidden != self.hidden
 				|| return_frame != self.return_frame_url
 			{
+				let was_paused = self.suspended || self.hidden;
 				self.suspended = suspended;
 				self.hidden = hidden;
 				self.return_frame_url = return_frame;
 				self.suspended_changed();
+
+				// Coming back from a guest: everything pressed while it owned
+				// the panels is stale, and a button still held at the moment of
+				// the hand-back must not be treated as a fresh press. Drop it
+				// all, or the app that was just closed launches again.
+				if was_paused && !(suspended || hidden) {
+					crate::gamepad::discard();
+				}
 			}
 			if suspended || hidden {
+				// The app owns the buttons; do not let presses pile up for the
+				// shell to replay when it returns.
+				crate::gamepad::discard();
 				return;
 			}
 
