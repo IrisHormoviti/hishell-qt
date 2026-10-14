@@ -12,4 +12,5 @@ WindowOverlay WindowOverlay.qml
 DragTooltip DragTooltip.qml
 DragPreview DragPreview.qml
 ExecuteDialog ExecuteDialog.qml
+LaunchConfirmDialog LaunchConfirmDialog.qml
 OpenWithDialog OpenWithDialog.qml

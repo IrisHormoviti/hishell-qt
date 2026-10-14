@@ -14,18 +14,31 @@ use std::time::Duration;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
-/// Set by `hishell-launch-guest` while a guest app owns the panels. The shell
-/// and clam-topscreen wash themselves to white while it exists, so the launch
-/// looks like a deliberate transition instead of a crash.
-const SUSPEND_FILE: &str = "/tmp/clam-shell.suspend";
+/// Environment variables naming the host's session handover files, so the
+/// shell does not have to know the host's own paths. Unset means the host has
+/// no session handover and the whole feature stays inert.
+///
+/// * `SUSPEND` — set while a launched app owns the panels: the shell washes
+///   itself out for the transition and holds it while the app starts.
+/// * `REVEAL` — set at the reveal moment, a beat before `HIDE`: the shell fades
+///   its wash out to black, so the panel is black before it is handed over.
+/// * `HIDE` — set once the app is on screen: the shell unmaps so the app's
+///   window (which sits below it) is revealed.
+/// * `RETURN_FRAME` — image the shell shows for a moment on the way back.
+/// * `FOCUS` — file the shell publishes the focused item to.
+const ENV_SUSPEND: &str = "HISHELL_SESSION_SUSPEND";
+const ENV_REVEAL: &str = "HISHELL_SESSION_REVEAL";
+const ENV_HIDE: &str = "HISHELL_SESSION_HIDE";
+const ENV_RETURN_FRAME: &str = "HISHELL_SESSION_RETURN_FRAME";
+const ENV_FOCUS: &str = "HISHELL_SESSION_FOCUS";
 
-/// Set by the wrapper once the guest is on screen: the shell apps unmap so
-/// the guest's window (which sits below them) is revealed.
-const HIDE_FILE: &str = "/tmp/clam-shell.hide";
-
-/// Ignore window for a stale marker: if the wrapper died before it could
-/// remove its files, the shell must not stay hidden forever.
+/// Ignore window for a stale marker: if the host died before it could remove
+/// its files, the shell must not stay hidden forever.
 const MARKER_MAX_AGE: Duration = Duration::from_secs(3600);
+
+fn env_path(name: &str) -> String {
+	std::env::var(name).unwrap_or_default()
+}
 
 #[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -106,17 +119,34 @@ fn update(mutate: impl FnOnce(&mut Session)) {
 	}
 }
 
-/// Whether a guest currently owns the panels. Callers poll this; it is one
-/// stat on tmpfs and self-expires, so a dead wrapper cannot keep the markers
-/// up forever.
+/// Whether an app currently owns the panels (the host's suspend marker).
+/// Callers poll this; it is one stat on tmpfs, and the marker self-expires, so
+/// a host that died cannot keep it up forever.
 pub fn suspended() -> bool {
-	marker_fresh(SUSPEND_FILE)
+	marker_fresh(&env_path(ENV_SUSPEND))
 }
 
-/// Whether the wrapper has revealed the guest and the shell apps should unmap
-/// until the guest exits.
+/// Whether the host has revealed the app on screen and the shell should unmap
+/// until it exits.
 pub fn hidden() -> bool {
-	marker_fresh(HIDE_FILE)
+	marker_fresh(&env_path(ENV_HIDE))
+}
+
+/// Whether the app has appeared: the shell fades its launch wash out to black
+/// before the unmap, so the panel is black when the app takes over.
+pub fn revealed() -> bool {
+	marker_fresh(&env_path(ENV_REVEAL))
+}
+
+/// Image the shell shows for a moment on the way back from an app, or empty.
+pub fn return_frame_path() -> String {
+	env_path(ENV_RETURN_FRAME)
+}
+
+/// File the shell publishes the focused item to, or empty when the host has
+/// not asked for one.
+pub fn focus_file() -> String {
+	env_path(ENV_FOCUS)
 }
 
 fn marker_fresh(path: &str) -> bool {

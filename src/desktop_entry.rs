@@ -82,36 +82,85 @@ fn from_values(values: &HashMap<String, ConfigValue>) -> DesktopEntry {
 	}
 }
 
-pub fn launch(path: &Path) -> Option<Result<(), String>> {
+/// Launch the entry. Returns a message when the host's execution wrapper wants
+/// the user to confirm first (empty otherwise).
+pub fn launch(path: &Path) -> String {
 	let entry = read(path);
 	match entry.entry_type.as_deref() {
 		Some("Application") => launch_application(path, &entry),
-		Some("Link") => launch_link(path, &entry),
-		_ => None,
+		Some("Link") => {
+			launch_link(path, &entry);
+			String::new()
+		}
+		_ => String::new(),
 	}
 }
 
-fn launch_application(path: &Path, entry: &DesktopEntry) -> Option<Result<(), String>> {
+/// Launch an application from a raw Exec line and its desktop-entry path, used
+/// when the entry was resolved outside the filesystem (e.g. by KService for
+/// "open with"). `file` is the file the entry is launched for, if any; it fills
+/// the `%f`/`%u` field codes and is the item the wrapper receives. Returns a
+/// confirmation message when the wrapper asks for one.
+pub fn launch_command(exec: &str, entry_path: &str, file: Option<&str>) -> String {
+	let path = Path::new(entry_path);
+	let entry = if entry_path.is_empty() {
+		DesktopEntry::default()
+	} else {
+		read(path)
+	};
+	let args = match parse_exec(exec, &entry, path, file) {
+		Ok(args) if !args.is_empty() => args,
+		Ok(_) => {
+			eprintln!("empty Exec command for {entry_path}");
+			return String::new();
+		}
+		Err(error) => {
+			eprintln!("{entry_path}: {error}");
+			return String::new();
+		}
+	};
+	let item = file.unwrap_or(entry_path);
+	let name = entry.name.clone().unwrap_or_default();
+	let current_dir = (!entry_path.is_empty()).then(|| crate::config::base_dir(path));
+	crate::launch::result(crate::launch::request(
+		&args[0],
+		&args[1..],
+		item,
+		&name,
+		current_dir,
+	))
+}
+
+fn launch_application(path: &Path, entry: &DesktopEntry) -> String {
 	let exec = match entry.exec.as_deref() {
 		Some(exec) if !exec.trim().is_empty() => exec,
-		_ => return Some(Err(format!("{} has no Exec value", path.display()))),
+		_ => {
+			eprintln!("{} has no Exec value", path.display());
+			return String::new();
+		}
 	};
-	let args = match parse_exec(exec, entry, path) {
+	let args = match parse_exec(exec, entry, path, None) {
 		Ok(args) if !args.is_empty() => args,
-		Ok(_) => return Some(Err(format!("{} has an empty Exec command", path.display()))),
-		Err(error) => return Some(Err(format!("{}: {error}", path.display()))),
+		Ok(_) => {
+			eprintln!("{} has an empty Exec command", path.display());
+			return String::new();
+		}
+		Err(error) => {
+			eprintln!("{}: {error}", path.display());
+			return String::new();
+		}
 	};
 
-	let mut command = Command::new(&args[0]);
-	command.args(&args[1..]);
-	command.current_dir(crate::config::base_dir(path));
-
-	Some(
-		command
-			.spawn()
-			.map(|_| ())
-			.map_err(|error| format!("could not launch {}: {error}", path.display())),
-	)
+	let entry_path = path.to_string_lossy();
+	let name = entry.name.clone().unwrap_or_default();
+	let current_dir = crate::config::base_dir(path);
+	crate::launch::result(crate::launch::request(
+		&args[0],
+		&args[1..],
+		&entry_path,
+		&name,
+		Some(current_dir),
+	))
 }
 
 fn launch_link(path: &Path, entry: &DesktopEntry) -> Option<Result<(), String>> {
@@ -216,7 +265,12 @@ fn unescape_value(value: &str) -> String {
 	result
 }
 
-fn parse_exec(exec: &str, entry: &DesktopEntry, path: &Path) -> Result<Vec<String>, String> {
+fn parse_exec(
+	exec: &str,
+	entry: &DesktopEntry,
+	path: &Path,
+	file: Option<&str>,
+) -> Result<Vec<String>, String> {
 	let tokens = tokenize_exec(exec)?;
 	let mut args = Vec::new();
 
@@ -245,7 +299,13 @@ fn parse_exec(exec: &str, entry: &DesktopEntry, path: &Path) -> Result<Vec<Strin
 					}
 				}
 				Some('k') => expanded.push_str(&path.to_string_lossy()),
-				Some('f' | 'F' | 'u' | 'U' | 'd' | 'D' | 'n' | 'N' | 'v' | 'm' | 'i') => {}
+				// A file argument: the file the entry was launched for.
+				Some('f' | 'F' | 'u' | 'U') => {
+					if let Some(file) = file {
+						expanded.push_str(file);
+					}
+				}
+				Some('d' | 'D' | 'n' | 'N' | 'v' | 'm' | 'i') => {}
 				Some(other) => {
 					return Err(format!("unsupported field code %{other} in Exec"));
 				}
@@ -332,7 +392,8 @@ mod tests {
 			parse_exec(
 				entry.exec.as_deref().unwrap(),
 				&entry,
-				Path::new("/apps/example.desktop")
+				Path::new("/apps/example.desktop"),
+				None
 			)
 			.unwrap(),
 			["example --open"]
@@ -376,7 +437,8 @@ mod tests {
 			parse_exec(
 				r#"app "%c" %% %i %f %k"#,
 				&entry,
-				Path::new("/apps/example.desktop")
+				Path::new("/apps/example.desktop"),
+				None
 			)
 			.unwrap(),
 			[
@@ -387,6 +449,17 @@ mod tests {
 				"example-icon",
 				"/apps/example.desktop"
 			]
+		);
+		// With a file, %f fills in the launched item.
+		assert_eq!(
+			parse_exec(
+				r#"emu %f %k"#,
+				&entry,
+				Path::new("/apps/emu.desktop"),
+				Some("/roms/game.nds")
+			)
+			.unwrap(),
+			["emu", "/roms/game.nds", "/apps/emu.desktop"]
 		);
 	}
 

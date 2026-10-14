@@ -69,7 +69,12 @@ Dialog {
 
 	onAccepted: {
 		if (execDialog.directory && execDialog.filePath !== "") {
-			execDialog.directory.execute_file(execDialog.filePath);
+			if (execDialog.window && typeof execDialog.window.clearReturnFrame === 'function')
+				execDialog.window.clearReturnFrame();
+			const warning = String(execDialog.directory.execute_file(execDialog.filePath));
+			if (warning !== "" && execDialog.window
+				&& typeof execDialog.window.requestLaunchConfirm === 'function')
+				execDialog.window.requestLaunchConfirm(warning, execDialog.filePath);
 		}
 	}
 }

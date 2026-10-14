@@ -159,17 +159,19 @@ Menu {
 		}
 	}
 
+	readonly property bool showShortcuts: (viewMenu.config) ? viewMenu.config.show_shortcuts : false
+
 	Action {
 		id: increaseSizeAction
 		text: qsTr("Zoom In")
-		shortcut: "Ctrl+="
+		shortcut: viewMenu.showShortcuts ? "Ctrl+=" : ""
 		onTriggered: viewMenu.setConfig("GridSize", String(Math.min(gridSizeSlider.value + 12, gridSizeSlider.to)))
 	}
 
 	Action {
 		id: decreaseSizeAction
 		text: qsTr("Zoom Out")
-		shortcut: "Ctrl+-"
+		shortcut: viewMenu.showShortcuts ? "Ctrl+-" : ""
 		onTriggered: viewMenu.setConfig("GridSize", String(Math.max(gridSizeSlider.value - 12, gridSizeSlider.from)))
 	}
 
@@ -501,6 +503,20 @@ Menu {
 			checkable: true
 			checked: viewMenu.config ? viewMenu.config.smooth_scrolling : true
 			onToggled: viewMenu.setNavigationConfig("SmoothScrolling", String(checked))
+		}
+		MenuItem {
+			text: qsTr("Open on Click")
+			checkable: true
+			checked: viewMenu.config ? viewMenu.config.open_on_click : true
+			onToggled: viewMenu.setNavigationConfig("OpenOnClick", String(checked))
+		}
+		MenuItem {
+			text: qsTr("Focus Empty Slots")
+			checkable: true
+			// Empty cells only exist in free placement.
+			enabled: viewActions.freePlacement
+			checked: viewMenu.config ? viewMenu.config.focus_empty_slots : false
+			onToggled: viewMenu.setNavigationConfig("FocusEmptySlots", String(checked))
 		}
 	}
 

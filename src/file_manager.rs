@@ -414,6 +414,42 @@ pub struct FileManager {
 		}
 	),
 
+	/// The item's display title: the `Name` from its `.directory` (or desktop
+	/// entry / AppImage) when it has one, otherwise its file name.
+	get_item_title: qt_method!(
+		pub fn get_item_title(&self, path: String) -> String {
+			crate::directory::get_item_title(std::path::Path::new(&path))
+		}
+	),
+
+	/// Build the confirmation a launch dialog shows when the execution wrapper
+	/// reports that starting `launch_item` would close a suspended app for
+	/// `blocked_item`. JSON: {title, message, blockedTitle, blockedIcon,
+	/// blockedLaunchIcon, launchTitle, launchIcon}; empty string when there is
+	/// nothing to confirm.
+	launch_warning: qt_method!(
+		fn launch_warning(&self, blocked_item: String, launch_item: String) -> String {
+			let blocked_item = clean_path(&blocked_item.to_string());
+			let launch_item = clean_path(&launch_item.to_string());
+			if blocked_item.is_empty() {
+				return String::new();
+			}
+			let blocked_title = crate::launch::item_title(&blocked_item);
+			let launch_title = crate::launch::item_title(&launch_item);
+			let message = format!(
+				"Close \"{blocked_title}\" and launch \"{launch_title}\"?\nAny unsaved data will be lost."
+			);
+			serde_json::json!({
+				"message": message,
+				"blockedTitle": blocked_title,
+				"blockedIcon": crate::launch::item_art(&blocked_item),
+				"launchTitle": launch_title,
+				"launchIcon": crate::launch::item_art(&launch_item),
+			})
+			.to_string()
+		}
+	),
+
 	/// Ask the XDG desktop portal to let the user pick an application and launch it.
 	/// Returns false when the portal is unavailable (the built-in dialog should be used).
 	start_portal_open_with: qt_method!(
@@ -447,10 +483,32 @@ pub struct FileManager {
 	),
 
 	/// Open the file with a specific application (desktop entry storage id).
+	/// Returns a confirmation message when the execution wrapper asks for one.
 	open_with_app: qt_method!(
-		fn open_with_app(&self, path: String, app_id: String) -> bool {
+		fn open_with_app(&self, path: String, app_id: String) -> String {
 			let p = clean_path(&path.to_string());
-			crate::kde_bridge::launch(&app_id, &p)
+			// Resolve the entry and spawn it here, so the launch goes through the
+			// configured execution wrapper. Fall back to the portal launch when
+			// the entry has no plain command (e.g. a D-Bus-activated app).
+			if let Some((exec, entry)) = crate::kde_bridge::app_command(&app_id) {
+				return crate::desktop_entry::launch_command(&exec, &entry, Some(&p));
+			}
+			crate::kde_bridge::launch(&app_id, &p);
+			String::new()
+		}
+	),
+
+	/// Finish a launch the execution wrapper held back for confirmation.
+	confirm_launch: qt_method!(
+		fn confirm_launch(&self) -> bool {
+			crate::launch::confirm()
+		}
+	),
+
+	/// Drop a launch the execution wrapper held back for confirmation.
+	cancel_launch: qt_method!(
+		fn cancel_launch(&self) {
+			crate::launch::cancel();
 		}
 	),
 

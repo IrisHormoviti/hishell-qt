@@ -143,8 +143,12 @@ Kirigami.OverlaySheet {
 		id: toggleRow
 		property alias text: toggleLabel.text
 		property bool checked: false
+		// Rows for settings that have no effect right now are shown greyed out
+		// rather than hidden, so the option stays discoverable.
+		property bool rowEnabled: true
 		signal toggled(bool checked)
 		Layout.fillWidth: true
+		enabled: toggleRow.rowEnabled
 		Label {
 			id: toggleLabel
 			Layout.fillWidth: true
@@ -415,6 +419,17 @@ Kirigami.OverlaySheet {
 			text: qsTr("Smooth Scrolling")
 			checked: viewDialog.viewActions.smoothScrolling
 			onToggled: checked => viewDialog.viewActions.setNavigationConfig("SmoothScrolling", String(checked))
+		}
+		ToggleRow {
+			text: qsTr("Open on Click")
+			checked: viewDialog.viewActions.openOnClick
+			onToggled: checked => viewDialog.viewActions.setNavigationConfig("OpenOnClick", String(checked))
+		}
+		ToggleRow {
+			text: qsTr("Focus Empty Slots")
+			rowEnabled: viewDialog.viewActions.freePlacement
+			checked: viewDialog.viewActions.focusEmptySlots
+			onToggled: checked => viewDialog.viewActions.setNavigationConfig("FocusEmptySlots", String(checked))
 		}
 
 		// ── Wallpaper ────────────────────────────────────────────────────

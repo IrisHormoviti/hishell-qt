@@ -6,7 +6,12 @@ import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import Hishell
 
-Dialog {
+// Touch-friendly application picker for "Open With", presented as a bottom
+// sheet: it slides up over the window, stays a comfortable column, scrolls as
+// one surface and dismisses with a swipe or a tap on the dimmed area. Rows are
+// finger-sized tap targets and a single tap opens, while a "Set as default"
+// box applies the same choice as the handler for the file's type going forward.
+Kirigami.OverlaySheet {
 	id: openWithDialog
 	property string filePath: ""
 	property string mime: ""
@@ -15,20 +20,18 @@ Dialog {
 	required property FileManager fileManager
 	property var window
 
+	title: qsTr("Open With")
+	implicitWidth: Kirigami.Units.gridUnit * 20
+
+	// Escape (the controller's cancel button maps to it) and a tap outside both
+	// dismiss the sheet.
+	closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
 	// Event sounds (ClamOS XDG sound theme).
 	function playSound(name) {
 		if (openWithDialog.window && openWithDialog.window.sound)
 			openWithDialog.window.sound.play(name);
 	}
-
-	// In-window popup: native (separate compositor) popups land on the wrong
-	// output on this two-panel device and have been seen to close the wrong
-	// window. See NativeMenus in the config for the same reasoning.
-	popupType: Popup.Item
-	title: qsTr("Open With")
-	modal: true
-	anchors.centerIn: parent
-	width: 460
 
 	function refresh() {
 		const payload = JSON.parse(openWithDialog.fileManager.get_open_with_apps(openWithDialog.filePath));
@@ -38,15 +41,22 @@ Dialog {
 		appList.currentIndex = openWithDialog.apps.length > 0 ? 0 : -1;
 	}
 
-	function openSelected() {
-		const index = appList.currentIndex;
-		if (index < 0 || index >= openWithDialog.apps.length)
+	// Launch the app at `index` (the list cursor when omitted), first recording
+	// it as the default handler when the box is ticked.
+	function openSelected(index) {
+		const i = index === undefined ? appList.currentIndex : index;
+		if (i < 0 || i >= openWithDialog.apps.length)
 			return;
-		const app = openWithDialog.apps[index];
+		const app = openWithDialog.apps[i];
+		if (openWithDialog.window && typeof openWithDialog.window.clearReturnFrame === 'function')
+			openWithDialog.window.clearReturnFrame();
 		if (rememberCheck.checked && openWithDialog.mime !== "")
 			openWithDialog.fileManager.set_default_app(openWithDialog.mime, app.id);
-		openWithDialog.fileManager.open_with_app(openWithDialog.filePath, app.id);
+		const warning = String(openWithDialog.fileManager.open_with_app(openWithDialog.filePath, app.id));
 		openWithDialog.close();
+		if (warning !== "" && openWithDialog.window
+			&& typeof openWithDialog.window.requestLaunchConfirm === 'function')
+			openWithDialog.window.requestLaunchConfirm(warning, openWithDialog.filePath);
 	}
 
 	onOpened: {
@@ -55,11 +65,18 @@ Dialog {
 		refresh();
 		appList.forceActiveFocus();
 	}
-	onClosed: openWithDialog.playSound("dialog-open")
-	onAccepted: openSelected()
+	onClosed: openWithDialog.playSound("dialog-cancel")
 
-	ColumnLayout {
+	// Pinned header: what is being opened, and the association choice. It sits
+	// outside the scrolling list, so the box is always reachable.
+	header: ColumnLayout {
 		spacing: Kirigami.Units.smallSpacing
+
+		Kirigami.Heading {
+			Layout.fillWidth: true
+			level: 2
+			text: openWithDialog.title
+		}
 
 		RowLayout {
 			Layout.fillWidth: true
@@ -93,107 +110,99 @@ Dialog {
 			}
 		}
 
-		Item {
-			Layout.fillWidth: true
-			Layout.preferredHeight: 280
-
-			ListView {
-				id: appList
-				anchors.fill: parent
-				visible: openWithDialog.apps.length > 0
-				clip: true
-				model: openWithDialog.apps
-				Keys.onUpPressed: decrementCurrentIndex()
-				Keys.onDownPressed: incrementCurrentIndex()
-				Keys.onReturnPressed: openWithDialog.openSelected()
-				Keys.onEnterPressed: openWithDialog.openSelected()
-
-				delegate: ItemDelegate {
-					id: appDelegate
-					required property var modelData
-					required property int index
-
-					width: ListView.view.width
-					highlighted: ListView.isCurrentItem
-					onClicked: appList.currentIndex = appDelegate.index
-					onDoubleClicked: openWithDialog.openSelected()
-
-					background: Rectangle {
-						radius: Kirigami.Units.smallRadius
-						color: appDelegate.highlighted ? Kirigami.Theme.highlightColor : appDelegate.hovered ? Kirigami.Theme.hoverColor : "transparent"
-					}
-
-					contentItem: RowLayout {
-						spacing: Kirigami.Units.smallSpacing
-
-						Kirigami.Icon {
-							source: appDelegate.modelData.icon || "application-x-executable"
-							implicitWidth: Kirigami.Units.iconSizes.smallMedium
-							implicitHeight: Kirigami.Units.iconSizes.smallMedium
-						}
-
-						ColumnLayout {
-							Layout.fillWidth: true
-							spacing: 0
-
-							Label {
-								Layout.fillWidth: true
-								text: appDelegate.modelData.name
-								color: appDelegate.highlighted ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.textColor
-								elide: Text.ElideRight
-							}
-
-							Label {
-								Layout.fillWidth: true
-								visible: text.length > 0
-								text: appDelegate.modelData.comment || ""
-								color: appDelegate.highlighted ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.textColor
-								opacity: 0.7
-								font: Kirigami.Theme.smallFont
-								elide: Text.ElideRight
-							}
-						}
-
-						Label {
-							visible: appDelegate.modelData.isDefault
-							text: qsTr("default")
-							color: appDelegate.highlighted ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.textColor
-							opacity: 0.7
-							font: Kirigami.Theme.smallFont
-						}
-					}
-				}
-			}
-
-			Label {
-				anchors.centerIn: parent
-				visible: openWithDialog.apps.length === 0
-				text: qsTr("No applications found for this file")
-				opacity: 0.7
-			}
-		}
-
 		CheckBox {
 			id: rememberCheck
+			Layout.fillWidth: true
 			visible: openWithDialog.apps.length > 0 && openWithDialog.mime !== ""
-			text: openWithDialog.mimeDescription.length > 0 ? qsTr("Remember application association for '%1' files").arg(openWithDialog.mimeDescription) : qsTr("Remember application association for this file type")
-			checked: false
+			// The list owns the keyboard so the controller cursor stays in one
+			// place; the row is still a full-width tap target for touch and the
+			// box state is what the launch reads.
+			focusPolicy: Qt.NoFocus
+			text: openWithDialog.mimeDescription.length > 0
+				? qsTr("Set as default for %1").arg(openWithDialog.mimeDescription)
+				: qsTr("Set as default")
+			onToggled: openWithDialog.playSound(checked ? "button-toggle-on" : "button-toggle-off")
 		}
 	}
 
-	footer: DialogButtonBox {
-		Button {
-			text: qsTr("Open")
-			enabled: appList.currentIndex >= 0
-			DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
-			onPressed: openWithDialog.playSound("button-pressed")
-			onReleased: openWithDialog.playSound("button-released")
+	// The list is the sheet's own scroll surface, so it flickers, scrolls to the
+	// cursor and takes the arrow keys instead of nesting a second flickable.
+	ListView {
+		id: appList
+		clip: true
+		model: openWithDialog.apps
+		Keys.onReturnPressed: openWithDialog.openSelected()
+		Keys.onEnterPressed: openWithDialog.openSelected()
+
+		header: Label {
+			width: appList.width
+			visible: openWithDialog.apps.length === 0
+			height: visible ? implicitHeight : 0
+			leftPadding: Kirigami.Units.largeSpacing
+			text: qsTr("No applications found for this file")
+			opacity: 0.7
 		}
-		Button {
-			text: qsTr("Cancel")
-			DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
-			onPressed: openWithDialog.playSound("button-pressed")
-			onReleased: openWithDialog.playSound("button-released")
+
+		delegate: ItemDelegate {
+			id: appDelegate
+			required property var modelData
+			required property int index
+
+			width: appList.width
+			highlighted: ListView.isCurrentItem
+			// A single tap opens, so the whole row is the target. The list still
+			// tracks currentIndex for the controller and the arrow keys.
+			focusPolicy: Qt.NoFocus
+			onClicked: {
+				appList.currentIndex = appDelegate.index;
+				openWithDialog.openSelected();
+			}
+
+			background: Rectangle {
+				radius: Kirigami.Units.smallRadius
+				color: appDelegate.highlighted ? Kirigami.Theme.highlightColor
+					: appDelegate.hovered ? Kirigami.Theme.hoverColor : "transparent"
+			}
+
+			contentItem: RowLayout {
+				spacing: Kirigami.Units.largeSpacing
+
+				Kirigami.Icon {
+					source: appDelegate.modelData.icon || "application-x-executable"
+					implicitWidth: Kirigami.Units.iconSizes.medium
+					implicitHeight: Kirigami.Units.iconSizes.medium
+				}
+
+				ColumnLayout {
+					Layout.fillWidth: true
+					spacing: 0
+
+					Label {
+						Layout.fillWidth: true
+						text: appDelegate.modelData.name
+						color: appDelegate.highlighted ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.textColor
+						elide: Text.ElideRight
+					}
+
+					Label {
+						Layout.fillWidth: true
+						visible: text.length > 0
+						text: appDelegate.modelData.comment || ""
+						color: appDelegate.highlighted ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.textColor
+						opacity: 0.7
+						font: Kirigami.Theme.smallFont
+						elide: Text.ElideRight
+					}
+				}
+
+				Label {
+					visible: appDelegate.modelData.isDefault
+					text: qsTr("default")
+					color: appDelegate.highlighted ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.textColor
+					opacity: 0.7
+					font: Kirigami.Theme.smallFont
+				}
+			}
 		}
 	}
 }

@@ -12,6 +12,10 @@ Item {
 	// dependency ("Type ShellWindow unavailable") and then never shows a window.
 	required property var window
 	required property Directory directory
+	// Whether menu items show and register their keyboard shortcuts. The RG DS
+	// Plus has no keyboard; the controller buttons even surface as key events, so
+	// their absence cannot be detected from the input devices.
+	readonly property bool showShortcuts: (actionManager.directory && actionManager.directory.config) ? actionManager.directory.config.show_shortcuts : false
 	property SelectionManager selectionManager: window ? window.selectionManager : null
 	property FileManager fileManager: window ? window.fileManager : null
 
@@ -48,6 +52,12 @@ Item {
 	readonly property Directory targetDirectory: (actionManager.targetFolderView && actionManager.targetFolderView.directory) ? actionManager.targetFolderView.directory : actionManager.directory
 
 	readonly property bool isFirstTargetDir: (isSingleTarget && fileManager) ? fileManager.is_directory(firstTargetPath) : false
+
+	// True when every target is a folder. The menubar's Folder menu corresponds
+	// to a selected folder, so it is shown only for such a target; the folder
+	// view's own menu carries the directory-level actions separately.
+	readonly property bool isFolderTarget: actionManager.hasTarget
+		&& actionManager.targetPathList.every(path => actionManager.fileManager !== null && actionManager.fileManager.is_directory(path))
 
 	// Default application of the single target file, used by the Open action
 	readonly property string openAppPath: (isSingleTarget && !isFirstTargetDir) ? firstTargetPath : ""
@@ -203,6 +213,12 @@ Item {
 			if (groups[i].submenu !== true)
 				actions = actions.concat(actionManager.groupActions(groups[i].id));
 		}
+		// The folder view's own menu also carries the actions that operate
+		// inside the current directory (refresh, paste, new, open terminal,
+		// ...). Those live in the folder-actions group, which is otherwise only
+		// reached through a selected folder, so the view menu would miss them.
+		if (context === "directory")
+			actions = actions.concat(actionManager.folderActionsGroup);
 		return actions;
 	}
 
@@ -214,6 +230,9 @@ Item {
 			return hasTarget;
 		if (groupData.contexts.indexOf("files") !== -1)
 			return isImageTarget;
+		// A folder menu only concerns a selected (or focused) folder.
+		if (groupData.contexts.indexOf("folders") !== -1)
+			return actionManager.isFolderTarget;
 		return true;
 	}
 
@@ -227,6 +246,31 @@ Item {
 			executeAction.execute(path, sourceItem);
 		else
 			openAction.execute(path, sourceItem, false);
+	}
+
+	// A launch the execution wrapper held back for confirmation: show the
+	// window's touch- and controller-friendly confirm dialog. `warning` is the
+	// blocked item's path; `launchItem` is the item being launched.
+	function showLaunchConfirm(warning: string, launchItem: string) {
+		if (actionManager.window && typeof actionManager.window.requestLaunchConfirm === 'function')
+			actionManager.window.requestLaunchConfirm(warning, launchItem);
+	}
+
+	function confirmLaunch() {
+		if (actionManager.fileManager)
+			actionManager.fileManager.confirm_launch();
+	}
+
+	function cancelLaunch() {
+		if (actionManager.fileManager)
+			actionManager.fileManager.cancel_launch();
+	}
+
+	// A launch is about to start: let the window drop the previous return frame
+	// at once, so it cannot show through the launch wash.
+	function prepareLaunch() {
+		if (actionManager.window && typeof actionManager.window.clearReturnFrame === 'function')
+			actionManager.window.clearReturnFrame();
 	}
 
 	readonly property bool isTargetLink: actionManager.hasTarget
@@ -249,6 +293,7 @@ Item {
 				const path = paths[i];
 				if (!actionManager.targetDirectory.is_execute_target(path))
 					continue;
+				actionManager.prepareLaunch();
 				actionManager.playSound("app-launch");
 				if (sourceItem) {
 					const layout = sourceItem.contentLayout;
@@ -263,7 +308,9 @@ Item {
 						externalOpenAnimationEffect.restart();
 					});
 				}
-				actionManager.targetDirectory.execute_action(path);
+				const warning = String(actionManager.targetDirectory.execute_action(path));
+				if (warning !== "")
+					actionManager.showLaunchConfirm(warning, path);
 			}
 		}
 
@@ -273,7 +320,7 @@ Item {
 	property alias openAction: openAction
 	Action {
 		id: openAction
-		shortcut: "Ctrl+O"
+		shortcut: actionManager.showShortcuts ? "Ctrl+O" : ""
 		text: actionManager.openApp ? qsTr("O&pen with %1").arg(actionManager.openApp.name) : qsTr("O&pen")
 		icon.name: actionManager.openAppIcon !== "" && actionManager.openAppIcon.indexOf("/") === -1 ? actionManager.openAppIcon : "open-link"
 		icon.source: actionManager.openAppIcon.indexOf("/") !== -1 ? actionManager.openAppIcon : ""
@@ -292,6 +339,8 @@ Item {
 				// theme: window-new for going into a folder, the launch sound for
 				// handing a file to another program.
 				actionManager.playSound(isDir ? "window-new" : "app-launch");
+				if (!isDir)
+					actionManager.prepareLaunch();
 				if (sourceItem && !(isDir && !inNewWindow)) {
 					const layout = sourceItem.contentLayout;
 					const globalPos = layout.mapToItem(actionManager, 0, 0);
@@ -309,7 +358,9 @@ Item {
 				if (inNewWindow) {
 					actionManager.targetDirectory.open_in_new_window(p);
 				} else {
-					actionManager.targetDirectory.open_path(p);
+					const warning = String(actionManager.targetDirectory.open_path(p));
+					if (warning !== "")
+						actionManager.showLaunchConfirm(warning, p);
 				}
 			}
 		}
@@ -326,14 +377,16 @@ Item {
 		id: navigateAction
 		text: qsTr("Navigate")
 		icon.name: "folder-open-symbolic"
-		shortcut: "Shift+Return"
+		shortcut: actionManager.showShortcuts ? "Shift+Return" : ""
 		enabled: actionManager.isSingleTarget
 
 		function execute(targetPath: string, sourceItem: Item) {
 			const paths = targetPath !== "" ? [targetPath] : actionManager.targetPathList;
 			for (let i = 0; i < paths.length; i++) {
 				const p = paths[i];
-				actionManager.targetDirectory.open_path(p);
+				const warning = String(actionManager.targetDirectory.open_path(p));
+				if (warning !== "")
+					actionManager.showLaunchConfirm(warning, p);
 			}
 		}
 
@@ -349,7 +402,7 @@ Item {
 		id: openWindowAction
 		text: qsTr("Open in Win&dow")
 		icon.name: "window-new-symbolic"
-		shortcut: "Ctrl+N"
+		shortcut: actionManager.showShortcuts ? "Ctrl+N" : ""
 		enabled: actionManager.hasTarget
 		onTriggered: {
 			if (!actionManager.hasTarget) {
@@ -368,7 +421,7 @@ Item {
 		id: openWithAction
 		text: qsTr("Open &With...")
 		icon.name: "system-run"
-		shortcut: "Ctrl+Alt+O"
+		shortcut: actionManager.showShortcuts ? "Ctrl+Alt+O" : ""
 		enabled: actionManager.isSingleTarget
 		onTriggered: {
 			if (actionManager.isSingleTarget)
@@ -383,7 +436,7 @@ Item {
 		id: copyAction
 		text: qsTr("&Copy")
 		icon.name: "edit-copy"
-		shortcut: "Ctrl+C"
+		shortcut: actionManager.showShortcuts ? "Ctrl+C" : ""
 		enabled: actionManager.hasTarget
 		onTriggered: {
 			const paths = actionManager.targetPathList.join("\n");
@@ -396,7 +449,7 @@ Item {
 		id: cutAction
 		text: qsTr("C&ut")
 		icon.name: "edit-cut"
-		shortcut: "Ctrl+X"
+		shortcut: actionManager.showShortcuts ? "Ctrl+X" : ""
 		enabled: actionManager.hasTarget
 		onTriggered: {
 			const paths = actionManager.targetPathList.join("\n");
@@ -409,7 +462,7 @@ Item {
 		id: duplicateAction
 		text: qsTr("&Duplicate")
 		icon.name: "edit-copy"
-		shortcut: "Ctrl+D"
+		shortcut: actionManager.showShortcuts ? "Ctrl+D" : ""
 		enabled: actionManager.hasTarget
 		onTriggered: {
 			const paths = actionManager.targetPathList;
@@ -427,7 +480,7 @@ Item {
 		id: linkAction
 		text: qsTr("Create &Link")
 		icon.name: "edit-link"
-		shortcut: "Ctrl+Shift+L"
+		shortcut: actionManager.showShortcuts ? "Ctrl+Shift+L" : ""
 		enabled: actionManager.hasTarget
 		onTriggered: {
 			const paths = actionManager.targetPathList;
@@ -449,7 +502,7 @@ Item {
 		id: renameAction
 		text: qsTr("&Rename")
 		icon.name: "edit-rename"
-		shortcut: "F2"
+		shortcut: actionManager.showShortcuts ? "F2" : ""
 		enabled: actionManager.isSingleTarget
 		onTriggered: {
 			if (actionManager.isSingleTarget) {
@@ -462,7 +515,7 @@ Item {
 		id: editPermissionsAction
 		text: qsTr("Permissions...")
 		icon.name: "edit-rename"
-		shortcut: "Ctrl+P"
+		shortcut: actionManager.showShortcuts ? "Ctrl+P" : ""
 		enabled: actionManager.hasTarget
 		onTriggered: {
 			// FIXME
@@ -473,7 +526,7 @@ Item {
 		id: trashAction
 		text: qsTr("&Trash")
 		icon.name: "user-trash"
-		shortcut: "Delete"
+		shortcut: actionManager.showShortcuts ? "Delete" : ""
 		enabled: actionManager.hasTarget
 		onTriggered: {
 			const paths = actionManager.targetPathList;
@@ -492,7 +545,7 @@ Item {
 	}
 
 	// Folder Group
-	readonly property var folderActionsGroup: [editPathAction, goUpAction, searchAction, refreshAction, pasteAction, copyPathAction, openTerminalAction]
+	readonly property var folderActionsGroup: [editPathAction, goUpAction, refreshAction, pasteAction, copyPathAction]
 	property alias goUpAction: goUpAction
 	property alias refreshAction: refreshAction
 	property alias editPathAction: editPathAction
@@ -502,7 +555,7 @@ Item {
 		id: goUpAction
 		text: qsTr("Go &Up")
 		icon.name: "arrow-up-symbolic"
-		shortcut: "Alt+Up"
+		shortcut: actionManager.showShortcuts ? "Alt+Up" : ""
 		enabled: actionManager.directory && actionManager.directory.path !== "/"
 		onTriggered: {
 			// The back sound belongs to the back gesture, not to the action:
@@ -517,7 +570,7 @@ Item {
 		id: goBackAction
 		text: qsTr("Go &Back")
 		icon.name: "arrow-left-symbolic"
-		shortcut: "Alt+Left"
+		shortcut: actionManager.showShortcuts ? "Alt+Left" : ""
 		enabled: actionManager.directory
 		onTriggered: {
 			// FIXME
@@ -528,7 +581,7 @@ Item {
 		id: goForwardAction
 		text: qsTr("Go &Forward")
 		icon.name: "arrow-right-symbolic"
-		shortcut: "Alt+Right"
+		shortcut: actionManager.showShortcuts ? "Alt+Right" : ""
 		enabled: actionManager.directory
 		onTriggered: {
 			// FIXME
@@ -539,7 +592,7 @@ Item {
 		id: refreshAction
 		text: qsTr("&Refresh")
 		icon.name: "view-refresh"
-		shortcut: "F5"
+		shortcut: actionManager.showShortcuts ? "F5" : ""
 		enabled: actionManager.directory !== null
 		onTriggered: {
 			// Full reload: re-reads the folder contents and its config.
@@ -552,7 +605,7 @@ Item {
 		id: searchAction
 		text: qsTr("Search")
 		icon.name: "search"
-		shortcut: "Ctrl+F"
+		shortcut: actionManager.showShortcuts ? "Ctrl+F" : ""
 		enabled: actionManager.directory !== null
 		onTriggered: {
 			// TODO: Implement
@@ -563,7 +616,7 @@ Item {
 		id: openTerminalAction
 		text: qsTr("Open Terminal Here")
 		icon.name: "utilities-terminal-symbolic"
-		shortcut: "Ctrl+`"
+		shortcut: actionManager.showShortcuts ? "Ctrl+`" : ""
 		enabled: actionManager.directory !== null
 		onTriggered: {
 			// TODO: Implement
@@ -587,7 +640,7 @@ Item {
 			return name.length > 0 ? qsTr("&Paste into %1").arg(name) : qsTr("&Paste");
 		}
 		icon.name: "edit-paste"
-		shortcut: "Ctrl+V"
+		shortcut: actionManager.showShortcuts ? "Ctrl+V" : ""
 		enabled: true
 		onTriggered: {
 			actionManager.pasteInto(actionManager.pasteTargetPath);
@@ -598,7 +651,7 @@ Item {
 		id: copyPathAction
 		text: "&Copy Path"
 		icon.name: "edit-copy-path-symbolic"
-		shortcut: "Ctrl+Alt+C"
+		shortcut: actionManager.showShortcuts ? "Ctrl+Alt+C" : ""
 		enabled: true
 		onTriggered: {
 			// FIXME
@@ -616,21 +669,21 @@ Item {
 		id: editPathAction
 		text: "Edit Path"
 		icon.name: "text-field-framed-symbolic"
-		shortcut: "Ctrl+L"
+		shortcut: actionManager.showShortcuts ? "Ctrl+L" : ""
 		onTriggered: actionManager.editLocation("")
 	}
 
 	Action {
 		id: editPathRootAction
 		text: "Edit Path from Root"
-		shortcut: "/"
+		shortcut: actionManager.showShortcuts ? "/" : ""
 		onTriggered: actionManager.editLocation("/")
 	}
 
 	Action {
 		id: editPathHomeAction
 		text: "Edit Path from Home"
-		shortcut: "~"
+		shortcut: actionManager.showShortcuts ? "~" : ""
 		onTriggered: actionManager.editLocation("~/")
 	}
 
@@ -642,7 +695,7 @@ Item {
 		id: newFolderAction
 		text: qsTr("New Fo&lder")
 		icon.name: "folder-add"
-		shortcut: "Ctrl+Shift+N"
+		shortcut: actionManager.showShortcuts ? "Ctrl+Shift+N" : ""
 		onTriggered: {
 			if (actionManager.fileManager && actionManager.directory) {
 				if (actionManager.fileManager.new_folder(actionManager.directory.path))
@@ -655,7 +708,7 @@ Item {
 		id: newTextFileAction
 		text: qsTr("New &Text File")
 		icon.name: "text-plain"
-		shortcut: "Alt+Shift+N"
+		shortcut: actionManager.showShortcuts ? "Alt+Shift+N" : ""
 		onTriggered: {
 			if (actionManager.fileManager && actionManager.directory) {
 				if (actionManager.fileManager.new_text_file(actionManager.directory.path))
@@ -671,7 +724,7 @@ Item {
 		id: rotateClockwiseAction
 		text: qsTr("Rotate &Clockwise")
 		icon.name: "object-rotate-right"
-		shortcut: "Ctrl+R"
+		shortcut: actionManager.showShortcuts ? "Ctrl+R" : ""
 		enabled: actionManager.isImageTarget
 		onTriggered: {
 			const paths = actionManager.targetPathList;
@@ -689,7 +742,7 @@ Item {
 		id: rotateCounterClockwiseAction
 		text: qsTr("Rotate Counter-Clock&wise")
 		icon.name: "object-rotate-left"
-		shortcut: "Ctrl+Shift+R"
+		shortcut: actionManager.showShortcuts ? "Ctrl+Shift+R" : ""
 		enabled: actionManager.isImageTarget
 		onTriggered: {
 			const paths = actionManager.targetPathList;
@@ -823,7 +876,7 @@ Item {
 		}
 	}
 
-	// Open With: prefer the system chooser through the XDG portal, fall back to the built-in dialog
+	// Open With: prefer the system chooser through the XDG portal, fall back to the built-in sheet
 	function openWith(filePath) {
 		if (!actionManager.fileManager)
 			return;
@@ -851,15 +904,29 @@ Item {
 		}
 	}
 
-	// Open With Dialog
+	// Open With sheet. Like the view sheet it is created on first use under the
+	// window's content item: an OverlaySheet sizes itself to its parent, and this
+	// item has no size of its own. Created lazily so it never exists until asked
+	// for.
+	property var openWithSheet: null
+
 	function openOpenWithDialog(filePath) {
-		openWithDialog.filePath = filePath;
-		openWithDialog.open();
+		const w = actionManager.window;
+		const parentItem = (w && w.contentItem) ? w.contentItem : actionManager;
+		if (!actionManager.openWithSheet) {
+			actionManager.openWithSheet = openWithSheetComponent.createObject(parentItem, {
+				fileManager: actionManager.fileManager,
+				window: w
+			});
+		}
+		if (actionManager.openWithSheet) {
+			actionManager.openWithSheet.filePath = filePath;
+			actionManager.openWithSheet.open();
+		}
 	}
 
-	OpenWithDialog {
-		id: openWithDialog
-		fileManager: actionManager.fileManager
-		window: actionManager.window
+	Component {
+		id: openWithSheetComponent
+		OpenWithDialog {}
 	}
 }

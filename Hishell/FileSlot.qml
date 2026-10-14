@@ -48,6 +48,10 @@ Item {
 	}
 	readonly property bool freePlacement: folderView && folderView.config ? (folderView.config.sort === 3 && folderView.config.view_mode === 0) : false
 
+	// Whether a plain click opens the item. When off, the first click only
+	// focuses it and a click on the (now focused) item opens it. See ViewActions.
+	readonly property bool openOnClick: fileSlot.folderView && fileSlot.folderView.config ? fileSlot.folderView.config.open_on_click : true
+
 	property int animationDuration: 200
 	property int animationEase: Easing.OutCubic
 
@@ -283,6 +287,35 @@ Item {
 			elide: fileSlot.labelBesideIcon ? Text.ElideMiddle : Text.ElideMiddle
 			Layout.maximumWidth: fileSlot.labelBesideIcon ? (fileSlot.fixedWidth ? fileSlot.width - fileSlot.gridSize - Kirigami.Units.gridUnit * 2 : 250) : fileSlot.gridSize + Kirigami.Units.gridUnit * 2
 			horizontalAlignment: fileSlot.labelBesideIcon ? Text.AlignLeft : Text.AlignHCenter
+		}
+	}
+
+	// ── Suspended-app mark ──
+	// A small accent dot under an item whose app is currently suspended, with a
+	// gentle blink so it reads as "still running". `active_revision` is read only
+	// to re-evaluate the binding when the set of suspended apps changes.
+	Rectangle {
+		id: activeDot
+		width: Kirigami.Units.smallSpacing * 2
+		height: width
+		radius: width / 2
+		color: Kirigami.Theme.highlightColor
+		anchors.horizontalCenter: contentLayout.horizontalCenter
+		anchors.top: contentLayout.bottom
+		anchors.topMargin: Kirigami.Units.smallSpacing
+		visible: {
+			const fm = fileSlot.folderView ? fileSlot.folderView.focusManager : null;
+			if (!fm)
+				return false;
+			fm.active_revision; // dependency: re-check when the set changes
+			return fm.is_item_active(fileSlot.path);
+		}
+
+		SequentialAnimation on opacity {
+			running: activeDot.visible
+			loops: Animation.Infinite
+			NumberAnimation { to: 0.2; duration: 700; easing.type: Easing.InOutQuad }
+			NumberAnimation { to: 1.0; duration: 700; easing.type: Easing.InOutQuad }
 		}
 	}
 
@@ -583,6 +616,19 @@ Item {
 		Drag.hotSpot: Qt.point(Math.round(width / 2), Math.round(height / 2))
 	}
 
+	// What a plain left click on this item does. With OpenOnClick off, a click
+	// on an unfocused item only moves the cursor to it; the next click (while it
+	// is focused) opens it.
+	function activateOrFocus() {
+		if (!fileSlot.actionManager)
+			return;
+		if (fileSlot.openOnClick || fileSlot.isFocused) {
+			fileSlot.actionManager.activatePath(fileSlot.path, fileSlot);
+		} else if (fileSlot.folderView && typeof fileSlot.folderView.focusSlot === 'function') {
+			fileSlot.folderView.focusSlot(fileSlot.path);
+		}
+	}
+
 	MouseArea {
 		id: mouseArea
 		anchors.fill: parent
@@ -827,8 +873,8 @@ Item {
 				fileSlot.selectionToggled(fileSlot.path, fileSlot.index);
 			} else if (fileSlot.clickHandler) {
 				fileSlot.clickHandler(mouse);
-			} else if (fileSlot.actionManager) {
-				fileSlot.actionManager.activatePath(fileSlot.path, fileSlot);
+			} else {
+				fileSlot.activateOrFocus();
 			}
 		}
 	}

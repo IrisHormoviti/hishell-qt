@@ -103,15 +103,8 @@ fn normalize_path(path: &Path, current_dir: &str) -> PathBuf {
 	result
 }
 
-fn launch_desktop_entry(path: &Path) -> bool {
-	match crate::desktop_entry::launch(path) {
-		Some(Ok(())) => true,
-		Some(Err(error)) => {
-			eprintln!("{error}");
-			true
-		}
-		None => false,
-	}
+fn launch_desktop_entry(path: &Path) -> String {
+	crate::desktop_entry::launch(path)
 }
 
 pub fn is_execute_target(path: &Path) -> bool {
@@ -168,13 +161,11 @@ pub struct Directory {
 	requestExecutePrompt: qt_signal!(path: String),
 
 	execute_file: qt_method!(
-		pub fn execute_file(&self, path: String) {
+		pub fn execute_file(&self, path: String) -> String {
 			let path_buf = Path::new(&path);
-			let mut cmd = Command::new(&path);
-			if let Some(parent) = path_buf.parent() {
-				cmd.current_dir(parent);
-			}
-			let _ = cmd.spawn();
+			let parent = path_buf.parent();
+			let name = crate::launch::app_name(&path);
+			crate::launch::result(crate::launch::request(&path, &[], &path, &name, parent))
 		}
 	),
 
@@ -191,24 +182,42 @@ pub struct Directory {
 	),
 
 	execute_action: qt_method!(
-		pub fn execute_action(&mut self, path: String) {
+		pub fn execute_action(&mut self, path: String) -> String {
 			let path_buf = Path::new(&path);
 			if crate::desktop_entry::is_action_entry(path_buf) {
-				launch_desktop_entry(path_buf);
+				launch_desktop_entry(path_buf)
 			} else if is_executable(&path) {
 				self.requestExecutePrompt(path);
+				String::new()
+			} else {
+				String::new()
 			}
 		}
 	),
 
 	open_path: qt_method!(
-		pub fn open_path(&mut self, path: String) {
+		pub fn open_path(&mut self, path: String) -> String {
 			let path_buf = Path::new(&path);
 			if path_buf.is_file() {
-				open_file(path);
+				open_file(path)
 			} else {
 				self.set_path(path);
+				String::new()
 			}
+		}
+	),
+
+	/// Finish a launch the execution wrapper held back for confirmation.
+	confirm_launch: qt_method!(
+		pub fn confirm_launch(&self) -> bool {
+			crate::launch::confirm()
+		}
+	),
+
+	/// Drop a launch the execution wrapper held back for confirmation.
+	cancel_launch: qt_method!(
+		pub fn cancel_launch(&self) {
+			crate::launch::cancel();
 		}
 	),
 
@@ -1033,11 +1042,17 @@ pub fn get_folder_icon(path: &str) -> String {
 	"folder".to_string()
 }
 
-pub fn open_file(path: String) {
-	if crate::kde_bridge::open_with_default(&path) {
-		return;
+pub fn open_file(path: String) -> String {
+	// Prefer resolving the default application and spawning it here, so the
+	// launch goes through the configured execution wrapper.
+	if let Some((exec, entry)) = crate::kde_bridge::default_app_command(&path) {
+		return crate::desktop_entry::launch_command(&exec, &entry, Some(&path));
 	}
-	let _ = Command::new("xdg-open").arg(&path).spawn();
+	if crate::kde_bridge::open_with_default(&path) {
+		return String::new();
+	}
+	let _ = crate::launch::spawn("xdg-open", std::slice::from_ref(&path), &path, "xdg-open", None);
+	String::new()
 }
 
 pub fn is_executable(path: &str) -> bool {

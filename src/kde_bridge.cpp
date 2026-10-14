@@ -235,6 +235,35 @@ bool hishell_open_with_launch(const char *storageId, const char *path)
 	return launchService(KService::serviceByStorageId(QString::fromUtf8(storageId)), QString::fromUtf8(path));
 }
 
+// The command behind a desktop entry, as {exec, path} JSON: the raw Exec line
+// and the entry's file path. The caller launches it itself so it can apply its
+// execution wrapper; {} when the entry cannot be resolved.
+static const char *appCommand(const KService::Ptr &service)
+{
+	QJsonObject command;
+	if (service) {
+		command["exec"] = service->exec();
+		command["path"] = service->entryPath();
+	}
+	g_result = QJsonDocument(command).toJson(QJsonDocument::Compact);
+	return g_result.constData();
+}
+
+const char *hishell_app_command(const char *storageId)
+{
+	return appCommand(KService::serviceByStorageId(QString::fromUtf8(storageId)));
+}
+
+const char *hishell_default_app_command(const char *path)
+{
+	const QMimeDatabase db;
+	const QMimeType mime = db.mimeTypeForFile(QString::fromUtf8(path));
+	if (mime.name().isEmpty()) {
+		return appCommand(KService::Ptr());
+	}
+	return appCommand(KApplicationTrader::preferredService(mime.name()));
+}
+
 bool hishell_open_with_default(const char *path)
 {
 	const QMimeDatabase db;

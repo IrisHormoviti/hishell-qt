@@ -185,6 +185,8 @@ const EXPECTED_KEYS: &[(&str, &str, ExpectedKind)] = &[
 	("Layout", "Header", ExpectedKind::Array),
 	("Layout", "NativeMenuBar", ExpectedKind::Bool),
 	("Layout", "NativeTitleBar", ExpectedKind::Bool),
+	("Layout", "ShowShortcuts", ExpectedKind::Bool),
+	("Layout", "ExecutionWrapper", ExpectedKind::Str),
 	("Layout", "Screen", ExpectedKind::Str),
 	("Folder View", "Wallpaper", ExpectedKind::Str),
 	("Folder View", "GridSize", ExpectedKind::Num),
@@ -232,6 +234,8 @@ const EXPECTED_KEYS: &[(&str, &str, ExpectedKind)] = &[
 	("Folder View", "FreePlacementPositions", ExpectedKind::Dict),
 	("Folder Navigation", "CenterFocus", ExpectedKind::Bool),
 	("Folder Navigation", "SmoothScrolling", ExpectedKind::Bool),
+	("Folder Navigation", "OpenOnClick", ExpectedKind::Bool),
+	("Folder Navigation", "FocusEmptySlots", ExpectedKind::Bool),
 ];
 
 /// Flags configured keys whose value does not match the expected kind.
@@ -392,6 +396,14 @@ pub struct Config {
 	// when reopened.
 	pub native_menus: qt_property!(bool; NOTIFY config_changed),
 	pub native_titlebar: qt_property!(bool; NOTIFY config_changed),
+	// Show and register the keyboard shortcuts next to menu items. Off on the
+	// RG DS Plus, which has no keyboard.
+	pub show_shortcuts: qt_property!(bool; NOTIFY config_changed),
+	// Command that everything launched from the shell is run through, so a host
+	// can wrap starts with its own supervisor (session, transition, suspend).
+	// The launched program and its arguments are appended, and the launched
+	// item's path is exported as HISHELL_APP_ITEM. Empty means launch directly.
+	pub execution_wrapper: qt_property!(String; NOTIFY config_changed),
 	// Name of the screen/output to open on (e.g. "DSI-2" on the RG DS Plus, whose
 	// bottom touch panel is the second output). Empty means the platform default.
 	pub screen_name: qt_property!(String; NOTIFY config_changed),
@@ -407,6 +419,12 @@ pub struct Config {
 	pub scroll_horizontal: qt_property!(bool; NOTIFY config_changed),
 	pub center_focus: qt_property!(bool; NOTIFY config_changed),
 	pub smooth_scrolling: qt_property!(bool; NOTIFY config_changed),
+	// Whether a click/tap on an item opens it. When false the first click only
+	// focuses the item and a second click (while it is focused) opens it.
+	pub open_on_click: qt_property!(bool; NOTIFY config_changed),
+	// Whether the cursor may rest on an empty grid cell. Empty cells only exist
+	// in free placement, so this has no effect elsewhere.
+	pub focus_empty_slots: qt_property!(bool; NOTIFY config_changed),
 	pub show_labels: qt_property!(bool; NOTIFY config_changed),
 	pub grid_labels_beside_icons: qt_property!(bool; NOTIFY config_changed),
 	pub label_text: qt_property!(u8; NOTIFY config_changed),
@@ -576,6 +594,17 @@ impl Config {
 		if changed!("Layout", "NativeTitleBar") {
 			self.native_titlebar = bool_value(get("Layout", "NativeTitleBar"), true);
 		}
+		if changed!("Layout", "ShowShortcuts") {
+			self.show_shortcuts = bool_value(get("Layout", "ShowShortcuts"), false);
+		}
+		if changed!("Layout", "ExecutionWrapper") {
+			self.execution_wrapper = match get("Layout", "ExecutionWrapper") {
+				Some(ConfigValue::String(v)) => v.clone(),
+				_ => String::new(),
+			}
+			.into();
+			crate::launch::set_wrapper(&self.execution_wrapper.to_string());
+		}
 		if changed!("Layout", "Screen") {
 			self.screen_name = match get("Layout", "Screen") {
 				Some(ConfigValue::String(v)) => v.clone(),
@@ -633,6 +662,13 @@ impl Config {
 		}
 		if changed!("Folder Navigation", "SmoothScrolling") {
 			self.smooth_scrolling = bool_value(get("Folder Navigation", "SmoothScrolling"), true);
+		}
+		if changed!("Folder Navigation", "OpenOnClick") {
+			self.open_on_click = bool_value(get("Folder Navigation", "OpenOnClick"), true);
+		}
+		if changed!("Folder Navigation", "FocusEmptySlots") {
+			self.focus_empty_slots =
+				bool_value(get("Folder Navigation", "FocusEmptySlots"), false);
 		}
 		if changed!("Folder View", "ViewMode") {
 			self.view_mode = match enum_value(get("Folder View", "ViewMode"), "GRID").as_str() {

@@ -28,6 +28,17 @@ Item {
 	property Config config: directory ? directory.config : null
 	readonly property bool horizontalScroll: folderView.config ? folderView.config.scroll_horizontal : false
 	readonly property bool filterActive: folderView.directory ? String(folderView.directory.filter).length > 0 : false
+	// Free placement can leave empty cells, and FocusEmptySlots lets the cursor
+	// rest on one. Empty cells exist nowhere else.
+	readonly property bool focusEmptySlots: folderView.config
+		? (folderView.config.focus_empty_slots && folderView.config.sort === 3 && folderView.config.view_mode === 0)
+		: false
+	// Set while the cursor is moved to follow a manual scroll, so the
+	// focus-driven scroll does not fight the gesture.
+	property bool suppressFocusScroll: false
+	// True while the focus-driven scroll animation runs, so the scroll-follow
+	// logic can ignore the motion it causes.
+	property bool focusScrollAnimating: false
 	property FocusManager focusManager: folderView.rootWindow ? folderView.rootWindow.focusManager : null
 	readonly property string focusBorderSource: folderView.focusManager ? folderView.focusManager.border_source(Kirigami.Theme.highlightColor.toString()) : ""
 	property bool focusOwned: false
@@ -114,6 +125,11 @@ Item {
 				folderView.forceActiveFocus();
 			folderView.updateViewFocus();
 		}
+		// A dialog or popup taking the focus (and giving it back) changes who
+		// the controller drives; re-evaluate whenever it moves.
+		function onActiveFocusItemChanged() {
+			folderView.updateViewFocus();
+		}
 	}
 
 	function updateViewFocus() {
@@ -121,10 +137,14 @@ Item {
 		const window = folderView.Window.window;
 		if (!fm || folderView.paneId <= 0)
 			return;
-		// While the window is inactive the controller still drives the file
-		// views; only focus owned elsewhere inside an active window (popups,
-		// dialogs) hands the input over to Qt.
-		fm.set_pane_keyboard(folderView.paneId, folderView.activeFocus || !(window && window.active));
+		// The controller drives the file views when this pane holds the focus,
+		// or when the window is inactive (the compositor gives the app no focus
+		// at all, but the controller still drives the views). When the window is
+		// active and a sibling holds the focus — a popup, a dialog, the
+		// launch-confirmation sheet — the keyboard goes to Qt so the controller
+		// drives that popup instead.
+		const inputToQt = window && window.active && !folderView.activeFocus;
+		fm.set_pane_keyboard(folderView.paneId, !inputToQt);
 	}
 
 	// Panes are compared spatially so the focus can be moved between them.
@@ -334,6 +354,8 @@ Item {
 		fm.set_pane_items(folderView.paneId, paths, folderView.gridStride);
 		const metrics = folderView.gridMetrics;
 		fm.set_pane_positions(folderView.paneId, metrics.free ? JSON.stringify(metrics.slots) : "");
+		fm.set_pane_grid(folderView.paneId, metrics.columns, metrics.rows);
+		fm.set_pane_empty_slots(folderView.paneId, folderView.focusEmptySlots);
 		folderView.focusOwned = true;
 
 		if (folderView.returnFocusPath !== "") {
@@ -348,30 +370,44 @@ Item {
 		const fm = folderView.focusManager;
 		if (!fm || !fm.focus_active || fm.current_pane !== folderView.paneId)
 			return;
-		const item = itemRepeater.itemAt(fm.focused_index);
-		if (!item)
-			return;
 
 		const cfg = folderView.config;
 		const metrics = folderView.gridMetrics;
+		// The focused item, or the empty cell the cursor is resting on.
+		const item = itemRepeater.itemAt(fm.focused_index);
+		let focusX, focusY, focusWidth, focusHeight;
+		if (item) {
+			focusX = item.x;
+			focusY = item.y;
+			focusWidth = item.width;
+			focusHeight = item.height;
+		} else if (fm.focus_on_empty) {
+			focusX = metrics.offsetX + fm.focused_column * (metrics.itemWidth + metrics.gap);
+			focusY = metrics.offsetY + fm.focused_row * (metrics.itemHeight + metrics.gap);
+			focusWidth = metrics.itemWidth;
+			focusHeight = metrics.itemHeight;
+		} else {
+			return;
+		}
+
 		const viewWidth = flickable.width - metrics.insetX;
 		const viewHeight = flickable.height - metrics.insetY;
 		let targetY = flickable.contentY;
 		let targetX = flickable.contentX;
 
 		if (cfg && cfg.center_focus) {
-			targetY = item.y + item.height / 2 - viewHeight / 2;
-			targetX = item.x + item.width / 2 - viewWidth / 2;
+			targetY = focusY + focusHeight / 2 - viewHeight / 2;
+			targetX = focusX + focusWidth / 2 - viewWidth / 2;
 		} else {
-			const top = item.y;
-			const bottom = item.y + item.height;
+			const top = focusY;
+			const bottom = focusY + focusHeight;
 			if (top < flickable.contentY)
 				targetY = top;
 			else if (bottom > flickable.contentY + viewHeight)
 				targetY = bottom - viewHeight;
 
-			const left = item.x;
-			const right = item.x + item.width;
+			const left = focusX;
+			const right = focusX + focusWidth;
 			if (left < flickable.contentX)
 				targetX = left;
 			else if (right > flickable.contentX + viewWidth)
@@ -385,6 +421,9 @@ Item {
 			return;
 
 		if (cfg && cfg.smooth_scrolling) {
+			// Mark the motion as focus-driven so the scroll-follow logic leaves
+			// it alone while it runs.
+			folderView.focusScrollAnimating = true;
 			focusScrollY.to = targetY;
 			focusScrollY.restart();
 			focusScrollX.to = targetX;
@@ -405,6 +444,117 @@ Item {
 			folderView.rootWindow.actionManager.activatePath(String(fm.focused_path), itemRepeater.itemAt(fm.focused_index));
 	}
 
+	// Called on every scroll position change. Fires periodically during a
+	// continuous flick (60 ms after the first change and then again as more
+	// arrive), so the cursor tracks the viewport instead of only snapping once
+	// the motion stops.
+	function scheduleFocusFollow() {
+		if (!focusFollowTimer.running)
+			focusFollowTimer.start();
+	}
+
+	// Keeps the cursor on screen when the user scrolls it out of view, without
+	// scrolling back: the cursor moves to the item at the leading edge of the
+	// viewport, the one nearest the old cursor on the other axis. Scrolling back
+	// toward the start snaps to the trailing edge instead, so the cursor follows
+	// the direction the content moved.
+	function keepFocusInView() {
+		const fm = folderView.focusManager;
+		if (!fm || !fm.focus_active || fm.current_pane !== folderView.paneId || !folderView.focusOwned)
+			return;
+		// Ignore the motion a focus-driven scroll is itself producing.
+		if (folderView.focusScrollAnimating)
+			return;
+
+		const metrics = folderView.gridMetrics;
+		let focusX, focusY, focusWidth, focusHeight;
+		const focused = itemRepeater.itemAt(fm.focused_index);
+		if (focused) {
+			focusX = focused.x;
+			focusY = focused.y;
+			focusWidth = focused.width;
+			focusHeight = focused.height;
+		} else if (fm.focus_on_empty) {
+			focusX = metrics.offsetX + fm.focused_column * (metrics.itemWidth + metrics.gap);
+			focusY = metrics.offsetY + fm.focused_row * (metrics.itemHeight + metrics.gap);
+			focusWidth = metrics.itemWidth;
+			focusHeight = metrics.itemHeight;
+		} else {
+			return;
+		}
+
+		const left = flickable.contentX;
+		const top = flickable.contentY;
+		const right = left + flickable.width;
+		const bottom = top + flickable.height;
+
+		const offLeft = focusX + focusWidth <= left;
+		const offRight = focusX >= right;
+		const offTop = focusY + focusHeight <= top;
+		const offBottom = focusY >= bottom;
+		// Still at least partly on screen: leave the cursor alone.
+		if (!offLeft && !offRight && !offTop && !offBottom)
+			return;
+
+		const offX = offLeft || offRight;
+		const offY = offTop || offBottom;
+		let byColumn;
+		if (offX && !offY) {
+			byColumn = true;
+		} else if (offY && !offX) {
+			byColumn = false;
+		} else {
+			const dx = offLeft ? (left - (focusX + focusWidth)) : (focusX - right);
+			const dy = offTop ? (top - (focusY + focusHeight)) : (focusY - bottom);
+			byColumn = dx >= dy;
+		}
+
+		// The side the cursor left from decides which edge to snap to.
+		const wantMax = byColumn ? offRight : offBottom;
+		const oldCentre = byColumn ? (focusY + focusHeight / 2) : (focusX + focusWidth / 2);
+
+		let best = -1;
+		let bestLead = 0;
+		let bestAside = Infinity;
+		const count = itemRepeater.count;
+		for (let i = 0; i < count; i++) {
+			const item = itemRepeater.itemAt(i);
+			if (!item)
+				continue;
+			if (item.x + item.width <= left || item.x >= right)
+				continue;
+			if (item.y + item.height <= top || item.y >= bottom)
+				continue;
+			const lead = byColumn ? item.x : item.y;
+			const aside = byColumn ? (item.y + item.height / 2) : (item.x + item.width / 2);
+			const better = best < 0
+				|| (wantMax ? lead > bestLead + 1 : lead < bestLead - 1)
+				|| (Math.abs(lead - bestLead) <= 1 && Math.abs(aside - oldCentre) < bestAside);
+			if (better) {
+				best = i;
+				bestLead = lead;
+				bestAside = Math.abs(aside - oldCentre);
+			}
+		}
+
+		if (best < 0 || best === fm.focused_index)
+			return;
+		const item = itemRepeater.itemAt(best);
+		if (!item || !item.path)
+			return;
+
+		folderView.suppressFocusScroll = true;
+		fm.set_pane_focus_path(folderView.paneId, item.path);
+		folderView.suppressFocusScroll = false;
+	}
+
+	Timer {
+		id: focusFollowTimer
+		interval: 60
+		repeat: false
+		onTriggered: folderView.keepFocusInView()
+	}
+
 	// Enter / gamepad accept: toggle the focused item in selection mode, otherwise open it
 	function activateFocused() {
 		const fm = folderView.focusManager;
@@ -419,12 +569,33 @@ Item {
 		folderView.openFocused();
 	}
 
+	// OpenOnClick off: a click moves the cursor to the item instead of opening
+	// it. The view has to own the keyboard first (which registers/activates the
+	// pane), then the pane's focus can be pointed at the clicked item.
+	function focusSlot(path) {
+		const fm = folderView.focusManager;
+		if (!fm || !folderView.directory)
+			return;
+		folderView.forceActiveFocus();
+		if (folderView.paneId <= 0)
+			return;
+		folderView.updateFocusItems();
+		if (fm.set_pane_focus_path(folderView.paneId, path))
+			Qt.callLater(() => folderView.ensureFocusVisible());
+	}
+
 	// Context menu for the focused item, shared by the gamepad menu button and
 	// the Menu key.
 	function openFocusedMenu() {
 		const fm = folderView.focusManager;
 		if (!folderView.focusOwned || !fm || !fm.focus_active || fm.current_pane !== folderView.paneId)
 			return;
+		// An empty slot is part of the folder's background, so its menu is the
+		// folder view's own menu.
+		if (fm.focus_on_empty) {
+			folderView.openDirectoryMenu();
+			return;
+		}
 		const item = itemRepeater.itemAt(fm.focused_index);
 		if (item)
 			folderView.openMenu = item.openContextMenu();
@@ -541,11 +712,20 @@ Item {
 	// positions is refreshed whenever the grid is recomputed.
 	onGridMetricsChanged: {
 		const metrics = folderView.gridMetrics;
-		if (!metrics.free)
+		const fm = folderView.focusManager;
+		if (!fm || folderView.paneId <= 0)
 			return;
+		if (metrics.free)
+			fm.set_pane_positions(folderView.paneId, JSON.stringify(metrics.slots));
+		fm.set_pane_grid(folderView.paneId, metrics.columns, metrics.rows);
+		fm.set_pane_empty_slots(folderView.paneId, folderView.focusEmptySlots);
+	}
+
+	// Toggling FocusEmptySlots takes effect immediately.
+	onFocusEmptySlotsChanged: {
 		const fm = folderView.focusManager;
 		if (fm && folderView.paneId > 0)
-			fm.set_pane_positions(folderView.paneId, JSON.stringify(metrics.slots));
+			fm.set_pane_empty_slots(folderView.paneId, folderView.focusEmptySlots);
 	}
 
 	Connections {
@@ -553,10 +733,11 @@ Item {
 		function onFocus_changed() {
 			const fm = folderView.focusManager;
 			// A focus sound on every cursor move, but only when the cursor really
-			// moved: focus_changed also fires for pane / active changes.
-			if (fm && fm.focus_active && fm.current_pane === folderView.paneId) {
+			// moved: focus_changed also fires for pane / active changes, and a
+			// scroll-follow cursor move should stay quiet.
+			if (fm && fm.current_pane === folderView.paneId) {
 				const path = String(fm.focused_path);
-				if (path !== folderView.lastFocusSoundPath) {
+				if (path !== "" && path !== folderView.lastFocusSoundPath && !folderView.suppressFocusScroll) {
 					folderView.lastFocusSoundPath = path;
 					folderView.playSound("item-focus");
 				}
@@ -566,10 +747,13 @@ Item {
 			if (fm && folderView.rootWindow && fm.current_pane === folderView.paneId)
 				folderView.rootWindow.focusedFolderView = folderView;
 			// Follow the cursor when it moves into this pane, but never take the
-			// keyboard back from an open popup.
-			if (fm && fm.view_focused && fm.current_pane === folderView.paneId && !folderView.activeFocus)
+			// keyboard back from an open popup or a dialog that has taken it.
+			if (fm && fm.view_focused && fm.current_pane === folderView.paneId && !folderView.activeFocus
+				&& !(folderView.Window.window && folderView.Window.window.activeFocusItem))
 				folderView.forceActiveFocus();
-			if (folderView.focusOwned && fm && fm.current_pane === folderView.paneId)
+			// A scroll-follow move must not trigger the focus-driven scroll that
+			// would yank the view back to the cursor.
+			if (folderView.focusOwned && fm && fm.current_pane === folderView.paneId && !folderView.suppressFocusScroll)
 				folderView.ensureFocusVisible();
 		}
 		function onAccept_requested() {
@@ -1379,6 +1563,10 @@ Item {
 		property: "contentY"
 		duration: 180
 		easing.type: Easing.OutCubic
+		onRunningChanged: {
+			if (!running && !focusScrollX.running)
+				folderView.focusScrollAnimating = false;
+		}
 	}
 
 	NumberAnimation {
@@ -1387,6 +1575,10 @@ Item {
 		property: "contentX"
 		duration: 180
 		easing.type: Easing.OutCubic
+		onRunningChanged: {
+			if (!running && !focusScrollY.running)
+				folderView.focusScrollAnimating = false;
+		}
 	}
 
 	Flickable {
@@ -1492,20 +1684,28 @@ Item {
 		onContentYChanged: {
 			folderView.scheduleThumbnails();
 			flickable.tickAxis("y");
+			folderView.scheduleFocusFollow();
 		}
 		onContentXChanged: {
 			folderView.scheduleThumbnails();
 			flickable.tickAxis("x");
+			folderView.scheduleFocusFollow();
 		}
 
+		// The panel is touch-only, so use the touch presentation of the bar (a
+		// thin, auto-hiding handle with no groove) from the start. The style
+		// otherwise picks it only after the first touch, showing the full desktop
+		// bar until then.
 		ScrollBar.vertical: ScrollBar {
 			id: verticalScrollBar
+			interactive: false
 			policy: size < 1.0 ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
 			z: 2
 		}
 
 		ScrollBar.horizontal: ScrollBar {
 			id: horizontalScrollBar
+			interactive: false
 			policy: size < 1.0 ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
 			z: 2
 		}
@@ -1543,6 +1743,67 @@ Item {
 				opacity: 0.35
 				border.color: Kirigami.Theme.highlightColor
 				border.width: 2
+			}
+
+			// An empty free-placement cell has no item to draw the focus border,
+			// so it is drawn here from the focused cell.
+			Item {
+				id: emptyFocusIndicator
+				z: 2
+				readonly property var fm: folderView.focusManager
+				readonly property var metrics: folderView.gridMetrics
+				readonly property bool shown: folderView.focusOwned
+					&& emptyFocusIndicator.fm
+					&& emptyFocusIndicator.fm.focus_active
+					&& emptyFocusIndicator.fm.focus_on_empty
+					&& emptyFocusIndicator.fm.current_pane === folderView.paneId
+				visible: shown
+				x: emptyFocusIndicator.fm
+					? emptyFocusIndicator.metrics.offsetX + emptyFocusIndicator.fm.focused_column * (emptyFocusIndicator.metrics.itemWidth + emptyFocusIndicator.metrics.gap)
+					: 0
+				y: emptyFocusIndicator.fm
+					? emptyFocusIndicator.metrics.offsetY + emptyFocusIndicator.fm.focused_row * (emptyFocusIndicator.metrics.itemHeight + emptyFocusIndicator.metrics.gap)
+					: 0
+				width: emptyFocusIndicator.metrics.itemWidth
+				height: emptyFocusIndicator.metrics.itemHeight
+
+				readonly property real cornerSize: Math.max(10, Math.round(Math.min(width, height) * 0.3))
+
+				Image {
+					anchors.left: parent.left
+					anchors.top: parent.top
+					width: emptyFocusIndicator.cornerSize
+					height: emptyFocusIndicator.cornerSize
+					source: folderView.focusBorderSource + "-0.svg"
+					smooth: true
+				}
+
+				Image {
+					anchors.right: parent.right
+					anchors.top: parent.top
+					width: emptyFocusIndicator.cornerSize
+					height: emptyFocusIndicator.cornerSize
+					source: folderView.focusBorderSource + "-1.svg"
+					smooth: true
+				}
+
+				Image {
+					anchors.right: parent.right
+					anchors.bottom: parent.bottom
+					width: emptyFocusIndicator.cornerSize
+					height: emptyFocusIndicator.cornerSize
+					source: folderView.focusBorderSource + "-2.svg"
+					smooth: true
+				}
+
+				Image {
+					anchors.left: parent.left
+					anchors.bottom: parent.bottom
+					width: emptyFocusIndicator.cornerSize
+					height: emptyFocusIndicator.cornerSize
+					source: folderView.focusBorderSource + "-3.svg"
+					smooth: true
+				}
 			}
 
 			Repeater {

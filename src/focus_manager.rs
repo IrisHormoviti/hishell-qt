@@ -8,9 +8,12 @@ use std::sync::Mutex;
 
 const FOCUS_BORDER_SVG: &str = include_str!("../theme/default/focus-border.svg");
 
-/// File the top screen polls for the focused item. Rewritten atomically on
-/// every change; clam-topscreen renders its icon and title (DS-style).
-const FOCUS_FILE: &str = "/tmp/clam-topscreen/focus.json";
+/// File the host polls for the focused item, from `HISHELL_SESSION_FOCUS`.
+/// Rewritten atomically on every change; the host (e.g. a top screen) renders
+/// its icon and title.
+fn focus_file() -> String {
+	crate::session::focus_file()
+}
 
 static BORDER_SOURCES: Lazy<Mutex<HashMap<String, String>>> =
 	Lazy::new(|| Mutex::new(HashMap::new()));
@@ -29,6 +32,83 @@ fn focus_border_svg() -> String {
 	}
 
 	FOCUS_BORDER_SVG.to_string()
+}
+
+/// The `<path>` element for one corner of the focus border, as SVG markup.
+///
+/// The border is drawn from the four `<path>` elements in the asset, in the
+/// order they appear once `<defs>` is skipped: top-left, top-right,
+/// bottom-right, bottom-left — the same order as [`CORNERS`]. Each element is
+/// taken verbatim (its `d`, `transform`, fill and stroke as authored), so the
+/// art can be filled or stroked and freely transformed; only the colour is
+/// substituted. The constant [`CORNER_PATHS`] is used when the asset has no
+/// usable outlines, so the border never disappears.
+fn corner_elements(source: &str) -> Vec<String> {
+	let body = strip_defs(source);
+	let mut elements = Vec::new();
+	let mut rest = body.as_str();
+	while let Some(start) = rest.find("<path") {
+		let after = &rest[start..];
+		let Some(end) = after.find('>') else {
+			break;
+		};
+		let element = &after[..end + 1];
+		if element.contains("d=\"") {
+			elements.push(element.to_string());
+		}
+		rest = &after[end + 1..];
+		if elements.len() == 4 {
+			break;
+		}
+	}
+	if elements.len() == 4 {
+		elements
+	} else {
+		CORNER_PATHS.iter().map(|s| s.to_string()).collect()
+	}
+}
+
+/// Drop the `<defs>...</defs>` section, where an editor keeps its named
+/// gradients and path effects (they are not part of the drawing).
+fn strip_defs(source: &str) -> String {
+	let mut out = String::with_capacity(source.len());
+	let mut rest = source;
+	while let Some(start) = rest.find("<defs") {
+		out.push_str(&rest[..start]);
+		let after = &rest[start..];
+		match after.find("</defs>") {
+			Some(end) => rest = &after[end + "</defs>".len()..],
+			None => return out,
+		}
+	}
+	out.push_str(rest);
+	out
+}
+
+/// Give a corner element the theme colour: an authored white/black fill or
+/// stroke is replaced. An outline the asset left with no paint at all (a plain
+/// `<path>` carrying only `d`, with the colour on a parent group) is stroked in
+/// the colour instead, so both filled and stroked art follow the highlight.
+fn paint(element: &str, color: &str) -> String {
+	let mut text = element.to_string();
+	for from in ["#ffffff", "#fff", "#000000", "#000", "white", "black"] {
+		text = text.replace(from, color);
+	}
+	let painted = text.contains("fill=\"")
+		|| text.contains("stroke=\"")
+		|| text.contains("fill:")
+		|| text.contains("stroke:");
+	if !painted {
+		text = text.replacen(
+			"<path",
+			&format!(
+				"<path fill=\"none\" stroke=\"{color}\" stroke-width=\"7.5\" \
+				 stroke-linecap=\"butt\" stroke-linejoin=\"bevel\""
+			),
+			1,
+		);
+	}
+	text
 }
 
 fn write_border_asset(color: &str) -> Option<String> {
@@ -53,6 +133,7 @@ fn write_border_asset(color: &str) -> Option<String> {
 	// the same coordinate space as the rasterised sourceSize, which is not the
 	// case once the device pixel ratio is not 1 (e.g. under QT_SCALE_FACTOR): the
 	// clip then only grabbed a fraction of the art and drew broken corners.
+	let elements = corner_elements(&source);
 	for (index, (x, y)) in CORNERS.iter().enumerate() {
 		let path = prefix.with_file_name(format!(
 			"{}-{}.svg",
@@ -60,14 +141,13 @@ fn write_border_asset(color: &str) -> Option<String> {
 			index
 		));
 		if !path.exists() {
+			let element = paint(&elements[index], color);
 			let corner = format!(
 				"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
 				 <svg xmlns=\"http://www.w3.org/2000/svg\" width=\"32\" height=\"32\" \
 				 viewBox=\"{x} {y} 32 32\" fill=\"none\">\n\
-				 <path d=\"{d}\" stroke=\"{color}\" stroke-width=\"7.5\" \
-				 stroke-linecap=\"butt\" stroke-linejoin=\"bevel\" />\n\
+				 {element}\n\
 				 </svg>\n",
-				d = CORNER_PATHS[index],
 			);
 			fs::write(&path, corner).ok()?;
 		}
@@ -96,6 +176,16 @@ struct Pane {
 	// Visual grid cell of every path, set for free-placement views; empty for
 	// the implicit row-major layouts.
 	positions: Vec<(i32, i32)>,
+	// Free-placement cursor cell (column, row). Free placement can have empty
+	// cells, and with FocusEmptySlots the cursor may rest on one, so the cursor
+	// is tracked by cell: `index` is the item occupying it, or -1 for an empty
+	// cell. None outside free placement.
+	cursor: Option<(i32, i32)>,
+	// Extent of the free-placement grid, so empty cells can be navigated.
+	grid_columns: i32,
+	grid_rows: i32,
+	// Whether the cursor may stop on an empty cell (FocusEmptySlots).
+	empty_slots: bool,
 	index: i32,
 	active: bool,
 	columns: i32,
@@ -115,6 +205,49 @@ impl Pane {
 	/// Whether every path has a visual position to navigate by.
 	fn has_positions(&self) -> bool {
 		!self.positions.is_empty() && self.positions.len() == self.paths.len()
+	}
+
+	/// Item occupying a free-placement cell, or -1 when the cell is empty.
+	fn item_at_cell(&self, column: i32, row: i32) -> i32 {
+		self.positions
+			.iter()
+			.position(|&(c, r)| c == column && r == row)
+			.map_or(-1, |index| index as i32)
+	}
+
+	/// The cursor cell in free placement, falling back to the focused item's.
+	fn cursor_cell(&self) -> (i32, i32) {
+		if let Some(cell) = self.cursor {
+			return cell;
+		}
+		if self.has_positions() {
+			let index = self.index.max(0) as usize;
+			return self.positions.get(index).copied().unwrap_or((0, 0));
+		}
+		(0, 0)
+	}
+
+	/// The cursor is resting on an empty free-placement cell.
+	fn on_empty_slot(&self) -> bool {
+		self.has_positions() && self.empty_slots && self.index < 0 && self.cursor.is_some()
+	}
+
+	/// Point the cursor at a free-placement cell: focus the item there when one
+	/// exists, otherwise rest on the empty cell.
+	fn place_cursor(&mut self, column: i32, row: i32) {
+		self.cursor = Some((column, row));
+		self.index = self.item_at_cell(column, row);
+		self.active = true;
+	}
+
+	/// Keep the cursor cell in step with the focused item.
+	fn sync_cursor_to_index(&mut self) {
+		if self.has_positions()
+			&& self.index >= 0
+			&& let Some(cell) = self.positions.get(self.index as usize)
+		{
+			self.cursor = Some(*cell);
+		}
 	}
 
 	fn path(&self) -> String {
@@ -176,12 +309,19 @@ impl Pane {
 		if count == 0 {
 			return (0, 0);
 		}
-		let index = self.index.clamp(0, count - 1);
 		if self.has_positions() {
+			// An empty-cell cursor has no index; report its cell.
+			if let Some((column, row)) = self.cursor
+				&& self.index < 0
+			{
+				return (row, column);
+			}
+			let index = self.index.clamp(0, count - 1);
 			let (column, row) = self.positions[index as usize];
 			return (row, column);
 		}
 		let stride = self.columns.max(1);
+		let index = self.index.clamp(0, count - 1);
 		if self.horizontal {
 			(index % stride, index / stride)
 		} else {
@@ -229,6 +369,11 @@ pub struct FocusManager {
 	focused_path: qt_property!(String; NOTIFY focus_changed),
 	item_count: qt_property!(i32; NOTIFY focus_changed),
 	grid_columns: qt_property!(i32; NOTIFY focus_changed),
+	// Free-placement cursor cell, exposed so QML can draw the focus border on an
+	// empty cell (where there is no item to highlight).
+	focus_on_empty: qt_property!(bool; NOTIFY focus_changed),
+	focused_column: qt_property!(i32; NOTIFY focus_changed),
+	focused_row: qt_property!(i32; NOTIFY focus_changed),
 	focus_status: qt_property!(String; NOTIFY focus_changed),
 	window: qt_property!(QVariant),
 	view_focused: qt_property!(bool; NOTIFY focus_changed),
@@ -238,6 +383,10 @@ pub struct FocusManager {
 	/// it until the wrapper reveals the app, and the gamepad polling stops so
 	/// the guest gets the buttons and no shell sounds leak into the game.
 	suspended: qt_property!(bool; NOTIFY suspended_changed),
+	/// True at the reveal moment, a beat before `hidden`: QML fades its launch
+	/// wash out to black so the panel is black before it is handed to the app
+	/// (an app that uses only one screen leaves this panel showing nothing).
+	revealed: qt_property!(bool; NOTIFY suspended_changed),
 	/// True once the wrapper revealed the guest: QML unmaps the window until
 	/// the guest exits. Without the ClamOS wrapper neither marker ever exists
 	/// and the shell behaves exactly as before.
@@ -246,6 +395,9 @@ pub struct FocusManager {
 	/// the way back from an app the shell shows it for a moment and fades to
 	/// its own UI, so the panel never jumps. Empty when there is none.
 	return_frame_url: qt_property!(QUrl; NOTIFY suspended_changed),
+	/// Bumped whenever the set of items whose app is suspended changes, so QML
+	/// re-evaluates the per-item "active" marks.
+	active_revision: qt_property!(i32; NOTIFY suspended_changed),
 
 	focus_changed: qt_signal!(),
 	suspended_changed: qt_signal!(),
@@ -265,6 +417,9 @@ pub struct FocusManager {
 	// restores it).
 	pending_focus: Option<String>,
 	restore_loaded: bool,
+	// Items whose app is currently suspended, refreshed when the session
+	// markers change (which is exactly when the set can change).
+	active_items: Vec<String>,
 
 	register_pane: qt_method!(
 		fn register_pane(&mut self) -> i32 {
@@ -313,14 +468,20 @@ pub struct FocusManager {
 			if pane.paths.is_empty() {
 				pane.active = false;
 				pane.index = -1;
+				pane.cursor = None;
 			} else {
 				let count = pane.count();
+				let was_empty = pane.index < 0 && pane.cursor.is_some();
 				let preserved = pane.paths.iter().position(|path| *path == previous_path);
 				pane.index = match preserved {
 					Some(index) => index as i32,
+					None if was_empty => -1,
 					None => pane.index.clamp(0, count - 1),
 				};
 				pane.active = was_active;
+				if pane.index >= 0 {
+					pane.sync_cursor_to_index();
+				}
 			}
 
 			self.sync();
@@ -360,6 +521,54 @@ pub struct FocusManager {
 					pane.positions.push((column, row));
 				}
 			}
+
+			if pane.index >= 0 {
+				pane.sync_cursor_to_index();
+			} else if let Some((column, row)) = pane.cursor {
+				// An empty-cell cursor follows the grid when it shrinks.
+				pane.cursor = Some((
+					column.clamp(0, (pane.grid_columns - 1).max(0)),
+					row.clamp(0, (pane.grid_rows - 1).max(0)),
+				));
+			}
+		}
+	),
+
+	set_pane_grid: qt_method!(
+		fn set_pane_grid(&mut self, id: i32, columns: i32, rows: i32) {
+			let Some(pane) = self.pane_mut(id) else {
+				return;
+			};
+			pane.grid_columns = columns.max(1);
+			pane.grid_rows = rows.max(1);
+			if let Some((column, row)) = pane.cursor {
+				pane.cursor = Some((
+					column.min(pane.grid_columns - 1),
+					row.min(pane.grid_rows - 1),
+				));
+			}
+			self.sync();
+		}
+	),
+
+	set_pane_empty_slots: qt_method!(
+		fn set_pane_empty_slots(&mut self, id: i32, enabled: bool) {
+			let Some(pane) = self.pane_mut(id) else {
+				return;
+			};
+			if pane.empty_slots == enabled {
+				return;
+			}
+			pane.empty_slots = enabled;
+			if enabled {
+				pane.sync_cursor_to_index();
+			} else if pane.index < 0 {
+				// Turning empty slots off while resting on one: fall back to the
+				// first item.
+				pane.index = if pane.count() > 0 { 0 } else { -1 };
+				pane.sync_cursor_to_index();
+			}
+			self.sync();
 		}
 	),
 
@@ -436,6 +645,7 @@ pub struct FocusManager {
 			if let Some(pane) = self.pane_mut(id) {
 				pane.active = false;
 				pane.index = -1;
+				pane.cursor = None;
 			}
 			self.sync();
 		}
@@ -483,6 +693,15 @@ pub struct FocusManager {
 		}
 	),
 
+	/// Whether the item has an app that is currently suspended — the file view
+	/// marks those. QML re-evaluates this when `active_revision` changes.
+	is_item_active: qt_method!(
+		fn is_item_active(&self, path: String) -> bool {
+			let path = path.to_string();
+			self.active_items.iter().any(|item| *item == path)
+		}
+	),
+
 	poll_gamepad: qt_method!(
 		fn poll_gamepad(&mut self) {
 			// While a guest owns the panels the shell is suspended: report the
@@ -490,16 +709,26 @@ pub struct FocusManager {
 			// and stop consuming the buttons, so the app gets them and no
 			// shell sounds leak into the game.
 			let suspended = crate::session::suspended();
+			let revealed = crate::session::revealed();
 			let hidden = crate::session::hidden();
 			let return_frame = bottom_shot_url();
 			if suspended != self.suspended
+				|| revealed != self.revealed
 				|| hidden != self.hidden
 				|| return_frame != self.return_frame_url
 			{
 				let was_paused = self.suspended || self.hidden;
 				self.suspended = suspended;
+				self.revealed = revealed;
 				self.hidden = hidden;
 				self.return_frame_url = return_frame;
+				// The suspended set can only change with the markers, so this is
+				// the cheap place to refresh the per-item "active" marks.
+				let active = crate::launch::active_items();
+				if active != self.active_items {
+					self.active_items = active;
+					self.active_revision += 1;
+				}
 				self.suspended_changed();
 
 				// Coming back from a guest: everything pressed while it owned
@@ -607,15 +836,26 @@ impl FocusManager {
 		let current = self.current;
 		let keyboard = self.panes.iter().any(|(_, pane)| pane.keyboard);
 
-		let (active, index, path, count, columns) = match self.pane(current) {
-			Some(pane) => (
-				pane.active && pane.index >= 0,
-				pane.index,
-				pane.path(),
-				pane.count(),
-				pane.columns.max(1),
-			),
-			None => (false, -1, String::new(), 0, 1),
+		let (active, index, path, count, columns, column, row, on_empty) = match self.pane(current) {
+			Some(pane) => {
+				let on_empty = pane.on_empty_slot();
+				let (column, row) = if on_empty {
+					pane.cursor.map_or((-1, -1), |(c, r)| (c, r))
+				} else {
+					(-1, -1)
+				};
+				(
+					pane.active && (pane.index >= 0 || on_empty),
+					pane.index,
+					pane.path(),
+					pane.count(),
+					pane.columns.max(1),
+					column,
+					row,
+					on_empty,
+				)
+			}
+			None => (false, -1, String::new(), 0, 1, -1, -1, false),
 		};
 
 		self.focus_active = active;
@@ -623,6 +863,9 @@ impl FocusManager {
 		self.focused_path = path;
 		self.item_count = count;
 		self.grid_columns = columns;
+		self.focus_on_empty = on_empty;
+		self.focused_column = column;
+		self.focused_row = row;
 		self.current_pane = current;
 		self.view_focused = keyboard;
 
@@ -654,7 +897,7 @@ impl FocusManager {
 			let icon = thumbnail.unwrap_or_else(|| crate::directory::get_icon(&path));
 			(crate::directory::get_item_title(Path::new(&path)), icon)
 		};
-		let document = serde_json::json!({ "title": title, "icon": icon }).to_string();
+		let document = serde_json::json!({ "title": title, "icon": icon, "path": path }).to_string();
 		// Persist the cursor so returning from a guest — or any restart —
 		// lands on the same item. Empty focus keeps the previous one.
 		crate::session::save_focus(&path);
@@ -663,13 +906,17 @@ impl FocusManager {
 		}
 		self.published_focus = document.clone();
 
-		if let Some(parent) = Path::new(FOCUS_FILE).parent() {
+		let target = focus_file();
+		if target.is_empty() {
+			return;
+		}
+		if let Some(parent) = Path::new(&target).parent() {
 			let _ = fs::create_dir_all(parent);
 		}
 		// Write-and-rename so a poll never sees a half-written file.
-		let temporary = Path::new("/tmp/clam-topscreen/focus.json.tmp");
-		if fs::write(temporary, document).is_ok() {
-			let _ = fs::rename(temporary, FOCUS_FILE);
+		let temporary = PathBuf::from(format!("{target}.tmp"));
+		if fs::write(&temporary, document).is_ok() {
+			let _ = fs::rename(&temporary, target);
 		}
 	}
 
@@ -739,6 +986,7 @@ impl FocusManager {
 		}
 		pane.index = index.clamp(0, count - 1);
 		pane.active = true;
+		pane.sync_cursor_to_index();
 		self.sync();
 	}
 
@@ -757,6 +1005,14 @@ impl FocusManager {
 		if !pane.active {
 			// The first directional input reveals the focus where it already
 			// sits instead of moving it right away.
+			if pane.on_empty_slot() {
+				let (column, row) = pane.cursor_cell();
+				if let Some(entry) = self.pane_mut(current_id) {
+					entry.place_cursor(column, row);
+				}
+				self.sync();
+				return true;
+			}
 			let index = pane.index.max(0);
 			self.set_index(current_id, index);
 			return true;
@@ -764,7 +1020,37 @@ impl FocusManager {
 
 		let stride = pane.columns.max(1);
 		let index = pane.index.clamp(0, count - 1);
-		let target = if pane.has_positions() {
+
+		// Free placement with empty slots moves cell by cell, so the cursor can
+		// rest on an empty cell. Falling off the grid hands off to a neighbour
+		// below, the same as any other grid edge.
+		let free_empty = pane.has_positions() && pane.empty_slots;
+		if free_empty {
+			let (column, row) = pane.cursor_cell();
+			let (next_column, next_row) = match direction {
+				"right" => (column + 1, row),
+				"left" => (column - 1, row),
+				"down" => (column, row + 1),
+				"up" => (column, row - 1),
+				_ => (column, row),
+			};
+			if next_column >= 0
+				&& next_row >= 0
+				&& next_column < pane.grid_columns
+				&& next_row < pane.grid_rows
+				&& (next_column, next_row) != (column, row)
+			{
+				if let Some(entry) = self.pane_mut(current_id) {
+					entry.place_cursor(next_column, next_row);
+				}
+				self.sync();
+				return true;
+			}
+		}
+
+		let target = if free_empty {
+			index
+		} else if pane.has_positions() {
 			nearest_in_direction(&pane.positions, index as usize, direction)
 				.map_or(index, |target| target as i32)
 		} else if pane.horizontal {
@@ -840,8 +1126,9 @@ impl FocusManager {
 		};
 
 		if target != index {
-			if let Some(pane) = self.pane_mut(current_id) {
-				pane.index = target;
+			if let Some(entry) = self.pane_mut(current_id) {
+				entry.index = target;
+				entry.sync_cursor_to_index();
 			}
 			self.sync();
 			return true;
@@ -902,12 +1189,15 @@ impl FocusManager {
 	}
 }
 
-/// The guest's last bottom-screen frame as a `file://` URL carrying an mtime
-/// version, so QML reloads it after every app (the path itself never changes).
-/// Empty when the wrapper has not written one yet.
+/// The host's return frame (the app's last bottom-screen frame) as a `file://`
+/// URL carrying an mtime version, so QML reloads it after every app (the path
+/// itself never changes). Empty when the host has not written one.
 fn bottom_shot_url() -> QUrl {
-	const PATH: &str = "/home/root/.cache/clam-topscreen/last-app-bottom.png";
-	let Ok(metadata) = fs::metadata(PATH) else {
+	let path = crate::session::return_frame_path();
+	if path.is_empty() {
+		return QUrl::from(QString::from(""));
+	}
+	let Ok(metadata) = fs::metadata(&path) else {
 		return QUrl::from(QString::from(""));
 	};
 	let version = metadata
@@ -916,7 +1206,7 @@ fn bottom_shot_url() -> QUrl {
 		.and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
 		.map(|elapsed| elapsed.as_millis())
 		.unwrap_or(0);
-	QUrl::from(QString::from(format!("file://{PATH}?v={version}")))
+	QUrl::from(QString::from(format!("file://{path}?v={version}")))
 }
 
 /// Nearest item in the given direction from `index`, by visual grid position.
@@ -987,3 +1277,4 @@ fn qt_key(input: Input) -> Option<i32> {
 		Input::Menu | Input::Directory => None,
 	}
 }
+

@@ -1,64 +1,7 @@
-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<svg
-   width="64"
-   height="64"
-   viewBox="0 0 64 64"
-   fill="none"
-   version="1.1"
-   id="svg4"
-   sodipodi:docname="focus-border.svg"
-   inkscape:version="1.4.4 (dcaf3e7d9e, 2026-05-05)"
-   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
-   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
-   xmlns="http://www.w3.org/2000/svg"
-   xmlns:svg="http://www.w3.org/2000/svg">
-  <defs
-     id="defs4" />
-  <sodipodi:namedview
-     id="namedview4"
-     pagecolor="#ffffff"
-     bordercolor="#000000"
-     borderopacity="0.25"
-     inkscape:showpageshadow="2"
-     inkscape:pageopacity="0.0"
-     inkscape:pagecheckerboard="true"
-     inkscape:deskcolor="#d1d1d1"
-     inkscape:export-bgcolor="#777777ff"
-     inkscape:zoom="9.3046873"
-     inkscape:cx="22.891688"
-     inkscape:cy="15.368598"
-     inkscape:window-width="1627"
-     inkscape:window-height="1219"
-     inkscape:window-x="0"
-     inkscape:window-y="0"
-     inkscape:window-maximized="0"
-     inkscape:current-layer="svg4" />
-  <g
-     stroke="#ffffff"
-     stroke-width="5"
-     stroke-linecap="round"
-     stroke-linejoin="round"
-     id="g4"
-     style="stroke-width:10;stroke-dasharray:none;stroke-linejoin:bevel;stroke-linecap:butt;paint-order:normal">
-    <path
-       d="M 8,27.744298 V 14 c 0,-4 2.000431,-6.0587208 6,-6 l 10.352255,0.1519897"
-       id="path1"
-       sodipodi:nodetypes="cssc"
-       style="stroke-width:7.5;stroke-linecap:butt;stroke-linejoin:bevel;stroke-dasharray:none;paint-order:normal" />
-    <path
-       d="M 36.407692,8 H 50 c 4,0 5.977762,2.000062 6,6 l 0.07599,13.668303"
-       id="path2"
-       sodipodi:nodetypes="cssc"
-       style="stroke-width:7.5;stroke-linecap:butt;stroke-linejoin:bevel;stroke-dasharray:none;paint-order:normal" />
-    <path
-       d="M 56,37.319628 V 50 c 0,4 -2,6 -6,6 H 36.255702"
-       id="path3"
-       sodipodi:nodetypes="cssc"
-       style="stroke-width:7.5;stroke-linecap:butt;stroke-linejoin:bevel;stroke-dasharray:none;paint-order:normal" />
-    <path
-       d="M 24.048277,56 H 14 C 10,56 8,54 8,50 V 37.319627"
-       id="path4"
-       sodipodi:nodetypes="cssc"
-       style="stroke-width:7.5;stroke-linecap:butt;stroke-linejoin:bevel;stroke-dasharray:none;paint-order:normal" />
-  </g>
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <path fill="#ffffff" transform="matrix(0 1.4463 -1.3488 0 83.577 -6.1241)" d="m7 45v5c0 2.625 0.11612 5.1161 2 7 1.8839 1.8839 4 2 6 2h5a0.82843 0.82843 112.5 0 0 0.58579-1.4142l-3.2288-3.2288c-0.19714-0.19714-0.58296-0.35645-0.86175-0.35763-1.671-0.007044-2.5831-0.087203-3.4952-0.99932-0.88129-0.88129-0.98591-2.5393-0.99833-4.2894-0.002785-0.39244-0.22685-0.93576-0.50461-1.2135l-3.0828-3.0828a0.82843 0.82843 157.5 0 0-1.4142 0.58579z"/>
+  <path fill="#ffffff" transform="matrix(-1.4463 0 0 -1.3488 70.124 83.577)" d="m7 45v5c0 2.625 0.11612 5.1161 2 7 1.8839 1.8839 4 2 6 2h5a0.82843 0.82843 112.5 0 0 0.58579-1.4142l-3.2288-3.2288c-0.19714-0.19714-0.58296-0.35645-0.86175-0.35763-1.671-0.007044-2.5831-0.087203-3.4952-0.99932-0.88129-0.88129-0.98591-2.5393-0.99833-4.2894-0.002785-0.39244-0.22685-0.93576-0.50461-1.2135l-3.0828-3.0828a0.82843 0.82843 157.5 0 0-1.4142 0.58579z"/>
+  <path fill="#ffffff" transform="matrix(0 -1.4463 1.3488 0 -19.577 70.124)" d="m7 45v5c0 2.625 0.11612 5.1161 2 7 1.8839 1.8839 4 2 6 2h5a0.82843 0.82843 112.5 0 0 0.58579-1.4142l-3.2288-3.2288c-0.19714-0.19714-0.58296-0.35645-0.86175-0.35763-1.671-0.007044-2.5831-0.087203-3.4952-0.99932-0.88129-0.88129-0.98591-2.5393-0.99833-4.2894-0.002785-0.39244-0.22685-0.93576-0.50461-1.2135l-3.0828-3.0828a0.82843 0.82843 157.5 0 0-1.4142 0.58579z"/>
+  <path fill="#ffffff" transform="matrix(1.4463 0 0 1.3488 -6.1241 -19.577)" d="m7 45v5c0 2.625 0.11612 5.1161 2 7 1.8839 1.8839 4 2 6 2h5a0.82843 0.82843 112.5 0 0 0.58579-1.4142l-3.2288-3.2288c-0.19714-0.19714-0.58296-0.35645-0.86175-0.35763-1.671-0.007044-2.5831-0.087203-3.4952-0.99932-0.88129-0.88129-0.98591-2.5393-0.99833-4.2894-0.002785-0.39244-0.22685-0.93576-0.50461-1.2135l-3.0828-3.0828a0.82843 0.82843 157.5 0 0-1.4142 0.58579z"/>
 </svg>

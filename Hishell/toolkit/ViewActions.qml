@@ -55,6 +55,11 @@ QtObject {
 
 	readonly property bool centerFocus: viewActions.config ? viewActions.config.center_focus : false
 	readonly property bool smoothScrolling: viewActions.config ? viewActions.config.smooth_scrolling : true
+	readonly property bool openOnClick: viewActions.config ? viewActions.config.open_on_click : true
+	readonly property bool focusEmptySlots: viewActions.config ? viewActions.config.focus_empty_slots : false
+	// Empty grid cells only exist in free placement, which is where FocusEmptySlots
+	// can have any effect.
+	readonly property bool freePlacement: viewActions.config ? (viewActions.config.sort === 3 && viewActions.config.view_mode === 0) : false
 
 	readonly property string wallpaper: viewActions.config ? String(viewActions.config.wallpaper) : ""
 	readonly property bool stashShown: viewActions.config ? viewActions.config.stash_shown : false

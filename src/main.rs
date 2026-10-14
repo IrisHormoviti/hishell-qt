@@ -10,6 +10,7 @@ mod focus_manager;
 mod gamepad;
 mod image_utils;
 mod kde_bridge;
+mod launch;
 mod path_utils;
 mod selection_manager;
 mod session;
@@ -131,6 +132,7 @@ fn main() {
 			"FileSlot.qml",
 			"FolderView.qml",
 			"LayoutEngine.qml",
+			"LaunchConfirmDialog.qml",
 			"OpenWithDialog.qml",
 			"ShellContextMenu.qml",
 			"ShellWindow.qml",

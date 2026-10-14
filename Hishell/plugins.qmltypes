@@ -120,149 +120,6 @@ Module {
 		}
 	}
 	Component {
-		name: "FileManager"
-		prototype: "QObject"
-		exports: ["Hishell/FileManager 1.0"]
-		exportMetaObjectRevisions: [256]
-
-		Method {
-			name: "copy_file"
-			type: "bool"
-			Parameter { name: "source"; type: "string" }
-			Parameter { name: "dest"; type: "string" }
-		}
-		Method {
-			name: "duplicate_file"
-			type: "bool"
-			Parameter { name: "source"; type: "string" }
-		}
-		Method {
-			name: "new_folder"
-			type: "bool"
-			Parameter { name: "parent"; type: "string" }
-		}
-		Method {
-			name: "new_text_file"
-			type: "bool"
-			Parameter { name: "parent"; type: "string" }
-		}
-		Method {
-			name: "create_link"
-			type: "bool"
-			Parameter { name: "source"; type: "string" }
-			Parameter { name: "dest"; type: "string" }
-		}
-		Method {
-			name: "trash_file"
-			type: "bool"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "delete_file"
-			type: "bool"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "rename_file"
-			type: "string"
-			Parameter { name: "path"; type: "string" }
-			Parameter { name: "new_name"; type: "string" }
-		}
-		Method {
-			name: "copy_paths_to_clipboard"
-			type: "bool"
-			Parameter { name: "paths_newline"; type: "string" }
-		}
-		Method {
-			name: "cut_paths_to_clipboard"
-			type: "bool"
-			Parameter { name: "paths_newline"; type: "string" }
-		}
-		Method {
-			name: "paste_from_clipboard"
-			type: "bool"
-			Parameter { name: "dest_dir"; type: "string" }
-		}
-		Method {
-			name: "get_mime_type"
-			type: "string"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "get_text_content"
-			type: "string"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "process_uris_action"
-			type: "bool"
-			Parameter { name: "dest_dir"; type: "string" }
-			Parameter { name: "uris_newline"; type: "string" }
-			Parameter { name: "action"; type: "string" }
-		}
-		Method {
-			name: "open_file"
-			type: "bool"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "get_icon"
-			type: "string"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "start_portal_open_with"
-			type: "bool"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "poll_portal_open_with"
-			type: "int"
-		}
-		Method {
-			name: "get_default_app"
-			type: "string"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "get_open_with_apps"
-			type: "string"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "open_with_app"
-			type: "bool"
-			Parameter { name: "path"; type: "string" }
-			Parameter { name: "app_id"; type: "string" }
-		}
-		Method {
-			name: "set_default_app"
-			type: "bool"
-			Parameter { name: "mime"; type: "string" }
-			Parameter { name: "app_id"; type: "string" }
-		}
-		Method {
-			name: "rotate_image"
-			type: "bool"
-			Parameter { name: "path"; type: "string" }
-			Parameter { name: "degrees"; type: "int" }
-		}
-		Method {
-			name: "is_image_file"
-			type: "bool"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "is_directory"
-			type: "bool"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "get_home_directory"
-			type: "string"
-		}
-	}
-	Component {
 		name: "DragDropHandler"
 		prototype: "QObject"
 		exports: ["Hishell/DragDropHandler 1.0"]
@@ -351,6 +208,8 @@ Module {
 		Property { name: "native_menubar"; type: "bool"; isReadonly: true }
 		Property { name: "native_menus"; type: "bool"; isReadonly: true }
 		Property { name: "native_titlebar"; type: "bool"; isReadonly: true }
+		Property { name: "show_shortcuts"; type: "bool"; isReadonly: true }
+		Property { name: "execution_wrapper"; type: "string"; isReadonly: true }
 		Property { name: "screen_name"; type: "string"; isReadonly: true }
 		Property { name: "maximized"; type: "bool"; isReadonly: true }
 		Property { name: "grid_size"; type: "u16"; isReadonly: true }
@@ -360,6 +219,8 @@ Module {
 		Property { name: "scroll_horizontal"; type: "bool"; isReadonly: true }
 		Property { name: "center_focus"; type: "bool"; isReadonly: true }
 		Property { name: "smooth_scrolling"; type: "bool"; isReadonly: true }
+		Property { name: "open_on_click"; type: "bool"; isReadonly: true }
+		Property { name: "focus_empty_slots"; type: "bool"; isReadonly: true }
 		Property { name: "show_labels"; type: "bool"; isReadonly: true }
 		Property { name: "grid_labels_beside_icons"; type: "bool"; isReadonly: true }
 		Property { name: "label_text"; type: "u8"; isReadonly: true }
@@ -427,7 +288,7 @@ Module {
 		Signal { name: "requestExecutePrompt" }
 		Method {
 			name: "execute_file"
-			type: "void"
+			type: "string"
 			Parameter { name: "path"; type: "string" }
 		}
 		Method {
@@ -442,13 +303,21 @@ Module {
 		}
 		Method {
 			name: "execute_action"
-			type: "void"
+			type: "string"
 			Parameter { name: "path"; type: "string" }
 		}
 		Method {
 			name: "open_path"
-			type: "void"
+			type: "string"
 			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "confirm_launch"
+			type: "bool"
+		}
+		Method {
+			name: "cancel_launch"
+			type: "void"
 		}
 		Method {
 			name: "go_up"
@@ -549,13 +418,18 @@ Module {
 		Property { name: "focused_path"; type: "string"; isReadonly: true }
 		Property { name: "item_count"; type: "int"; isReadonly: true }
 		Property { name: "grid_columns"; type: "int"; isReadonly: true }
+		Property { name: "focus_on_empty"; type: "bool"; isReadonly: true }
+		Property { name: "focused_column"; type: "int"; isReadonly: true }
+		Property { name: "focused_row"; type: "int"; isReadonly: true }
 		Property { name: "focus_status"; type: "string"; isReadonly: true }
 		Property { name: "window"; type: "QVariant"; isReadonly: true }
 		Property { name: "view_focused"; type: "bool"; isReadonly: true }
 		Property { name: "current_pane"; type: "int"; isReadonly: true }
 		Property { name: "suspended"; type: "bool"; isReadonly: true }
+		Property { name: "revealed"; type: "bool"; isReadonly: true }
 		Property { name: "hidden"; type: "bool"; isReadonly: true }
 		Property { name: "return_frame_url"; type: "QUrl"; isReadonly: true }
+		Property { name: "active_revision"; type: "int"; isReadonly: true }
 		Signal { name: "focus_changed" }
 		Signal { name: "suspended_changed" }
 		Signal { name: "accept_requested" }
@@ -590,6 +464,19 @@ Module {
 			type: "void"
 			Parameter { name: "id"; type: "int" }
 			Parameter { name: "positions_json"; type: "string" }
+		}
+		Method {
+			name: "set_pane_grid"
+			type: "void"
+			Parameter { name: "id"; type: "int" }
+			Parameter { name: "columns"; type: "int" }
+			Parameter { name: "rows"; type: "int" }
+		}
+		Method {
+			name: "set_pane_empty_slots"
+			type: "void"
+			Parameter { name: "id"; type: "int" }
+			Parameter { name: "enabled"; type: "bool" }
 		}
 		Method {
 			name: "set_pane_horizontal"
@@ -648,6 +535,11 @@ Module {
 			Parameter { name: "direction"; type: "string" }
 		}
 		Method {
+			name: "is_item_active"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
 			name: "poll_gamepad"
 			type: "void"
 		}
@@ -655,6 +547,168 @@ Module {
 			name: "border_source"
 			type: "string"
 			Parameter { name: "color"; type: "string" }
+		}
+	}
+	Component {
+		name: "FileManager"
+		prototype: "QObject"
+		exports: ["Hishell/FileManager 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Method {
+			name: "copy_file"
+			type: "bool"
+			Parameter { name: "source"; type: "string" }
+			Parameter { name: "dest"; type: "string" }
+		}
+		Method {
+			name: "duplicate_file"
+			type: "bool"
+			Parameter { name: "source"; type: "string" }
+		}
+		Method {
+			name: "new_folder"
+			type: "bool"
+			Parameter { name: "parent"; type: "string" }
+		}
+		Method {
+			name: "new_text_file"
+			type: "bool"
+			Parameter { name: "parent"; type: "string" }
+		}
+		Method {
+			name: "create_link"
+			type: "bool"
+			Parameter { name: "source"; type: "string" }
+			Parameter { name: "dest"; type: "string" }
+		}
+		Method {
+			name: "trash_file"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "delete_file"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "rename_file"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+			Parameter { name: "new_name"; type: "string" }
+		}
+		Method {
+			name: "copy_paths_to_clipboard"
+			type: "bool"
+			Parameter { name: "paths_newline"; type: "string" }
+		}
+		Method {
+			name: "cut_paths_to_clipboard"
+			type: "bool"
+			Parameter { name: "paths_newline"; type: "string" }
+		}
+		Method {
+			name: "paste_from_clipboard"
+			type: "bool"
+			Parameter { name: "dest_dir"; type: "string" }
+		}
+		Method {
+			name: "get_mime_type"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "get_text_content"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "process_uris_action"
+			type: "bool"
+			Parameter { name: "dest_dir"; type: "string" }
+			Parameter { name: "uris_newline"; type: "string" }
+			Parameter { name: "action"; type: "string" }
+		}
+		Method {
+			name: "open_file"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "get_icon"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "get_item_title"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "launch_warning"
+			type: "string"
+			Parameter { name: "blocked_item"; type: "string" }
+			Parameter { name: "launch_item"; type: "string" }
+		}
+		Method {
+			name: "start_portal_open_with"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "poll_portal_open_with"
+			type: "int"
+		}
+		Method {
+			name: "get_default_app"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "get_open_with_apps"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "open_with_app"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+			Parameter { name: "app_id"; type: "string" }
+		}
+		Method {
+			name: "confirm_launch"
+			type: "bool"
+		}
+		Method {
+			name: "cancel_launch"
+			type: "void"
+		}
+		Method {
+			name: "set_default_app"
+			type: "bool"
+			Parameter { name: "mime"; type: "string" }
+			Parameter { name: "app_id"; type: "string" }
+		}
+		Method {
+			name: "rotate_image"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+			Parameter { name: "degrees"; type: "int" }
+		}
+		Method {
+			name: "is_image_file"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "is_directory"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "get_home_directory"
+			type: "string"
 		}
 	}
 }

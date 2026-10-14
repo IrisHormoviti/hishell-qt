@@ -64,18 +64,27 @@ Kirigami.ApplicationWindow {
 		}
 	}
 
-	// ClamOS guest handover (see tools/launch-guest.sh): the wrapper suspends
-	// the shell with a marker file, this window washes out to white and holds
-	// it while the guest boots underneath, and on the wrapper's reveal marker
-	// it unmaps so the app takes the panel. Without the wrapper neither marker
-	// ever exists and this stays inert.
+	// ClamOS guest handover: the app manager suspends the shell with a marker
+	// file, this window washes to white and holds it while the app boots
+	// underneath, then — once the manager has revealed the app — switches to
+	// black and finally unmaps so the app takes the panel. The white marks "the
+	// app is starting"; the black marks "the panel is about to be handed over",
+	// so an app that only uses one screen does not snap from white to nothing.
+	// Without the manager none of the markers ever exist and this stays inert.
 	Connections {
 		target: focusManager
 		function onSuspendedChanged() {
 			root.visible = !focusManager.hidden;
-			// Coming back from an app: start from the app's last bottom frame
-			// (identical pixels) and fade its UI in, so the panel never jumps.
-			if (!focusManager.hidden && String(focusManager.return_frame_url) !== "") {
+			if (focusManager.suspended) {
+				// A new launch is starting: drop any lingering return frame at
+				// once, so the wash fades from the shell rather than the last
+				// app's own frame showing through it.
+				returnFade.stop();
+				returnFrame.opacity = 0;
+			} else if (!focusManager.hidden && String(focusManager.return_frame_url) !== "") {
+				// Coming back from an app: start from the app's last bottom
+				// frame (identical pixels) and fade its UI in, so the panel
+				// never jumps.
 				returnFrame.opacity = 1;
 				returnFade.restart();
 			}
@@ -103,20 +112,40 @@ Kirigami.ApplicationWindow {
 		}
 	}
 
+	// The launch transition: white while the app boots (and holds it), then a
+	// fade out to black once the app is on screen, and finally unmap. White says
+	// "starting"; the black starts over the app (which is already painted
+	// underneath), so an app that only uses one screen leaves this panel fading
+	// to nothing rather than snapping. `holdUp` keeps the window mapped until
+	// the fade has played.
 	Rectangle {
 		id: launchWash
 		anchors.fill: parent
 		z: 1000
 		visible: opacity > 0
-		opacity: focusManager.suspended ? 1 : 0
-		color: "#ffffff"
+		property bool holdUp: false
+		opacity: (focusManager.suspended || holdUp) ? 1 : 0
+		color: holdUp ? "#000000" : "#ffffff"
+		Behavior on color {
+			ColorAnimation { duration: 500; easing.type: Easing.InOutQuad }
+		}
 		Behavior on opacity {
 			NumberAnimation { duration: 400; easing.type: Easing.InQuad }
 		}
 		// The wash also eats input: nothing under it should react while the
-		// guest is taking over.
+		// app is taking over.
 		MouseArea {
 			anchors.fill: parent
+		}
+	}
+
+	// Unmaps the window once the launch fade has played, so the black is seen.
+	Timer {
+		id: unmapTimer
+		interval: 700
+		onTriggered: {
+			launchWash.holdUp = false
+			root.visible = !focusManager.hidden;
 		}
 	}
 
@@ -193,6 +222,26 @@ Kirigami.ApplicationWindow {
 		window: root
 		directory: directory
 		fileManager: fileManager
+	}
+
+	// A launch the execution wrapper held back for confirmation (e.g. it would
+	// close a suspended app) is shown here, naming the apps involved.
+	LaunchConfirmDialog {
+		id: launchConfirm
+		fileManager: root.fileManager
+		window: root
+	}
+
+	function requestLaunchConfirm(blockedItem, launchItem) {
+		launchConfirm.ask(blockedItem, launchItem);
+	}
+
+	// Drop the return frame from a previous app immediately, so a launch that
+	// starts right after a quit does not show that app's frame through the white
+	// wash. Called by the launch sites as the launch begins.
+	function clearReturnFrame() {
+		returnFade.stop();
+		returnFrame.opacity = 0;
 	}
 
 	DragTooltip {
@@ -326,7 +375,11 @@ Kirigami.ApplicationWindow {
 					Button {
 						visible: directory.config.error_file.length > 0
 						text: "Open Config"
-						onClicked: fileManager.open_file(directory.config.error_file)
+						onClicked: {
+							const warning = String(fileManager.open_file(directory.config.error_file));
+							if (warning !== "")
+								root.requestLaunchConfirm(warning, directory.config.error_file);
+						}
 					}
 
 					ToolButton {

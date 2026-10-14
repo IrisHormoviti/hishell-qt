@@ -8,6 +8,8 @@ unsafe extern "C" {
 	fn hishell_open_with_apps(path: *const c_char) -> *const c_char;
 	fn hishell_open_with_launch(storage_id: *const c_char, path: *const c_char) -> bool;
 	fn hishell_open_with_default(path: *const c_char) -> bool;
+	fn hishell_app_command(storage_id: *const c_char) -> *const c_char;
+	fn hishell_default_app_command(path: *const c_char) -> *const c_char;
 	fn hishell_default_app(path: *const c_char) -> *const c_char;
 	fn hishell_rename(path: *const c_char, new_name: *const c_char) -> *const c_char;
 	fn hishell_portal_open_with(path: *const c_char) -> bool;
@@ -128,6 +130,39 @@ pub fn launch(storage_id: &str, path: &str) -> bool {
 		return false;
 	};
 	unsafe { hishell_open_with_launch(storage_id.as_ptr(), path.as_ptr()) }
+}
+
+/// The command behind a desktop entry, as `(exec, entry path)`, or `None` when
+/// it cannot be resolved. Resolved in the backend so the caller can spawn the
+/// application itself, through its execution wrapper.
+pub fn app_command(storage_id: &str) -> Option<(String, String)> {
+	let storage_id = CString::new(storage_id).ok()?;
+	parse_command(unsafe { hishell_app_command(storage_id.as_ptr()) })
+}
+
+/// The command behind the default application for a file, as `(exec, entry
+/// path)`, or `None` when there is no default.
+pub fn default_app_command(path: &str) -> Option<(String, String)> {
+	let path = CString::new(path).ok()?;
+	parse_command(unsafe { hishell_default_app_command(path.as_ptr()) })
+}
+
+fn parse_command(json: *const c_char) -> Option<(String, String)> {
+	if json.is_null() {
+		return None;
+	}
+	let raw = unsafe { CStr::from_ptr(json) }.to_string_lossy();
+	let value: Value = serde_json::from_str(&raw).ok()?;
+	let exec = value.get("exec")?.as_str()?.to_string();
+	if exec.trim().is_empty() {
+		return None;
+	}
+	let path = value
+		.get("path")
+		.and_then(Value::as_str)
+		.unwrap_or_default()
+		.to_string();
+	Some((exec, path))
 }
 
 pub fn open_with_default(path: &str) -> bool {

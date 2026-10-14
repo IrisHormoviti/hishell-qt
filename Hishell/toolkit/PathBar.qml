@@ -395,7 +395,17 @@ RowLayout {
 			FileSlot {
 				id: crumbSlot
 				path: pathBar.pathForIndex(delegateRoot.index)
-				title: delegateRoot.modelData === "/" ? "/" : delegateRoot.modelData
+				// Show the folder's own title (the Name from its .directory)
+				// when it has one, the way the folder view labels it.
+				title: {
+					if (delegateRoot.modelData === "/")
+						return "/";
+					const fm = pathBar.window ? pathBar.window.fileManager : null;
+					if (!fm)
+						return delegateRoot.modelData;
+					const resolved = String(fm.get_item_title(crumbSlot.path));
+					return resolved.length > 0 ? resolved : delegateRoot.modelData;
+				}
 				icon: pathBar.window.fileManager ? pathBar.window.fileManager.get_icon(crumbSlot.path) : ""
 				showIcon: delegateRoot.isCurrent
 				implicitHeight: Kirigami.Units.iconSizes.medium
