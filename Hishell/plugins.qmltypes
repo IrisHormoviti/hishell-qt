@@ -390,6 +390,26 @@ Module {
 		}
 	}
 	Component {
+		name: "Sound"
+		prototype: "QObject"
+		exports: ["Hishell/Sound 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Property { name: "window"; type: "QVariant"; isReadonly: true }
+		Property { name: "enabled"; type: "bool"; isReadonly: true }
+		Signal { name: "enabled_changed" }
+		Method {
+			name: "play"
+			type: "bool"
+			Parameter { name: "event_id"; type: "string" }
+		}
+		Method {
+			name: "set_volume"
+			type: "void"
+			Parameter { name: "factor"; type: "double" }
+		}
+	}
+	Component {
 		name: "Directory"
 		prototype: "QObject"
 		exports: ["Hishell/Directory 1.0"]
@@ -533,7 +553,11 @@ Module {
 		Property { name: "window"; type: "QVariant"; isReadonly: true }
 		Property { name: "view_focused"; type: "bool"; isReadonly: true }
 		Property { name: "current_pane"; type: "int"; isReadonly: true }
+		Property { name: "suspended"; type: "bool"; isReadonly: true }
+		Property { name: "hidden"; type: "bool"; isReadonly: true }
+		Property { name: "return_frame_url"; type: "QUrl"; isReadonly: true }
 		Signal { name: "focus_changed" }
+		Signal { name: "suspended_changed" }
 		Signal { name: "accept_requested" }
 		Signal { name: "cancel_requested" }
 		Signal { name: "menu_requested" }
@@ -631,26 +655,6 @@ Module {
 			name: "border_source"
 			type: "string"
 			Parameter { name: "color"; type: "string" }
-		}
-	}
-	Component {
-		name: "Sound"
-		prototype: "QObject"
-		exports: ["Hishell/Sound 1.0"]
-		exportMetaObjectRevisions: [256]
-
-		Property { name: "window"; type: "QVariant"; isReadonly: true }
-		Property { name: "enabled"; type: "bool"; isReadonly: true }
-		Signal { name: "enabled_changed" }
-		Method {
-			name: "play"
-			type: "bool"
-			Parameter { name: "event_id"; type: "string" }
-		}
-		Method {
-			name: "set_volume"
-			type: "void"
-			Parameter { name: "factor"; type: "double" }
 		}
 	}
 }

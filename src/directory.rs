@@ -649,6 +649,7 @@ impl Directory {
 		}
 
 		self.path_str = abs_str.clone();
+		crate::session::save_path(&abs_str);
 
 		let load_path = if abs_path.is_file() {
 			abs_path

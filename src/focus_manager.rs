@@ -1,12 +1,16 @@
 use crate::gamepad::Input;
 use once_cell::sync::Lazy;
-use qmetaobject::{QVariantList, prelude::*};
+use qmetaobject::{QVariantList, QUrl, prelude::*};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 const FOCUS_BORDER_SVG: &str = include_str!("../theme/default/focus-border.svg");
+
+/// File the top screen polls for the focused item. Rewritten atomically on
+/// every change; clam-topscreen renders its icon and title (DS-style).
+const FOCUS_FILE: &str = "/tmp/clam-topscreen/focus.json";
 
 static BORDER_SOURCES: Lazy<Mutex<HashMap<String, String>>> =
 	Lazy::new(|| Mutex::new(HashMap::new()));
@@ -229,8 +233,22 @@ pub struct FocusManager {
 	window: qt_property!(QVariant),
 	view_focused: qt_property!(bool; NOTIFY focus_changed),
 	current_pane: qt_property!(i32; NOTIFY focus_changed),
+	/// True while a guest app owns the panels (the wrapper's suspend marker).
+	/// ClamOS' launch transition: QML washes the window out to white and holds
+	/// it until the wrapper reveals the app, and the gamepad polling stops so
+	/// the guest gets the buttons and no shell sounds leak into the game.
+	suspended: qt_property!(bool; NOTIFY suspended_changed),
+	/// True once the wrapper revealed the guest: QML unmaps the window until
+	/// the guest exits. Without the ClamOS wrapper neither marker ever exists
+	/// and the shell behaves exactly as before.
+	hidden: qt_property!(bool; NOTIFY suspended_changed),
+	/// The guest's last bottom-screen frame, versioned so QML reloads it. On
+	/// the way back from an app the shell shows it for a moment and fades to
+	/// its own UI, so the panel never jumps. Empty when there is none.
+	return_frame_url: qt_property!(QUrl; NOTIFY suspended_changed),
 
 	focus_changed: qt_signal!(),
+	suspended_changed: qt_signal!(),
 	accept_requested: qt_signal!(),
 	cancel_requested: qt_signal!(),
 	menu_requested: qt_signal!(),
@@ -240,6 +258,13 @@ pub struct FocusManager {
 	panes: Vec<(i32, Pane)>,
 	next_id: i32,
 	current: i32,
+	// Last document published to the top screen, for change detection.
+	published_focus: String,
+	// Saved focus to re-apply once a file view loads it, and whether the saved
+	// session has already been consulted (only the shell's own first view
+	// restores it).
+	pending_focus: Option<String>,
+	restore_loaded: bool,
 
 	register_pane: qt_method!(
 		fn register_pane(&mut self) -> i32 {
@@ -460,6 +485,26 @@ pub struct FocusManager {
 
 	poll_gamepad: qt_method!(
 		fn poll_gamepad(&mut self) {
+			// While a guest owns the panels the shell is suspended: report the
+			// state (QML washes to white, then unmaps on the reveal marker)
+			// and stop consuming the buttons, so the app gets them and no
+			// shell sounds leak into the game.
+			let suspended = crate::session::suspended();
+			let hidden = crate::session::hidden();
+			let return_frame = bottom_shot_url();
+			if suspended != self.suspended
+				|| hidden != self.hidden
+				|| return_frame != self.return_frame_url
+			{
+				self.suspended = suspended;
+				self.hidden = hidden;
+				self.return_frame_url = return_frame;
+				self.suspended_changed();
+			}
+			if suspended || hidden {
+				return;
+			}
+
 			let Some(input) = crate::gamepad::poll() else {
 				return;
 			};
@@ -520,6 +565,33 @@ impl FocusManager {
 
 	/// Copies the focused pane into the mirrored properties and notifies QML.
 	fn sync(&mut self) {
+		// The saved session is consulted once, before any view has items: the
+		// saved item is then re-applied by the first pane that loads it, no
+		// matter when the pane registers or its model arrives.
+		if !self.restore_loaded {
+			self.restore_loaded = true;
+			if self.panes.iter().all(|(_, pane)| pane.paths.is_empty()) {
+				self.pending_focus = crate::session::startup_focus();
+			}
+		}
+		if let Some(pending) = self.pending_focus.clone() {
+			let found = self
+				.panes
+				.iter_mut()
+				.find(|(_, pane)| pane.paths.iter().any(|path| *path == pending));
+			if let Some((id, pane)) = found {
+				let index = pane
+					.paths
+					.iter()
+					.position(|path| *path == pending)
+					.unwrap_or(0);
+				pane.index = index as i32;
+				pane.active = true;
+				self.current = *id;
+				self.pending_focus = None;
+			}
+		}
+
 		let current = self.current;
 		let keyboard = self.panes.iter().any(|(_, pane)| pane.keyboard);
 
@@ -544,6 +616,49 @@ impl FocusManager {
 
 		self.update_status();
 		self.focus_changed();
+		self.publish_focus();
+	}
+
+	/// Publishes the focused item for the top screen: title and icon, resolved
+	/// the same way the model resolves them (`directory::get_item_title` /
+	/// `get_icon`), so both screens always agree. The document is compared as a
+	/// whole, so a thumbnail finishing in the background republishes too, and
+	/// the file is only rewritten when something actually changed. An empty
+	/// focus publishes empty fields, which the top screen shows as no card.
+	fn publish_focus(&mut self) {
+		let path = self.focused_path.clone();
+		let (title, icon) = if path.is_empty() {
+			(String::new(), String::new())
+		} else {
+			// Thumbnails first, exactly like the model's visible items: a
+			// finished job (or a valid disk-cache entry, which `request`
+			// answers immediately) wins over the themed icon, so the top
+			// screen shows the same box art the file view shows. A miss
+			// queues the job; the next focus change picks the result up.
+			let thumbnail = crate::thumbnailer::result_for(&path).or_else(|| {
+				let folder = Path::new(&path).parent().map(Path::to_path_buf)?;
+				crate::thumbnailer::request(Path::new(&path), 128, &folder)
+			});
+			let icon = thumbnail.unwrap_or_else(|| crate::directory::get_icon(&path));
+			(crate::directory::get_item_title(Path::new(&path)), icon)
+		};
+		let document = serde_json::json!({ "title": title, "icon": icon }).to_string();
+		// Persist the cursor so returning from a guest — or any restart —
+		// lands on the same item. Empty focus keeps the previous one.
+		crate::session::save_focus(&path);
+		if document == self.published_focus {
+			return;
+		}
+		self.published_focus = document.clone();
+
+		if let Some(parent) = Path::new(FOCUS_FILE).parent() {
+			let _ = fs::create_dir_all(parent);
+		}
+		// Write-and-rename so a poll never sees a half-written file.
+		let temporary = Path::new("/tmp/clam-topscreen/focus.json.tmp");
+		if fs::write(temporary, document).is_ok() {
+			let _ = fs::rename(temporary, FOCUS_FILE);
+		}
 	}
 
 	/// Nearest pane lying on the given side of the one the focus is leaving.
@@ -773,6 +888,23 @@ impl FocusManager {
 		);
 		self.focus_status = serde_json::to_string(&status).unwrap_or_default();
 	}
+}
+
+/// The guest's last bottom-screen frame as a `file://` URL carrying an mtime
+/// version, so QML reloads it after every app (the path itself never changes).
+/// Empty when the wrapper has not written one yet.
+fn bottom_shot_url() -> QUrl {
+	const PATH: &str = "/home/root/.cache/clam-topscreen/last-app-bottom.png";
+	let Ok(metadata) = fs::metadata(PATH) else {
+		return QUrl::from(QString::from(""));
+	};
+	let version = metadata
+		.modified()
+		.ok()
+		.and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+		.map(|elapsed| elapsed.as_millis())
+		.unwrap_or(0);
+	QUrl::from(QString::from(format!("file://{PATH}?v={version}")))
 }
 
 /// Nearest item in the given direction from `index`, by visual grid position.

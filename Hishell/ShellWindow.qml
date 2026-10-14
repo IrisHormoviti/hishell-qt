@@ -64,6 +64,62 @@ Kirigami.ApplicationWindow {
 		}
 	}
 
+	// ClamOS guest handover (see tools/launch-guest.sh): the wrapper suspends
+	// the shell with a marker file, this window washes out to white and holds
+	// it while the guest boots underneath, and on the wrapper's reveal marker
+	// it unmaps so the app takes the panel. Without the wrapper neither marker
+	// ever exists and this stays inert.
+	Connections {
+		target: focusManager
+		function onSuspendedChanged() {
+			root.visible = !focusManager.hidden;
+			// Coming back from an app: start from the app's last bottom frame
+			// (identical pixels) and fade its UI in, so the panel never jumps.
+			if (!focusManager.hidden && String(focusManager.return_frame_url) !== "") {
+				returnFrame.opacity = 1;
+				returnFade.restart();
+			}
+		}
+	}
+
+	// The guest's last bottom frame, shown for the first frames of a return.
+	Image {
+		id: returnFrame
+		anchors.fill: parent
+		z: 999
+		visible: opacity > 0
+		source: focusManager.return_frame_url
+		fillMode: Image.PreserveAspectCrop
+		asynchronous: false
+		opacity: 0
+
+		NumberAnimation {
+			id: returnFade
+			target: returnFrame
+			property: "opacity"
+			to: 0
+			duration: 350
+			easing.type: Easing.OutQuad
+		}
+	}
+
+	Rectangle {
+		id: launchWash
+		anchors.fill: parent
+		z: 1000
+		visible: opacity > 0
+		opacity: focusManager.suspended ? 1 : 0
+		color: "#ffffff"
+		Behavior on opacity {
+			NumberAnimation { duration: 400; easing.type: Easing.InQuad }
+		}
+		// The wash also eats input: nothing under it should react while the
+		// guest is taking over.
+		MouseArea {
+			anchors.fill: parent
+		}
+	}
+
 	// Open on a named screen/output when the config asks for one. The RG DS Plus
 	// wants its bottom touch panel, which weston exposes as the second output
 	// ("DSI-2"); the default would be the first output (the top panel). The
@@ -184,7 +240,9 @@ Kirigami.ApplicationWindow {
 	}
 
 	menuBar: MenuBar {
-		visible: directory.config.native_menubar
+		// The bar sits outside the content item, so the launch wash cannot
+		// paint over it; hide it while the wash covers the window.
+		visible: directory.config.native_menubar && !focusManager.suspended
 
 		window: root
 		directory: root.directory

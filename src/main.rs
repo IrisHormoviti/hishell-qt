@@ -12,6 +12,7 @@ mod image_utils;
 mod kde_bridge;
 mod path_utils;
 mod selection_manager;
+mod session;
 mod sound;
 mod squashfs;
 mod thumbnailer;
@@ -103,6 +104,9 @@ fn main() {
 			.map(|cwd| cwd.to_string_lossy().to_string())
 			.unwrap_or_else(|_| ".".to_string())
 	};
+	// Returning from a guest (or a crash, or a reboot) must reopen the folder
+	// the user was in; the saved session wins over the command line.
+	let initial_path = crate::session::startup_path(&initial_path);
 	println!("startup initial_path={}", initial_path);
 
 	qmetaobject::qml_register_type::<Config>(IMPORT_NAME, 1, 0, CONFIG_STR);
