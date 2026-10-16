@@ -229,6 +229,32 @@ fn command_exists(command: &str) -> bool {
 		.unwrap_or(false)
 }
 
+/// Spawn `program` with `args` **directly**, bypassing the execution wrapper.
+///
+/// For entries that are controls rather than apps (`Type=Button`): a settings
+/// action must not go through the guest-app preflight/lifecycle. The item and
+/// name env vars are still exported, so the program can identify itself.
+pub fn spawn_direct(
+	program: &str,
+	args: &[String],
+	item: &str,
+	name: &str,
+	cwd: Option<&Path>,
+) -> io::Result<Child> {
+	let mut command = Command::new(program);
+	command.args(args);
+	if !item.is_empty() {
+		command.env(ITEM_ENV, item);
+	}
+	if !name.is_empty() {
+		command.env(NAME_ENV, name);
+	}
+	if let Some(cwd) = cwd {
+		command.current_dir(cwd);
+	}
+	command.spawn()
+}
+
 /// Spawn `program` with `args`, through the configured wrapper, in `cwd` when
 /// given. `item` and `name` are exported to the wrapper.
 pub fn spawn(

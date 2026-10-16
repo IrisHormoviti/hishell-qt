@@ -8,13 +8,17 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::config;
 use crate::config::Config;
 use crate::thumbnailer;
 
 static ICON_CACHE: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// How often the change poll may re-read desktop entries. The folder mtime check
+/// runs at the timer's rate; re-resolving icons is throttled to this.
+const ICON_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 fn query_gio_icon(path: &str) -> Option<String> {
 	// `gio info ""` inspects the working directory and reports a folder icon.
@@ -146,6 +150,11 @@ pub struct Directory {
 	// rebuild an unchanged icon.
 	last_window_icon: String,
 
+	// The folder's own mtime at the last scan, and when icons were last
+	// re-resolved: the state the periodic change poll compares against.
+	dir_modified: u64,
+	last_icon_poll: Option<Instant>,
+
 	title: qt_property!(String; READ get_title),
 	icon: qt_property!(String; READ get_icon NOTIFY path_changed),
 	has_meta: qt_property!(bool; READ get_has_meta NOTIFY path_changed),
@@ -258,6 +267,54 @@ pub struct Directory {
 			for (row, uri) in updates {
 				let index = self.visible[row];
 				self.items[index].icon = uri;
+				let model_index = self.row_index(row as i32);
+				self.data_changed(model_index, model_index);
+			}
+		}
+	),
+
+	/// Periodic poll for folders that an out-of-process provider rewrites, so a
+	/// changed `Icon=` or a newly appeared entry shows up without leaving and
+	/// returning. Driven by the same timer as `poll_thumbnails`.
+	poll_changes: qt_method!(
+		pub fn poll_changes(&mut self) {
+			if self.path_str.is_empty() {
+				return;
+			}
+			// The folder's own mtime moves when an entry is added, removed or
+			// atomically replaced (a provider writes a temp file and renames it
+			// over the old one), so this cheap stat gates the expensive rebuild.
+			let modified = folder_modified(&self.path_str);
+			if modified != 0 && modified != self.dir_modified {
+				self.reload();
+				return;
+			}
+			// The listing is unchanged, so only file contents can differ. Re-read
+			// desktop entries (a tiny file each; they return before ICON_CACHE)
+			// and repaint just the rows whose icon moved. Non-entries are
+			// skipped, so a rendered thumbnail is never clobbered.
+			if self
+				.last_icon_poll
+				.is_some_and(|last| last.elapsed() < ICON_POLL_INTERVAL)
+			{
+				return;
+			}
+			self.last_icon_poll = Some(Instant::now());
+
+			let mut updates = Vec::new();
+			for (row, index) in self.visible.iter().enumerate() {
+				let item = &self.items[*index];
+				if crate::config::entry_path(Path::new(&item.path)).is_none() {
+					continue;
+				}
+				let icon = get_icon(&item.path);
+				if icon != item.icon {
+					updates.push((row, icon));
+				}
+			}
+			for (row, icon) in updates {
+				let index = self.visible[row];
+				self.items[index].icon = icon;
 				let model_index = self.row_index(row as i32);
 				self.data_changed(model_index, model_index);
 			}
@@ -496,6 +553,10 @@ impl Directory {
 		self.apply_filter();
 
 		self.end_reset_model();
+
+		// Remember the folder's mtime so `poll_changes` can tell an unchanged
+		// listing from one that needs rebuilding.
+		self.dir_modified = folder_modified(&self.path_str);
 	}
 
 	/// Re-sort the in-memory items after a sort-related config change, without
@@ -895,6 +956,14 @@ impl QAbstractListModel for Directory {
 fn time_ms(time: Option<SystemTime>) -> u64 {
 	time.and_then(|t| t.duration_since(UNIX_EPOCH).ok())
 		.map(|d| d.as_millis() as u64)
+		.unwrap_or(0)
+}
+
+/// A folder's own modification time, in milliseconds (0 when it cannot be read).
+/// Adding, removing or atomically replacing an entry bumps it.
+fn folder_modified(path: &str) -> u64 {
+	fs::metadata(path)
+		.map(|meta| time_ms(meta.modified().ok()))
 		.unwrap_or(0)
 }
 

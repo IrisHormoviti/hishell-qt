@@ -27,13 +27,20 @@ impl DesktopEntry {
 		self.entry_type.as_deref() == Some("Link")
 	}
 
+	/// A `Type=Button` entry (a ClamOS extension) is a control, not an app: it is
+	/// selectable and launchable, but runs its `Exec` without the execution
+	/// wrapper (see [`launch`]).
+	pub fn is_button(&self) -> bool {
+		self.entry_type.as_deref() == Some("Button")
+	}
+
 	#[allow(dead_code)]
 	pub fn is_directory(&self) -> bool {
 		self.entry_type.as_deref() == Some("Directory")
 	}
 
 	pub fn is_action_entry(&self) -> bool {
-		self.is_application() || self.is_link()
+		self.is_application() || self.is_link() || self.is_button()
 	}
 }
 
@@ -88,6 +95,7 @@ pub fn launch(path: &Path) -> String {
 	let entry = read(path);
 	match entry.entry_type.as_deref() {
 		Some("Application") => launch_application(path, &entry),
+		Some("Button") => launch_button(path, &entry),
 		Some("Link") => {
 			launch_link(path, &entry);
 			String::new()
@@ -161,6 +169,39 @@ fn launch_application(path: &Path, entry: &DesktopEntry) -> String {
 		&name,
 		Some(current_dir),
 	))
+}
+
+/// A `Button` is a control, not an app, so it is run directly: no execution
+/// wrapper, and therefore no preflight and no guest-app lifecycle.
+fn launch_button(path: &Path, entry: &DesktopEntry) -> String {
+	let exec = match entry.exec.as_deref() {
+		Some(exec) if !exec.trim().is_empty() => exec,
+		_ => {
+			eprintln!("{} has no Exec value", path.display());
+			return String::new();
+		}
+	};
+	let args = match parse_exec(exec, entry, path, None) {
+		Ok(args) if !args.is_empty() => args,
+		Ok(_) => {
+			eprintln!("{} has an empty Exec command", path.display());
+			return String::new();
+		}
+		Err(error) => {
+			eprintln!("{}: {error}", path.display());
+			return String::new();
+		}
+	};
+
+	let entry_path = path.to_string_lossy();
+	let name = entry.name.clone().unwrap_or_default();
+	let current_dir = crate::config::base_dir(path);
+	if let Err(error) =
+		crate::launch::spawn_direct(&args[0], &args[1..], &entry_path, &name, Some(current_dir))
+	{
+		eprintln!("could not launch: {error}");
+	}
+	String::new()
 }
 
 fn launch_link(path: &Path, entry: &DesktopEntry) -> Option<Result<(), String>> {
@@ -398,6 +439,30 @@ mod tests {
 			.unwrap(),
 			["example --open"]
 		);
+	}
+
+	#[test]
+	fn recognizes_button_entries() {
+		let path = std::env::temp_dir().join(format!(
+			"hishell-button-test-{}.desktop",
+			std::process::id()
+		));
+		// A provider-written entry: Type=Button, framework keys, and a
+		// section-specific group Hishell must ignore.
+		fs::write(
+			&path,
+			"[Desktop Entry]\nType=Button\nName=Wi-Fi\nComment=On\nIcon=network-wireless\n\
+			 Exec=clam-connect wifi --radio off\nGenerated=true\nProvider=wifi\n\n\
+			 [Connection]\nAction=radio\nEnabled=true\n",
+		)
+		.unwrap();
+		let entry = read(&path);
+		fs::remove_file(path).unwrap();
+
+		assert!(entry.is_button());
+		assert!(entry.is_action_entry(), "Buttons are selectable/launchable");
+		assert_eq!(entry.name.as_deref(), Some("Wi-Fi"));
+		assert_eq!(entry.exec.as_deref(), Some("clam-connect wifi --radio off"));
 	}
 
 	#[test]

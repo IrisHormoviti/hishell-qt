@@ -817,6 +817,7 @@ Item {
 		onTriggered: {
 			if (folderView.directory) {
 				folderView.directory.poll_thumbnails();
+				folderView.directory.poll_changes();
 			}
 		}
 	}
