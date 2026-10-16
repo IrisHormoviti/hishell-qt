@@ -16,59 +16,6 @@ Module {
 		}
 	}
 	Component {
-		name: "PathUtils"
-		prototype: "QObject"
-		exports: ["Hishell/PathUtils 1.0"]
-		exportMetaObjectRevisions: [256]
-
-		Property { name: "window"; type: "QVariant"; isReadonly: true }
-		Method {
-			name: "get_segments"
-			type: "string"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "path_for_index"
-			type: "string"
-			Parameter { name: "current_path"; type: "string" }
-			Parameter { name: "idx"; type: "int" }
-		}
-		Method {
-			name: "folder_name"
-			type: "string"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "normalize_path"
-			type: "string"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "parent_path"
-			type: "string"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "path_exists"
-			type: "bool"
-			Parameter { name: "base"; type: "string" }
-			Parameter { name: "text"; type: "string" }
-		}
-		Method {
-			name: "resolve_path"
-			type: "string"
-			Parameter { name: "base"; type: "string" }
-			Parameter { name: "spec"; type: "string" }
-		}
-		Method {
-			name: "complete_path"
-			type: "string"
-			Parameter { name: "base"; type: "string" }
-			Parameter { name: "text"; type: "string" }
-			Parameter { name: "limit"; type: "int" }
-		}
-	}
-	Component {
 		name: "SelectionManager"
 		prototype: "QObject"
 		exports: ["Hishell/SelectionManager 1.0"]
@@ -193,6 +140,79 @@ Module {
 		}
 	}
 	Component {
+		name: "PathUtils"
+		prototype: "QObject"
+		exports: ["Hishell/PathUtils 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Property { name: "window"; type: "QVariant"; isReadonly: true }
+		Method {
+			name: "get_segments"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "path_for_index"
+			type: "string"
+			Parameter { name: "current_path"; type: "string" }
+			Parameter { name: "idx"; type: "int" }
+		}
+		Method {
+			name: "folder_name"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "normalize_path"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "parent_path"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "path_exists"
+			type: "bool"
+			Parameter { name: "base"; type: "string" }
+			Parameter { name: "text"; type: "string" }
+		}
+		Method {
+			name: "resolve_path"
+			type: "string"
+			Parameter { name: "base"; type: "string" }
+			Parameter { name: "spec"; type: "string" }
+		}
+		Method {
+			name: "complete_path"
+			type: "string"
+			Parameter { name: "base"; type: "string" }
+			Parameter { name: "text"; type: "string" }
+			Parameter { name: "limit"; type: "int" }
+		}
+	}
+	Component {
+		name: "Sound"
+		prototype: "QObject"
+		exports: ["Hishell/Sound 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Property { name: "window"; type: "QVariant"; isReadonly: true }
+		Property { name: "enabled"; type: "bool"; isReadonly: true }
+		Signal { name: "enabled_changed" }
+		Method {
+			name: "play"
+			type: "bool"
+			Parameter { name: "event_id"; type: "string" }
+		}
+		Method {
+			name: "set_volume"
+			type: "void"
+			Parameter { name: "factor"; type: "double" }
+		}
+	}
+	Component {
 		name: "Config"
 		prototype: "QObject"
 		exports: ["Hishell/Config 1.0"]
@@ -248,26 +268,6 @@ Module {
 			Parameter { name: "key"; type: "string" }
 			Parameter { name: "value"; type: "string" }
 			Parameter { name: "local"; type: "bool" }
-		}
-	}
-	Component {
-		name: "Sound"
-		prototype: "QObject"
-		exports: ["Hishell/Sound 1.0"]
-		exportMetaObjectRevisions: [256]
-
-		Property { name: "window"; type: "QVariant"; isReadonly: true }
-		Property { name: "enabled"; type: "bool"; isReadonly: true }
-		Signal { name: "enabled_changed" }
-		Method {
-			name: "play"
-			type: "bool"
-			Parameter { name: "event_id"; type: "string" }
-		}
-		Method {
-			name: "set_volume"
-			type: "void"
-			Parameter { name: "factor"; type: "double" }
 		}
 	}
 	Component {
@@ -330,6 +330,10 @@ Module {
 		}
 		Method {
 			name: "poll_thumbnails"
+			type: "void"
+		}
+		Method {
+			name: "poll_changes"
 			type: "void"
 		}
 		Method {
@@ -405,6 +409,173 @@ Module {
 			type: "void"
 			Parameter { name: "path"; type: "string" }
 			Parameter { name: "include_hidden"; type: "bool" }
+		}
+	}
+	Component {
+		name: "FileManager"
+		prototype: "QObject"
+		exports: ["Hishell/FileManager 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Method {
+			name: "copy_file"
+			type: "bool"
+			Parameter { name: "source"; type: "string" }
+			Parameter { name: "dest"; type: "string" }
+		}
+		Method {
+			name: "duplicate_file"
+			type: "bool"
+			Parameter { name: "source"; type: "string" }
+		}
+		Method {
+			name: "new_folder"
+			type: "bool"
+			Parameter { name: "parent"; type: "string" }
+		}
+		Method {
+			name: "new_text_file"
+			type: "bool"
+			Parameter { name: "parent"; type: "string" }
+		}
+		Method {
+			name: "create_link"
+			type: "bool"
+			Parameter { name: "source"; type: "string" }
+			Parameter { name: "dest"; type: "string" }
+		}
+		Method {
+			name: "trash_file"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "can_destroy"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "delete_file"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "rename_file"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+			Parameter { name: "new_name"; type: "string" }
+		}
+		Method {
+			name: "copy_paths_to_clipboard"
+			type: "bool"
+			Parameter { name: "paths_newline"; type: "string" }
+		}
+		Method {
+			name: "cut_paths_to_clipboard"
+			type: "bool"
+			Parameter { name: "paths_newline"; type: "string" }
+		}
+		Method {
+			name: "paste_from_clipboard"
+			type: "bool"
+			Parameter { name: "dest_dir"; type: "string" }
+		}
+		Method {
+			name: "get_mime_type"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "get_text_content"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "process_uris_action"
+			type: "bool"
+			Parameter { name: "dest_dir"; type: "string" }
+			Parameter { name: "uris_newline"; type: "string" }
+			Parameter { name: "action"; type: "string" }
+		}
+		Method {
+			name: "open_file"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "get_icon"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "get_item_title"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "launch_warning"
+			type: "string"
+			Parameter { name: "blocked_item"; type: "string" }
+			Parameter { name: "launch_item"; type: "string" }
+		}
+		Method {
+			name: "start_portal_open_with"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "poll_portal_open_with"
+			type: "int"
+		}
+		Method {
+			name: "get_default_app"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "get_open_with_apps"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "open_with_app"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+			Parameter { name: "app_id"; type: "string" }
+		}
+		Method {
+			name: "confirm_launch"
+			type: "bool"
+		}
+		Method {
+			name: "cancel_launch"
+			type: "void"
+		}
+		Method {
+			name: "set_default_app"
+			type: "bool"
+			Parameter { name: "mime"; type: "string" }
+			Parameter { name: "app_id"; type: "string" }
+		}
+		Method {
+			name: "rotate_image"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+			Parameter { name: "degrees"; type: "int" }
+		}
+		Method {
+			name: "is_image_file"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "is_directory"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "get_home_directory"
+			type: "string"
 		}
 	}
 	Component {
@@ -547,168 +718,6 @@ Module {
 			name: "border_source"
 			type: "string"
 			Parameter { name: "color"; type: "string" }
-		}
-	}
-	Component {
-		name: "FileManager"
-		prototype: "QObject"
-		exports: ["Hishell/FileManager 1.0"]
-		exportMetaObjectRevisions: [256]
-
-		Method {
-			name: "copy_file"
-			type: "bool"
-			Parameter { name: "source"; type: "string" }
-			Parameter { name: "dest"; type: "string" }
-		}
-		Method {
-			name: "duplicate_file"
-			type: "bool"
-			Parameter { name: "source"; type: "string" }
-		}
-		Method {
-			name: "new_folder"
-			type: "bool"
-			Parameter { name: "parent"; type: "string" }
-		}
-		Method {
-			name: "new_text_file"
-			type: "bool"
-			Parameter { name: "parent"; type: "string" }
-		}
-		Method {
-			name: "create_link"
-			type: "bool"
-			Parameter { name: "source"; type: "string" }
-			Parameter { name: "dest"; type: "string" }
-		}
-		Method {
-			name: "trash_file"
-			type: "bool"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "delete_file"
-			type: "bool"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "rename_file"
-			type: "string"
-			Parameter { name: "path"; type: "string" }
-			Parameter { name: "new_name"; type: "string" }
-		}
-		Method {
-			name: "copy_paths_to_clipboard"
-			type: "bool"
-			Parameter { name: "paths_newline"; type: "string" }
-		}
-		Method {
-			name: "cut_paths_to_clipboard"
-			type: "bool"
-			Parameter { name: "paths_newline"; type: "string" }
-		}
-		Method {
-			name: "paste_from_clipboard"
-			type: "bool"
-			Parameter { name: "dest_dir"; type: "string" }
-		}
-		Method {
-			name: "get_mime_type"
-			type: "string"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "get_text_content"
-			type: "string"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "process_uris_action"
-			type: "bool"
-			Parameter { name: "dest_dir"; type: "string" }
-			Parameter { name: "uris_newline"; type: "string" }
-			Parameter { name: "action"; type: "string" }
-		}
-		Method {
-			name: "open_file"
-			type: "bool"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "get_icon"
-			type: "string"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "get_item_title"
-			type: "string"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "launch_warning"
-			type: "string"
-			Parameter { name: "blocked_item"; type: "string" }
-			Parameter { name: "launch_item"; type: "string" }
-		}
-		Method {
-			name: "start_portal_open_with"
-			type: "bool"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "poll_portal_open_with"
-			type: "int"
-		}
-		Method {
-			name: "get_default_app"
-			type: "string"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "get_open_with_apps"
-			type: "string"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "open_with_app"
-			type: "string"
-			Parameter { name: "path"; type: "string" }
-			Parameter { name: "app_id"; type: "string" }
-		}
-		Method {
-			name: "confirm_launch"
-			type: "bool"
-		}
-		Method {
-			name: "cancel_launch"
-			type: "void"
-		}
-		Method {
-			name: "set_default_app"
-			type: "bool"
-			Parameter { name: "mime"; type: "string" }
-			Parameter { name: "app_id"; type: "string" }
-		}
-		Method {
-			name: "rotate_image"
-			type: "bool"
-			Parameter { name: "path"; type: "string" }
-			Parameter { name: "degrees"; type: "int" }
-		}
-		Method {
-			name: "is_image_file"
-			type: "bool"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "is_directory"
-			type: "bool"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "get_home_directory"
-			type: "string"
 		}
 	}
 }

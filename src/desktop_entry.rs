@@ -16,6 +16,14 @@ pub struct DesktopEntry {
 	pub comment: Option<String>,
 	#[allow(dead_code)]
 	pub no_display: bool,
+	/// `Generated=true`: written by a provider daemon into a folder it owns,
+	/// rather than a file the user made (docs `settings-as-folders.md` §4.4).
+	pub generated: bool,
+	/// `Forget=<command line>`: what destroying this entry means. Only a
+	/// provider-written entry the user actually owns carries one; without it a
+	/// generated entry must not be trashed or cut, because deleting the file
+	/// would just make the daemon write it back (§6.3).
+	pub forget: Option<String>,
 }
 
 impl DesktopEntry {
@@ -41,6 +49,22 @@ impl DesktopEntry {
 
 	pub fn is_action_entry(&self) -> bool {
 		self.is_application() || self.is_link() || self.is_button()
+	}
+
+	/// The command that destroys this entry, when the provider that wrote it
+	/// lets the folder do that at all (docs §6.3).
+	pub fn forget_command(&self) -> Option<&str> {
+		self.forget.as_deref()
+	}
+
+	/// Whether the file views may offer Trash and Cut for this item.
+	///
+	/// A generated entry belongs to the daemon that wrote it: trashing the file
+	/// would only make the provider put it straight back, so it can be destroyed
+	/// only through its own `Forget=` command. Everything else is an ordinary
+	/// file.
+	pub fn is_destroyable(&self) -> bool {
+		self.forget_command().is_some() || !self.generated
 	}
 }
 
@@ -86,6 +110,19 @@ fn from_values(values: &HashMap<String, ConfigValue>) -> DesktopEntry {
 				_ => None,
 			})
 			.unwrap_or(false),
+		generated: entry_boolean(values, "Generated"),
+		forget: crate::config::entry_string(&values, "Forget")
+			.filter(|command| !command.trim().is_empty()),
+	}
+}
+
+/// Reads a boolean desktop-entry key, tolerating both the parsed boolean and the
+/// plain string a provider may have written.
+fn entry_boolean(values: &HashMap<String, ConfigValue>, key: &str) -> bool {
+	match values.get(key) {
+		Some(ConfigValue::Boolean(value)) => *value,
+		Some(ConfigValue::String(value)) => value.eq_ignore_ascii_case("true"),
+		_ => false,
 	}
 }
 
@@ -202,6 +239,36 @@ fn launch_button(path: &Path, entry: &DesktopEntry) -> String {
 		eprintln!("could not launch: {error}");
 	}
 	String::new()
+}
+
+/// Run an entry's `Forget=` command: that, rather than moving the file, is how a
+/// generated entry the provider lets the user own is destroyed (docs §6.3).
+/// Returns whether it started.
+pub fn run_forget(path: &Path, entry: &DesktopEntry, command: &str) -> bool {
+	let args = match parse_exec(command, entry, path, None) {
+		Ok(args) if !args.is_empty() => args,
+		Ok(_) => {
+			eprintln!("{} has an empty Forget command", path.display());
+			return false;
+		}
+		Err(error) => {
+			eprintln!("{}: {error}", path.display());
+			return false;
+		}
+	};
+
+	let entry_path = path.to_string_lossy();
+	let name = entry.name.clone().unwrap_or_default();
+	let current_dir = crate::config::base_dir(path);
+	// Direct spawn, like a `Type=Button`: destroying a control is not a guest
+	// app launch, and the entry path still travels as `HISHELL_APP_ITEM`.
+	match crate::launch::spawn_direct(&args[0], &args[1..], &entry_path, &name, Some(current_dir)) {
+		Ok(_) => true,
+		Err(error) => {
+			eprintln!("could not forget {}: {error}", path.display());
+			false
+		}
+	}
 }
 
 fn launch_link(path: &Path, entry: &DesktopEntry) -> Option<Result<(), String>> {
@@ -409,7 +476,12 @@ fn tokenize_exec(exec: &str) -> Result<Vec<String>, String> {
 mod tests {
 	use super::{DesktopEntry, parse_exec, read, tokenize_exec};
 	use std::fs;
-	use std::path::Path;
+	use std::path::{Path, PathBuf};
+
+	/// A unique scratch file for one test.
+	fn scratch(name: &str) -> PathBuf {
+		std::env::temp_dir().join(format!("{name}-{}.desktop", std::process::id()))
+	}
 
 	#[test]
 	fn parses_desktop_entry_metadata() {
@@ -463,6 +535,63 @@ mod tests {
 		assert!(entry.is_action_entry(), "Buttons are selectable/launchable");
 		assert_eq!(entry.name.as_deref(), Some("Wi-Fi"));
 		assert_eq!(entry.exec.as_deref(), Some("clam-connect wifi --radio off"));
+		assert!(entry.generated);
+		assert_eq!(entry.forget_command(), None);
+		assert!(
+			!entry.is_destroyable(),
+			"a provider's control row is not the user's to trash"
+		);
+	}
+
+	#[test]
+	fn a_generated_entry_that_names_its_forget_command_can_be_destroyed() {
+		let path = scratch("hishell-forget-test");
+		fs::write(
+			&path,
+			"[Desktop Entry]\nType=Button\nName=Home\nComment=Saved · WPA2\n\
+			 Icon=network-wireless-60-locked\nExec=clam-connect wifi wpa:abc\n\
+			 Forget=clam-connect wifi --forget wpa:abc\nGenerated=true\nProvider=wifi\n\n\
+			 [Connection]\nId=wpa:abc\nSecurity=WPA-PSK\nSaved=true\n",
+		)
+		.unwrap();
+		let entry = read(&path);
+		fs::remove_file(path).unwrap();
+
+		assert!(entry.is_button());
+		assert_eq!(entry.forget_command(), Some("clam-connect wifi --forget wpa:abc"));
+		assert!(entry.is_destroyable());
+	}
+
+	#[test]
+	fn a_visible_network_cannot_be_destroyed() {
+		let path = scratch("hishell-visible-test");
+		fs::write(
+			&path,
+			"[Desktop Entry]\nType=Button\nName=Neighbour\nExec=clam-connect wifi b3f1c0a2e4\n\
+			 Generated=true\nProvider=wifi\n\n\
+			 [Connection]\nId=b3f1c0a2e4\nSecurity=WPA-PSK\nSaved=false\n",
+		)
+		.unwrap();
+		let entry = read(&path);
+		fs::remove_file(path).unwrap();
+
+		assert_eq!(entry.forget_command(), None);
+		assert!(
+			!entry.is_destroyable(),
+			"a merely detected network cannot be trashed or cut"
+		);
+	}
+
+	#[test]
+	fn ordinary_files_are_still_destroyable() {
+		let path = scratch("hishell-plain-test");
+		fs::write(&path, "just some notes\n").unwrap();
+		let entry = read(&path);
+		fs::remove_file(path).unwrap();
+
+		assert!(!entry.generated);
+		assert_eq!(entry.forget_command(), None);
+		assert!(entry.is_destroyable());
 	}
 
 	#[test]

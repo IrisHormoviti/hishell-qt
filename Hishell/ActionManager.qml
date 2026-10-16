@@ -53,6 +53,13 @@ Item {
 
 	readonly property bool isFirstTargetDir: (isSingleTarget && fileManager) ? fileManager.is_directory(firstTargetPath) : false
 
+	// A generated entry (a provider's network or control row) may be destroyed
+	// only when the provider says how: Trash then runs the entry's `Forget=`
+	// command instead of moving the file, and both Trash and Cut are withheld
+	// when it does not. Ordinary files are always destroyable.
+	readonly property bool allTargetsDestroyable: actionManager.hasTarget
+		&& actionManager.targetPathList.every(path => actionManager.fileManager !== null && actionManager.fileManager.can_destroy(path))
+
 	// True when every target is a folder. The menubar's Folder menu corresponds
 	// to a selected folder, so it is shown only for such a target; the folder
 	// view's own menu carries the directory-level actions separately.
@@ -450,7 +457,7 @@ Item {
 		text: qsTr("C&ut")
 		icon.name: "edit-cut"
 		shortcut: actionManager.showShortcuts ? "Ctrl+X" : ""
-		enabled: actionManager.hasTarget
+		enabled: actionManager.allTargetsDestroyable
 		onTriggered: {
 			const paths = actionManager.targetPathList.join("\n");
 			if (actionManager.fileManager)
@@ -527,7 +534,7 @@ Item {
 		text: qsTr("&Trash")
 		icon.name: "user-trash"
 		shortcut: actionManager.showShortcuts ? "Delete" : ""
-		enabled: actionManager.hasTarget
+		enabled: actionManager.allTargetsDestroyable
 		onTriggered: {
 			const paths = actionManager.targetPathList;
 			let anyOk = false;

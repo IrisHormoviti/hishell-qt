@@ -185,10 +185,33 @@ pub struct FileManager {
 	),
 
 	/// Move a file/directory to the system trash.
+	///
+	/// A generated desktop entry belongs to the provider that wrote it, so it
+	/// cannot simply be moved: when it declares a `Forget=` command that command
+	/// runs instead (deleting the profile and the file together), and when it
+	/// does not, trashing is refused — deleting the file would only make the
+	/// daemon write it back (docs `settings-as-folders.md` §6.3).
 	trash_file: qt_method!(
 		fn trash_file(&self, path: String) -> bool {
 			let p = clean_path(&path.to_string());
-			trash::delete(p).is_ok()
+			let path = Path::new(&p);
+			let entry = crate::desktop_entry::read(path);
+			if let Some(command) = entry.forget_command() {
+				return crate::desktop_entry::run_forget(path, &entry, command);
+			}
+			if !entry.is_destroyable() {
+				return false;
+			}
+			trash::delete(path).is_ok()
+		}
+	),
+
+	/// Whether the file views may offer Trash/Cut for this path. False for a
+	/// generated entry the provider does not let the user destroy (§6.3).
+	can_destroy: qt_method!(
+		fn can_destroy(&self, path: String) -> bool {
+			let p = clean_path(&path.to_string());
+			crate::desktop_entry::read(Path::new(&p)).is_destroyable()
 		}
 	),
 
