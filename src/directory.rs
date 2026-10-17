@@ -190,6 +190,35 @@ pub struct Directory {
 		}
 	),
 
+	/// Whether the entry is a `Type=Button` control rather than an app: it runs
+	/// its `Exec` directly, so the shell plays a button sound and skips the
+	/// launch animation for it.
+	is_button: qt_method!(
+		pub fn is_button(&self, path: String) -> bool {
+			crate::desktop_entry::is_button(Path::new(&path))
+		}
+	),
+
+	/// Run this folder's own `Refresh=<command line>` when it has one: how a
+	/// folder asks its provider for fresh contents (docs §4.7). Fire and forget
+	/// — the provider rewrites the folder and the shell's watch picks it up.
+	run_refresh_command: qt_method!(
+		pub fn run_refresh_command(&self) {
+			if self.path_str.is_empty() {
+				return;
+			}
+			let entry = Path::new(&self.path_str).join(".directory");
+			let Some(command) = crate::config::get_entry_string(&entry, "Refresh") else {
+				return;
+			};
+			let command = command.trim().to_string();
+			if command.is_empty() {
+				return;
+			}
+			crate::desktop_entry::run_refresh(Path::new(&self.path_str), &command);
+		}
+	),
+
 	execute_action: qt_method!(
 		pub fn execute_action(&mut self, path: String) -> String {
 			let path_buf = Path::new(&path);

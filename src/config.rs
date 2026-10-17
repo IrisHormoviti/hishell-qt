@@ -611,6 +611,8 @@ impl Config {
 				_ => String::new(),
 			}
 			.into();
+			// Launched programs open on the same output as the shell (docs §5.6).
+			crate::launch::set_screen(&self.screen_name.to_string());
 		}
 
 		if changed!("Folder View", "GridSize") {

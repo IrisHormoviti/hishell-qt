@@ -271,6 +271,41 @@ pub fn run_destroy(path: &Path, entry: &DesktopEntry, command: &str) -> bool {
 	}
 }
 
+/// Run a folder's own `Refresh=<command line>` (a ClamOS extension, docs §4.7):
+/// how a folder asks its provider for fresh contents when the user refreshes
+/// it. A control rather than an app launch, so it is spawned directly — no
+/// execution wrapper, and therefore no guest-app lifecycle.
+pub fn run_refresh(directory: &Path, command: &str) -> bool {
+	let entry_path = directory.join(".directory");
+	let entry = read(&entry_path);
+	let args = match parse_exec(command, &entry, &entry_path, None) {
+		Ok(args) if !args.is_empty() => args,
+		Ok(_) => {
+			eprintln!("{} has an empty Refresh command", entry_path.display());
+			return false;
+		}
+		Err(error) => {
+			eprintln!("{}: {error}", entry_path.display());
+			return false;
+		}
+	};
+
+	let name = entry.name.clone().unwrap_or_default();
+	match crate::launch::spawn_direct(
+		&args[0],
+		&args[1..],
+		&entry_path.to_string_lossy(),
+		&name,
+		Some(directory),
+	) {
+		Ok(_) => true,
+		Err(error) => {
+			eprintln!("could not refresh {}: {error}", directory.display());
+			false
+		}
+	}
+}
+
 fn launch_link(path: &Path, entry: &DesktopEntry) -> Option<Result<(), String>> {
 	let url = match entry.url.as_deref() {
 		Some(url) if !url.trim().is_empty() => url,
@@ -342,6 +377,10 @@ pub fn is_action_entry(path: &Path) -> bool {
 
 pub fn is_link(path: &Path) -> bool {
 	read(path).is_link()
+}
+
+pub fn is_button(path: &Path) -> bool {
+	read(path).is_button()
 }
 
 #[allow(dead_code)]

@@ -270,17 +270,27 @@ Item {
 			text: {
 				let t = fileSlot.labelText;
 
-				let idx = t.lastIndexOf('.');
+				let styled = t;
+				const idx = t.lastIndexOf('.');
 				if (idx > 0 && !(t.startsWith('.') && t.indexOf('.', 1) === -1)) {
-					let name = t.substring(0, idx);
-					let ext = t.substring(idx);
-					return name + '<font color="' + Kirigami.Theme.disabledTextColor + '">' + ext + '</font>';
+					const name = t.substring(0, idx);
+					const ext = t.substring(idx);
+					styled = name + '<font color="' + Kirigami.Theme.disabledTextColor + '">' + ext + '</font>';
 				}
-				return t;
+				// Symlink and suspended-app labels are marked up rather than
+				// given `font.italic` / `font.bold`: assigning either of those
+				// breaks the style's own `font: Kirigami.Theme.defaultFont`
+				// binding and drops the label onto the application default font,
+				// which is smaller than the theme's — which is why an italic
+				// (symlink) label came out smaller than an upright one. Markup
+				// changes only the style, never the size or the family.
+				if (fileSlot.is_symlink)
+					styled = '<i>' + styled + '</i>';
+				if (fileSlot.isActive)
+					styled = '<b>' + styled + '</b>';
+				return styled;
 			}
 			textFormat: Text.StyledText
-			font.italic: fileSlot.is_symlink
-			font.bold: fileSlot.isActive
 			color: Kirigami.Theme.textColor
 			wrapMode: Text.Wrap
 			maximumLineCount: 2

@@ -304,20 +304,26 @@ Item {
 				const path = paths[i];
 				if (!actionManager.targetDirectory.is_execute_target(path))
 					continue;
-				actionManager.prepareLaunch();
-				actionManager.playSound("app-launch");
-				if (sourceItem) {
-					const layout = sourceItem.contentLayout;
-					const globalPos = layout.mapToItem(actionManager, 0, 0);
-					layout.grabToImage(result => {
-						externalOpenAnimation.x = globalPos.x;
-						externalOpenAnimation.y = globalPos.y;
-						externalOpenAnimation.width = layout.width;
-						externalOpenAnimation.height = layout.height;
-						externalOpenImage.source = result.url;
-						externalOpenAnimation.visible = true;
-						externalOpenAnimationEffect.restart();
-					});
+				// A `Type=Button` entry is a control, not an app: its Exec is
+				// spawned directly (no wrapper, no guest window), so it gets the
+				// button sound and none of the app-launch transition.
+				const isButton = actionManager.fileManager && actionManager.fileManager.is_button(path);
+				actionManager.playSound(isButton ? "button-pressed" : "app-launch");
+				if (!isButton) {
+					actionManager.prepareLaunch();
+					if (sourceItem) {
+						const layout = sourceItem.contentLayout;
+						const globalPos = layout.mapToItem(actionManager, 0, 0);
+						layout.grabToImage(result => {
+							externalOpenAnimation.x = globalPos.x;
+							externalOpenAnimation.y = globalPos.y;
+							externalOpenAnimation.width = layout.width;
+							externalOpenAnimation.height = layout.height;
+							externalOpenImage.source = result.url;
+							externalOpenAnimation.visible = true;
+							externalOpenAnimationEffect.restart();
+						});
+					}
 				}
 				const warning = String(actionManager.targetDirectory.execute_action(path));
 				if (warning !== "")
@@ -345,14 +351,18 @@ Item {
 				// source item, taking any in-flight grab with it while the render
 				// thread is still using it. Only grab when the item survives the open.
 				const isDir = actionManager.fileManager && actionManager.fileManager.is_directory(p);
+				// A `Type=Button` entry is a control, not an app: it runs its Exec
+				// directly (no wrapper, no guest window), so it gets the button
+				// sound and none of the app-launch transition.
+				const isButton = actionManager.fileManager && actionManager.fileManager.is_button(p);
 				// A folder opens in place (a navigation); a file leaves the app for
 				// its handler. The 3DS makes the same distinction, and so does the
 				// theme: window-new for going into a folder, the launch sound for
 				// handing a file to another program.
-				actionManager.playSound(isDir ? "window-new" : "app-launch");
-				if (!isDir)
+				actionManager.playSound(isButton ? "button-pressed" : (isDir ? "window-new" : "app-launch"));
+				if (!isDir && !isButton)
 					actionManager.prepareLaunch();
-				if (sourceItem && !(isDir && !inNewWindow)) {
+				if (sourceItem && !isButton && !(isDir && !inNewWindow)) {
 					const layout = sourceItem.contentLayout;
 					const globalPos = layout.mapToItem(actionManager, 0, 0);
 					layout.grabToImage(result => {
@@ -606,9 +616,14 @@ Item {
 		shortcut: actionManager.showShortcuts ? "F5" : ""
 		enabled: actionManager.directory !== null
 		onTriggered: {
-			// Full reload: re-reads the folder contents and its config.
-			if (actionManager.directory)
+			// A folder may carry its own `Refresh=` command (a ClamOS
+			// extension): it is how the folder asks its provider for fresh
+			// contents. Run it, then reload, so the view is never left
+			// showing what the provider has already replaced.
+			if (actionManager.directory) {
+				actionManager.directory.run_refresh_command();
 				actionManager.directory.reload();
+			}
 		}
 	}
 

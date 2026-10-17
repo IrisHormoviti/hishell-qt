@@ -302,6 +302,15 @@ Module {
 			Parameter { name: "path"; type: "string" }
 		}
 		Method {
+			name: "is_button"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "run_refresh_command"
+			type: "void"
+		}
+		Method {
 			name: "execute_action"
 			type: "string"
 			Parameter { name: "path"; type: "string" }
