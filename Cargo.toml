@@ -3,6 +3,16 @@ name = "hishell-qt"
 version = "0.1.0"
 edition = "2024"
 
+# The app is a library so a host process can load it, and a binary so it still
+# runs standalone on a desktop with system Qt.
+[lib]
+name = "hishell_qt"
+path = "src/lib.rs"
+
+[[bin]]
+name = "hishell-qt"
+path = "src/main.rs"
+
 [dependencies]
 qmetaobject = "0.2.10"
 serde = { version = "1.0.229", features = ["derive"] }

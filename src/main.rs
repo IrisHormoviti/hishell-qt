@@ -1,54 +1,15 @@
-mod appimage;
-mod config;
-mod config_parser;
-mod desktop_entry;
-mod directory;
-mod dragdrop_handler;
-mod drop_validator;
-mod file_manager;
-mod focus_manager;
-mod gamepad;
-mod image_utils;
-mod kde_bridge;
-mod launch;
-mod path_utils;
-mod selection_manager;
-mod session;
-mod sound;
-mod squashfs;
-mod thumbnailer;
+//! The standalone hishell-qt binary.
+//!
+//! Everything the app *is* lives in the library ([`hishell_qt`]), so a host
+//! process can load it too. This file is only the desktop/standalone wiring:
+//! work out which folder to open, create the QML engine (and with it the Qt
+//! application), then run the event loop.
 
-use crate::config::Config;
-use crate::directory::Directory;
-use crate::dragdrop_handler::DragDropHandler;
-use crate::drop_validator::DropValidator;
-use crate::file_manager::FileManager;
-use crate::focus_manager::FocusManager;
-use crate::path_utils::PathUtils;
-use crate::selection_manager::SelectionManager;
 use qmetaobject::prelude::*;
-use std::ffi::CStr;
 
 fn main() {
-	static IMPORT_NAME: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Hishell\0") };
-	static CONFIG_STR: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Config\0") };
-	static DIRECTORY_STR: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Directory\0") };
-	static FILEMANAGER_STR: &CStr =
-		unsafe { CStr::from_bytes_with_nul_unchecked(b"FileManager\0") };
-	static DRAGDROPHANDLER_STR: &CStr =
-		unsafe { CStr::from_bytes_with_nul_unchecked(b"DragDropHandler\0") };
-	static DROPVALIDATOR_STR: &CStr =
-		unsafe { CStr::from_bytes_with_nul_unchecked(b"DropValidator\0") };
-	static PATHUTILS_STR: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"PathUtils\0") };
-	// static LAYOUTENGINE_STR: &CStr =
-	// 	unsafe { CStr::from_bytes_with_nul_unchecked(b"HishellLayoutEngine\0") };
-	static SELECTIONMANAGER_STR: &CStr =
-		unsafe { CStr::from_bytes_with_nul_unchecked(b"SelectionManager\0") };
-	static FOCUSMANAGER_STR: &CStr =
-		unsafe { CStr::from_bytes_with_nul_unchecked(b"FocusManager\0") };
-	static SOUND_STR: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Sound\0") };
-
 	let args: Vec<String> = std::env::args().collect();
+
 	fn percent_decode(input: &str) -> String {
 		let mut out = String::with_capacity(input.len());
 		let bytes = input.as_bytes();
@@ -107,64 +68,19 @@ fn main() {
 	};
 	// Returning from a guest (or a crash, or a reboot) must reopen the folder
 	// the user was in; the saved session wins over the command line.
-	let initial_path = crate::session::startup_path(&initial_path);
+	let initial_path = hishell_qt::session::startup_path(&initial_path);
 	println!("startup initial_path={}", initial_path);
 
-	qmetaobject::qml_register_type::<Config>(IMPORT_NAME, 1, 0, CONFIG_STR);
-	qmetaobject::qml_register_type::<Directory>(IMPORT_NAME, 1, 0, DIRECTORY_STR);
-	qmetaobject::qml_register_type::<FileManager>(IMPORT_NAME, 1, 0, FILEMANAGER_STR);
-	qmetaobject::qml_register_type::<DragDropHandler>(IMPORT_NAME, 1, 0, DRAGDROPHANDLER_STR);
-	qmetaobject::qml_register_type::<DropValidator>(IMPORT_NAME, 1, 0, DROPVALIDATOR_STR);
-	qmetaobject::qml_register_type::<PathUtils>(IMPORT_NAME, 1, 0, PATHUTILS_STR);
-	qmetaobject::qml_register_type::<SelectionManager>(IMPORT_NAME, 1, 0, SELECTIONMANAGER_STR);
-	qmetaobject::qml_register_type::<FocusManager>(IMPORT_NAME, 1, 0, FOCUSMANAGER_STR);
-	qmetaobject::qml_register_type::<sound::Sound>(IMPORT_NAME, 1, 0, SOUND_STR);
-
-	qmetaobject::qrc!(load_qml_resources,
-		"Hishell" as "Hishell" {
-			"qmldir",
-			"plugins.qmltypes",
-			"ActionGroupMenu.qml",
-			"ActionManager.qml",
-			"DragTooltip.qml",
-			"DragPreview.qml",
-			"ExecuteDialog.qml",
-			"FileSlot.qml",
-			"FolderView.qml",
-			"LayoutEngine.qml",
-			"LaunchConfirmDialog.qml",
-			"OpenWithDialog.qml",
-			"ShellContextMenu.qml",
-			"ShellWindow.qml",
-			"WindowOverlay.qml",
-			"toolkit/qmldir" as "toolkit/qmldir",
-			"toolkit/MenuBar.qml" as "toolkit/MenuBar.qml",
-			"toolkit/PathBar.qml" as "toolkit/PathBar.qml",
-			"toolkit/Spacer.qml" as "toolkit/Spacer.qml",
-			"toolkit/ViewActions.qml" as "toolkit/ViewActions.qml",
-			"toolkit/ViewButton.qml" as "toolkit/ViewButton.qml",
-			"toolkit/ViewDialog.qml" as "toolkit/ViewDialog.qml",
-			"toolkit/ViewMenu.qml" as "toolkit/ViewMenu.qml",
-			"toolkit/ViewSlider.qml" as "toolkit/ViewSlider.qml",
-			"toolkit/WindowControl.qml" as "toolkit/WindowControl.qml",
-		}
-	);
-
-	load_qml_resources();
-
+	// The engine owns the Qt application, so it must exist before anything that
+	// touches a QPixmap: `setup_process` warms the action icons, and warming an
+	// icon builds a QPixmap, which Qt refuses without an application ("Must
+	// construct a QGuiApplication before a QPixmap").
 	let mut engine = QmlEngine::new();
-	engine.set_property(
-		"initialPath".into(),
-		QVariant::from(QString::from(initial_path.as_str())),
-	);
-	engine.add_import_path("qrc:///".into());
-	engine.load_file("qrc:///Hishell/ShellWindow.qml".into());
 
-	kde_bridge::hook_menu_key();
-	kde_bridge::suppress_touch_hover();
-	kde_bridge::warm_icons();
+	hishell_qt::install();
+	hishell_qt::setup_process();
 
-	gamepad::init();
-
+	// The standalone binary owns the engine and the loop.
+	hishell_qt::load(&mut engine, &initial_path);
 	engine.exec();
 }

@@ -151,18 +151,27 @@ Kirigami.ApplicationWindow {
 
 	// Open on a named screen/output when the config asks for one. The RG DS Plus
 	// wants its bottom touch panel, which weston exposes as the second output
-	// ("DSI-2"); the default would be the first output (the top panel). The
-	// screen has to be selected *before* going fullscreen, because weston picks
-	// the output at fullscreen time and ignores later moves.
+	// ("DSI-2"); the default would be the first output (the top panel).
+	//
+	// This resolves the *name* of the wanted screen and nothing else, because
+	// the order in which it is applied matters (see `onCompleted`): the window
+	// must be visible before the screen can be chosen, or the platform places
+	// it and re-resolves `screen` back to the compositor's default.
 	function applyConfiguredScreen() {
-		const name = directory.config.screen_name;
-		if (name && name.length > 0) {
-			const screens = Qt.application.screens;
-			for (let i = 0; i < screens.length; ++i) {
-				if (screens[i].name === name) {
-					root.screen = screens[i];
-					break;
-				}
+		// `String(...)` because a property coming from the host's type registry
+		// may arrive as a wrapped value rather than a JS string.
+		return String(directory.config.screen_name);
+	}
+
+	// Move the window onto the named screen, if it exists.
+	function setScreen(name) {
+		if (!name || name.length === 0)
+			return;
+		const screens = Qt.application.screens;
+		for (let i = 0; i < screens.length; ++i) {
+			if (String(screens[i].name) === name) {
+				root.screen = screens[i];
+				return;
 			}
 		}
 	}
@@ -264,10 +273,17 @@ Kirigami.ApplicationWindow {
 		directory.config.load(initialPath);
 		directory.path = initialPath;
 		root.refreshWindowIcon();
-		root.applyConfiguredScreen();
-		// Show only after the screen is chosen, so the compositor places the
-		// window on the requested output. "Maximized" then opens it fullscreen.
+
+		// Show first, then choose the output, then go fullscreen.
+		//
+		// This order is load-bearing. Showing a window makes the platform place
+		// it and *re-resolve* `screen` to whatever the compositor chose, so a
+		// screen set before the window is visible is thrown away. And weston
+		// pins a surface to its output at fullscreen time, ignoring later
+		// moves — so the output must already be chosen when fullscreen is set.
+		const wantScreen = root.applyConfiguredScreen();
 		root.visible = true;
+		root.setScreen(wantScreen);
 		if (directory.config.maximized)
 			root.visibility = Window.FullScreen;
 	}
