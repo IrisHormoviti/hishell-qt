@@ -35,6 +35,13 @@ Item {
 	required property int index
 	property bool is_dir: false
 
+	// A `Type=Button` entry is a control, not a thing to open (docs §2 of
+	// docs/settings-as-folders.md): it acts where it stands. Drawing it like the
+	// files and folders around it made the two read the same, so it is drawn as
+	// a button instead — a filled, rounded plate behind the icon and label,
+	// which is the shape every other control on the device already has.
+	readonly property bool isButton: fileManager ? fileManager.is_button(String(fileSlot.path)) : false
+
 	// The FolderView that owns this slot; used to detect free-placement mode,
 	// where the background DropArea owns all drops (including folder targets).
 	readonly property var folderView: {
@@ -216,6 +223,28 @@ Item {
 		}
 	}
 
+	// ── Button plate ──
+	// Sized to the content, so the label sits inside it rather than under the
+	// item against the wallpaper. Only for `Type=Button` entries.
+	Rectangle {
+		id: buttonPlate
+		visible: fileSlot.isButton
+		anchors.horizontalCenter: contentLayout.horizontalCenter
+		anchors.verticalCenter: contentLayout.verticalCenter
+		width: contentLayout.width + Kirigami.Units.largeSpacing * 2
+		height: contentLayout.height + Kirigami.Units.largeSpacing * 2
+		radius: Kirigami.Units.cornerRadius * 1.5
+		color: mouseArea.pressed ? Kirigami.Theme.highlightColor
+			: (mouseArea.containsMouse ? Qt.lighter(Kirigami.Theme.backgroundColor, 1.15) : Qt.darker(Kirigami.Theme.backgroundColor, 1.08))
+		border.width: 1
+		border.color: mouseArea.pressed || mouseArea.containsMouse ? Kirigami.Theme.highlightColor : Kirigami.Theme.disabledTextColor
+		opacity: 0.85
+
+		Behavior on color {
+			ColorAnimation { duration: fileSlot.animationDuration }
+		}
+	}
+
 	// ── Layout ──
 
 	GridLayout {
@@ -277,23 +306,16 @@ Item {
 					const ext = t.substring(idx);
 					styled = name + '<font color="' + Kirigami.Theme.disabledTextColor + '">' + ext + '</font>';
 				}
-				// Symlink and suspended-app labels are marked up rather than
-				// given `font.italic` / `font.bold`: assigning either of those
-				// breaks the style's own `font: Kirigami.Theme.defaultFont`
-				// binding and drops the label onto the application default font,
-				// which is smaller than the theme's — which is why an italic
-				// (symlink) label came out smaller than an upright one. Markup
-				// changes only the style, never the size or the family.
-				if (fileSlot.is_symlink)
-					styled = '<i>' + styled + '</i>';
-				if (fileSlot.isActive)
-					styled = '<b>' + styled + '</b>';
-				return styled;
+				return t;
 			}
 			textFormat: Text.StyledText
 			color: Kirigami.Theme.textColor
 			wrapMode: Text.Wrap
 			maximumLineCount: 2
+
+			font.italic: fileSlot.is_symlink
+			font.bold: fileSlot.isActive
+
 			elide: fileSlot.labelBesideIcon ? Text.ElideMiddle : Text.ElideMiddle
 			Layout.maximumWidth: fileSlot.labelBesideIcon ? (fileSlot.fixedWidth ? fileSlot.width - fileSlot.gridSize - Kirigami.Units.gridUnit * 2 : 250) : fileSlot.gridSize + Kirigami.Units.gridUnit * 2
 			horizontalAlignment: fileSlot.labelBesideIcon ? Text.AlignLeft : Text.AlignHCenter
