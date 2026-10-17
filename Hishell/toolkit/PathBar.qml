@@ -119,8 +119,28 @@ RowLayout {
 			editField.forceActiveFocus();
 			return;
 		}
+		// `editing` only becomes true once the field is visible *and* focused,
+		// which is what starts the text input on the protocol — and Qt reports
+		// the field's text as the surrounding text at the same moment, from
+		// text that has not changed yet. The protocol has no request to correct
+		// that afterwards (a client can only be told what it already said), so
+		// the on-screen keyboard would draw an empty line under its "Type a
+		// path" placeholder until the first key. Setting the text in the same
+		// turn as the focus cannot help either: the field is not focused yet,
+		// so no input exists to send anything on.
+		//
+		// So the set goes first, a turn early: the field is visible and filled
+		// before it is focused, and the text input that starts with the focus
+		// reports the path as surrounding text with the caret at its end.
 		pathBar.editing = true;
 		editField.text = (initialText && initialText.length > 0) ? initialText : pathBar.currentPath;
+		Qt.callLater(() => pathBar.focusEditField());
+	}
+
+	/// Focus the path field, once it has been laid out with its text.
+	function focusEditField() {
+		if (!pathBar.editing)
+			return;
 		editField.forceActiveFocus();
 		editField.cursorPosition = editField.text.length;
 		pathBar.completionIndex = -1;
