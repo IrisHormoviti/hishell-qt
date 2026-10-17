@@ -393,7 +393,7 @@ Item {
 				anchors.top: parent.top
 				width: focusIndicator.cornerSize
 				height: focusIndicator.cornerSize
-				source: fileSlot.focusBorderSource + "-0.svg"
+				source: fileSlot.focusBorderSource ? fileSlot.focusBorderSource + "-0.svg" : ""
 				smooth: true
 			}
 
@@ -402,7 +402,7 @@ Item {
 				anchors.top: parent.top
 				width: focusIndicator.cornerSize
 				height: focusIndicator.cornerSize
-				source: fileSlot.focusBorderSource + "-1.svg"
+				source: fileSlot.focusBorderSource ? fileSlot.focusBorderSource + "-1.svg" : ""
 				smooth: true
 			}
 
@@ -411,7 +411,7 @@ Item {
 				anchors.bottom: parent.bottom
 				width: focusIndicator.cornerSize
 				height: focusIndicator.cornerSize
-				source: fileSlot.focusBorderSource + "-2.svg"
+				source: fileSlot.focusBorderSource ? fileSlot.focusBorderSource + "-2.svg" : ""
 				smooth: true
 			}
 
@@ -420,7 +420,7 @@ Item {
 				anchors.bottom: parent.bottom
 				width: focusIndicator.cornerSize
 				height: focusIndicator.cornerSize
-				source: fileSlot.focusBorderSource + "-3.svg"
+				source: fileSlot.focusBorderSource ? fileSlot.focusBorderSource + "-3.svg" : ""
 				smooth: true
 			}
 		}

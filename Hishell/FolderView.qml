@@ -1775,7 +1775,7 @@ Item {
 					anchors.top: parent.top
 					width: emptyFocusIndicator.cornerSize
 					height: emptyFocusIndicator.cornerSize
-					source: folderView.focusBorderSource + "-0.svg"
+					source: folderView.focusBorderSource ? folderView.focusBorderSource + "-0.svg" : ""
 					smooth: true
 				}
 
@@ -1784,7 +1784,7 @@ Item {
 					anchors.top: parent.top
 					width: emptyFocusIndicator.cornerSize
 					height: emptyFocusIndicator.cornerSize
-					source: folderView.focusBorderSource + "-1.svg"
+					source: folderView.focusBorderSource ? folderView.focusBorderSource + "-1.svg" : ""
 					smooth: true
 				}
 
@@ -1793,7 +1793,7 @@ Item {
 					anchors.bottom: parent.bottom
 					width: emptyFocusIndicator.cornerSize
 					height: emptyFocusIndicator.cornerSize
-					source: folderView.focusBorderSource + "-2.svg"
+					source: folderView.focusBorderSource ? folderView.focusBorderSource + "-2.svg" : ""
 					smooth: true
 				}
 
@@ -1802,7 +1802,7 @@ Item {
 					anchors.bottom: parent.bottom
 					width: emptyFocusIndicator.cornerSize
 					height: emptyFocusIndicator.cornerSize
-					source: folderView.focusBorderSource + "-3.svg"
+					source: folderView.focusBorderSource ? folderView.focusBorderSource + "-3.svg" : ""
 					smooth: true
 				}
 			}
