@@ -224,14 +224,15 @@ Item {
 	}
 
 	// ── Button plate ──
-	// Sized to the content, so the label sits inside it rather than under the
-	// item against the wallpaper. Only for `Type=Button` entries.
+	// Only for `Type=Button` entries. One width for all of them — a row of
+	// buttons of different sizes reads as broken — with the label elided to
+	// fit, and only as tall as the icon, label and padding need.
 	Rectangle {
 		id: buttonPlate
 		visible: fileSlot.isButton
 		anchors.horizontalCenter: contentLayout.horizontalCenter
 		anchors.verticalCenter: contentLayout.verticalCenter
-		width: contentLayout.width + Kirigami.Units.largeSpacing * 2
+		width: fileSlot.gridSize + Kirigami.Units.gridUnit * 4
 		height: contentLayout.height + Kirigami.Units.largeSpacing * 2
 		radius: Kirigami.Units.cornerRadius * 1.5
 		color: mouseArea.pressed ? Kirigami.Theme.highlightColor
@@ -317,7 +318,11 @@ Item {
 			font.bold: fileSlot.isActive
 
 			elide: fileSlot.labelBesideIcon ? Text.ElideMiddle : Text.ElideMiddle
-			Layout.maximumWidth: fileSlot.labelBesideIcon ? (fileSlot.fixedWidth ? fileSlot.width - fileSlot.gridSize - Kirigami.Units.gridUnit * 2 : 250) : fileSlot.gridSize + Kirigami.Units.gridUnit * 2
+			// A button's label is bounded by its plate; an ordinary item's by
+			// the grid cell it lives in.
+			Layout.maximumWidth: fileSlot.isButton
+				? buttonPlate.width - Kirigami.Units.largeSpacing * 2
+				: (fileSlot.labelBesideIcon ? (fileSlot.fixedWidth ? fileSlot.width - fileSlot.gridSize - Kirigami.Units.gridUnit * 2 : 250) : fileSlot.gridSize + Kirigami.Units.gridUnit * 2)
 			horizontalAlignment: fileSlot.labelBesideIcon ? Text.AlignLeft : Text.AlignHCenter
 		}
 	}

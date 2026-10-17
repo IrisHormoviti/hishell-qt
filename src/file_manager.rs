@@ -566,6 +566,16 @@ pub struct FileManager {
 		}
 	),
 
+	/// Whether the entry is a `Type=Button` control rather than an app. A Button
+	/// runs its `Exec` directly (no wrapper, no guest window), so the views give
+	/// it the button sound and none of the app-launch transition (docs §6.2).
+	is_button: qt_method!(
+		fn is_button(&self, path: String) -> bool {
+			let p = clean_path(&path.to_string());
+			crate::desktop_entry::is_button(Path::new(&p))
+		}
+	),
+
 	get_home_directory: qt_method!(
 		pub fn get_home_directory(&self) -> String {
 			dirs::home_dir()

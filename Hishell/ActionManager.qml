@@ -306,9 +306,9 @@ Item {
 					continue;
 				// A `Type=Button` entry is a control, not an app: its Exec is
 				// spawned directly (no wrapper, no guest window), so it gets the
-				// button sound and none of the app-launch transition.
+				// menu-item sound and none of the app-launch transition.
 				const isButton = actionManager.fileManager && actionManager.fileManager.is_button(path);
-				actionManager.playSound(isButton ? "button-pressed" : "app-launch");
+				actionManager.playSound(isButton ? "menu-item" : "app-launch");
 				if (!isButton) {
 					actionManager.prepareLaunch();
 					if (sourceItem) {
@@ -352,14 +352,14 @@ Item {
 				// thread is still using it. Only grab when the item survives the open.
 				const isDir = actionManager.fileManager && actionManager.fileManager.is_directory(p);
 				// A `Type=Button` entry is a control, not an app: it runs its Exec
-				// directly (no wrapper, no guest window), so it gets the button
+				// directly (no wrapper, no guest window), so it gets the menu-item
 				// sound and none of the app-launch transition.
 				const isButton = actionManager.fileManager && actionManager.fileManager.is_button(p);
 				// A folder opens in place (a navigation); a file leaves the app for
 				// its handler. The 3DS makes the same distinction, and so does the
 				// theme: window-new for going into a folder, the launch sound for
 				// handing a file to another program.
-				actionManager.playSound(isButton ? "button-pressed" : (isDir ? "window-new" : "app-launch"));
+				actionManager.playSound(isButton ? "menu-item" : (isDir ? "window-new" : "app-launch"));
 				if (!isDir && !isButton)
 					actionManager.prepareLaunch();
 				if (sourceItem && !isButton && !(isDir && !inNewWindow)) {
