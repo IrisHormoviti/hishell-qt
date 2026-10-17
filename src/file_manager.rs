@@ -187,7 +187,7 @@ pub struct FileManager {
 	/// Move a file/directory to the system trash.
 	///
 	/// A generated desktop entry belongs to the provider that wrote it, so it
-	/// cannot simply be moved: when it declares a `Forget=` command that command
+	/// cannot simply be moved: when it declares a `Destroy=` command that command
 	/// runs instead (deleting the profile and the file together), and when it
 	/// does not, trashing is refused — deleting the file would only make the
 	/// daemon write it back (docs `settings-as-folders.md` §6.3).
@@ -196,8 +196,8 @@ pub struct FileManager {
 			let p = clean_path(&path.to_string());
 			let path = Path::new(&p);
 			let entry = crate::desktop_entry::read(path);
-			if let Some(command) = entry.forget_command() {
-				return crate::desktop_entry::run_forget(path, &entry, command);
+			if let Some(command) = entry.destroy_command() {
+				return crate::desktop_entry::run_destroy(path, &entry, command);
 			}
 			if !entry.is_destroyable() {
 				return false;
@@ -309,13 +309,16 @@ pub struct FileManager {
 			if uris.is_empty() {
 				return false;
 			}
-			let uris_str = uris.join("\n");
-			let action = if is_cut { "move" } else { "copy" };
-			let ok = self.process_uris_action(
-				String::from(dest.as_str()),
-				String::from(uris_str.as_str()),
-				String::from(action),
-			);
+			let ok = if is_cut {
+				cut_into(dest_path, &uris)
+			} else {
+				let uris_str = uris.join("\n");
+				self.process_uris_action(
+					String::from(dest.as_str()),
+					String::from(uris_str.as_str()),
+					String::from("copy"),
+				)
+			};
 			if ok && is_cut {
 				if let Ok(mut guard) = INTERNAL_CLIPBOARD.lock() {
 					*guard = None;
@@ -572,6 +575,45 @@ pub struct FileManager {
 	),
 }
 
+/// Carry out a Cut into `dest`, one URI at a time.
+///
+/// A generated entry that names a `Destroy=` command is not moved: for it,
+/// Cut-then-Paste means *destroy* — the same thing Trash does — because moving
+/// the file would leave the NetworkManager profile (or paired device) behind and
+/// the provider would write the entry straight back (docs §6.3). A generated
+/// entry with no such command is refused rather than moved, and everything else
+/// is an ordinary move.
+fn cut_into(dest: &Path, uris: &[String]) -> bool {
+	let mut any_ok = false;
+	for uri in uris {
+		let src = Path::new(uri);
+		if !src.exists() {
+			continue;
+		}
+		let entry = crate::desktop_entry::read(src);
+		if let Some(command) = entry.destroy_command() {
+			if crate::desktop_entry::run_destroy(src, &entry, command) {
+				any_ok = true;
+			}
+			continue;
+		}
+		if !entry.is_destroyable() {
+			continue;
+		}
+		let Some(name) = src.file_name() else {
+			continue;
+		};
+		let dst = dest.join(name);
+		if src == dst {
+			continue;
+		}
+		if move_item(src, &dst) {
+			any_ok = true;
+		}
+	}
+	any_ok
+}
+
 fn move_item(src: &Path, dst: &Path) -> bool {
 	if fs::rename(src, dst).is_ok() {
 		return true;
@@ -818,4 +860,76 @@ fn percent_decode(s: &str) -> String {
 		i += 1;
 	}
 	out
+}
+
+#[cfg(test)]
+mod tests {
+	use super::cut_into;
+	use std::fs;
+	use std::path::PathBuf;
+
+	/// A unique scratch directory for one test.
+	fn scratch(name: &str) -> PathBuf {
+		let dir = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
+		fs::remove_dir_all(&dir).ok();
+		fs::create_dir_all(&dir).unwrap();
+		dir
+	}
+
+	#[test]
+	fn pasting_a_cut_generated_entry_destroys_it_instead_of_moving_it() {
+		let dir = scratch("hishell-cut-destroy");
+		let dest = dir.join("dest");
+		fs::create_dir_all(&dest).unwrap();
+		let entry = dir.join("wpa:abc.desktop");
+		// `/bin/true` stands in for `clam-connect wifi --forget …`: the command
+		// owns the deletion, so the file must still be where it was.
+		fs::write(
+			&entry,
+			"[Desktop Entry]\nType=Button\nName=Home\nExec=clam-connect wifi wpa:abc\n\
+			 Destroy=/bin/true\nGenerated=true\nProvider=wifi\n",
+		)
+		.unwrap();
+
+		assert!(cut_into(&dest, &[entry.to_string_lossy().to_string()]));
+		assert!(entry.exists(), "a destroy is not a move");
+		assert!(!dest.join("wpa:abc.desktop").exists());
+
+		fs::remove_dir_all(&dir).ok();
+	}
+
+	#[test]
+	fn pasting_a_cut_provider_entry_is_refused() {
+		let dir = scratch("hishell-cut-refused");
+		let dest = dir.join("dest");
+		fs::create_dir_all(&dest).unwrap();
+		let entry = dir.join("00-scan.desktop");
+		fs::write(
+			&entry,
+			"[Desktop Entry]\nType=Button\nName=Scan for networks\nExec=clam-connect wifi --scan\n\
+			 Generated=true\nProvider=wifi\n",
+		)
+		.unwrap();
+
+		assert!(!cut_into(&dest, &[entry.to_string_lossy().to_string()]));
+		assert!(entry.exists());
+		assert!(!dest.join("00-scan.desktop").exists());
+
+		fs::remove_dir_all(&dir).ok();
+	}
+
+	#[test]
+	fn pasting_a_cut_ordinary_file_moves_it() {
+		let dir = scratch("hishell-cut-move");
+		let dest = dir.join("dest");
+		fs::create_dir_all(&dest).unwrap();
+		let file = dir.join("holiday.txt");
+		fs::write(&file, "sun\n").unwrap();
+
+		assert!(cut_into(&dest, &[file.to_string_lossy().to_string()]));
+		assert!(!file.exists());
+		assert_eq!(fs::read_to_string(dest.join("holiday.txt")).unwrap(), "sun\n");
+
+		fs::remove_dir_all(&dir).ok();
+	}
 }

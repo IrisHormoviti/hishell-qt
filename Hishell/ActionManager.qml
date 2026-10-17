@@ -54,9 +54,13 @@ Item {
 	readonly property bool isFirstTargetDir: (isSingleTarget && fileManager) ? fileManager.is_directory(firstTargetPath) : false
 
 	// A generated entry (a provider's network or control row) may be destroyed
-	// only when the provider says how: Trash then runs the entry's `Forget=`
-	// command instead of moving the file, and both Trash and Cut are withheld
-	// when it does not. Ordinary files are always destroyable.
+	// only when the provider says how: Trash then runs the entry's `Destroy=`
+	// command instead of moving the file. Cut is offered on the same terms and
+	// then means the same thing — pasting a cut generated entry runs its
+	// `Destroy=` command (FileManager::cut_into), because moving the file alone
+	// would leave the profile behind and the daemon would write it straight
+	// back. Both actions are withheld for a generated entry with no `Destroy=`;
+	// an ordinary file is always destroyable.
 	readonly property bool allTargetsDestroyable: actionManager.hasTarget
 		&& actionManager.targetPathList.every(path => actionManager.fileManager !== null && actionManager.fileManager.can_destroy(path))
 
