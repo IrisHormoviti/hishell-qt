@@ -224,16 +224,15 @@ Item {
 	}
 
 	// ── Button plate ──
-	// Only for `Type=Button` entries. One width for all of them — a row of
-	// buttons of different sizes reads as broken — with the label elided to
-	// fit, and only as tall as the icon, label and padding need.
+	// Only for `Type=Button` entries. The same footprint as the selection box:
+	// the whole slot, inset by smallSpacing, so a button, a selected item and a
+	// focused one all cover the same area. Every button being the same size
+	// comes free.
 	Rectangle {
 		id: buttonPlate
 		visible: fileSlot.isButton
-		anchors.horizontalCenter: contentLayout.horizontalCenter
-		anchors.verticalCenter: contentLayout.verticalCenter
-		width: fileSlot.gridSize + Kirigami.Units.gridUnit
-		height: contentLayout.height + Kirigami.Units.smallSpacing
+		anchors.fill: parent
+		anchors.margins: Kirigami.Units.smallSpacing
 		radius: Kirigami.Units.cornerRadius * 1.5
 		color: mouseArea.pressed ? Kirigami.Theme.highlightColor
 			: (mouseArea.containsMouse ? Qt.lighter(Kirigami.Theme.backgroundColor, 1.15) : Qt.darker(Kirigami.Theme.backgroundColor, 1.08))
