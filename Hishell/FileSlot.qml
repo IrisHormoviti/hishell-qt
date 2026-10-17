@@ -232,8 +232,8 @@ Item {
 		visible: fileSlot.isButton
 		anchors.horizontalCenter: contentLayout.horizontalCenter
 		anchors.verticalCenter: contentLayout.verticalCenter
-		width: fileSlot.gridSize + Kirigami.Units.gridUnit * 4
-		height: contentLayout.height + Kirigami.Units.largeSpacing * 2
+		width: fileSlot.gridSize + Kirigami.Units.gridUnit
+		height: contentLayout.height + Kirigami.Units.smallSpacing
 		radius: Kirigami.Units.cornerRadius * 1.5
 		color: mouseArea.pressed ? Kirigami.Theme.highlightColor
 			: (mouseArea.containsMouse ? Qt.lighter(Kirigami.Theme.backgroundColor, 1.15) : Qt.darker(Kirigami.Theme.backgroundColor, 1.08))
