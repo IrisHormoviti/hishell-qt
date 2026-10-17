@@ -938,7 +938,11 @@ Item {
 
 	function openOpenWithDialog(filePath) {
 		const w = actionManager.window;
-		const parentItem = (w && w.contentItem) ? w.contentItem : actionManager;
+		// Dialogs belong on the window's overlay layer, which draws above the
+		// content whatever z the panes use (a focused FileSlot is z: 3). See
+		// ViewButton.openViewDialog.
+		const parentItem = (w && w.overlay) ? w.overlay
+			: ((w && w.contentItem) ? w.contentItem : actionManager);
 		if (!actionManager.openWithSheet) {
 			actionManager.openWithSheet = openWithSheetComponent.createObject(parentItem, {
 				fileManager: actionManager.fileManager,

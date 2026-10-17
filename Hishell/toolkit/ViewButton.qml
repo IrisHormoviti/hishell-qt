@@ -19,14 +19,22 @@ ToolButton {
 		window: viewButton.window
 	}
 
-	// The dialog is not a child of the button: it is an overlay that sizes
-	// itself to the window, so creating it under the 40px button would clamp
-	// its height. It is created on first use, like the folder menus.
+	// The dialog is not a child of the button: it sizes itself to the window,
+	// so creating it under the 40px button would clamp its height. It is
+	// created on first use, like the folder menus.
+	//
+	// It hangs off the window's *overlay*, not its contentItem. Both are
+	// children of the window, but the overlay layer is drawn above all content
+	// no matter what z the content uses; a sheet under contentItem is merely a
+	// sibling of the panes, so a focused FileSlot (whose focus indicator is
+	// z: 3) would otherwise sort against it. Dialogs should not depend on
+	// that comparison.
 	property var viewDialog: null
 
 	function openViewDialog() {
 		if (!viewButton.viewDialog) {
-			const overlay = viewButton.window && viewButton.window.contentItem ? viewButton.window.contentItem : viewButton;
+			const w = viewButton.window;
+			const overlay = (w && w.overlay) ? w.overlay : ((w && w.contentItem) ? w.contentItem : viewButton);
 			viewButton.viewDialog = viewDialogComponent.createObject(overlay, {
 				viewActions: viewButton.viewActions
 			});
