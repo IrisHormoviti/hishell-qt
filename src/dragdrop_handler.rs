@@ -11,7 +11,7 @@ pub enum DragAction {
 
 impl Default for DragAction {
 	fn default() -> Self {
-		DragAction::Copy
+		DragAction::Move
 	}
 }
 
@@ -167,7 +167,7 @@ pub struct DragDropHandler {
 			self.item_count = item_count;
 			self.file_title = file_title.into();
 			self.file_icon = file_icon.into();
-			self.drag_action = "copy".into();
+			self.drag_action = "move".into();
 			self.drag_action_changed();
 		}
 	),

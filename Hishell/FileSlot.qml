@@ -745,7 +745,10 @@ Item {
 		}
 
 		onPositionChanged: drag => {
-			checkValid(drag);
+			// Keep the spring-load timer alive while the folder stays hovered;
+			// `onEntered` may not have fired if the drag started already inside.
+			if (checkValid(drag) && !hoverNavTimer.running)
+				hoverNavTimer.restart();
 		}
 
 		onExited: {
@@ -773,7 +776,7 @@ Item {
 			}
 
 			if (uris.length > 0 && typeof fileManager !== 'undefined' && fileManager) {
-				const action = (typeof dragDropHandler !== 'undefined' && dragDropHandler.drag_action) ? dragDropHandler.drag_action : "copy";
+				const action = (typeof dragDropHandler !== 'undefined' && dragDropHandler.drag_action) ? dragDropHandler.drag_action : "move";
 				if (fileManager.process_uris_action(fileSlot.path, uris, action)) {
 					fileSlot.playSound("drag-accept");
 					let p = fileSlot.parent;
@@ -794,7 +797,7 @@ Item {
 
 	Timer {
 		id: hoverNavTimer
-		interval: 800
+		interval: 600
 		repeat: false
 		onTriggered: {
 			if (slotDropArea.isHovered && fileSlot.is_dir) {
@@ -802,8 +805,16 @@ Item {
 				if (typeof fileSlot.dragDropHandler !== 'undefined')
 					fileSlot.dragDropHandler.tooltip_active = false;
 				Qt.callLater(function () {
-					if (fileSlot.actionManager && fileSlot.actionManager.openAction)
+					// Open it in the view that owns this slot, rather than
+					// whichever pane happens to hold the cursor.
+					const fView = fileSlot.folderView;
+					const dir = fView ? fView.directory : null;
+					if (dir) {
+						fileSlot.playSound("window-new");
+						dir.open_path(targetPath);
+					} else if (fileSlot.actionManager && fileSlot.actionManager.openAction) {
 						fileSlot.actionManager.openAction.execute(targetPath, fileSlot, false);
+					}
 				});
 			}
 		}
@@ -861,6 +872,15 @@ Item {
 		property DragDropHandler dragDropHandler: fileSlot.dragDropHandler ? fileSlot.dragDropHandler : null
 		property bool dragStarted: false
 		property bool isPressAndHoldActive: false
+		// True between press and release. The native-drag image grab is
+		// asynchronous: if the finger is lifted before it finishes, starting the
+		// drag then would leave a drag with no button held ("starts and
+		// instantly stops"), so the callback checks this first.
+		property bool pointerDown: false
+		// Drag ghost grabbed while the finger is held, so a drag that starts on
+		// the next move does not wait for an asynchronous render on the slow
+		// software renderer (which can outlast the whole gesture).
+		property string cachedDragImage: ""
 
 		property int startX: 0
 		property int startY: 0
@@ -869,10 +889,20 @@ Item {
 		property real startSceneX: 0
 		property real startSceneY: 0
 		property real pressContentY: 0
+		// The last pointer position seen while the button is down, in scene
+		// coordinates. The release point of a touch is wrong on this device
+		// (offset by the window width under QT_SCALE_FACTOR > 1, the same bug
+		// ViewSlider works around), so release must reuse the last move point
+		// instead of the release event's coordinates.
+		property real lastSceneX: 0
+		property real lastSceneY: 0
+		property real lastLocalX: 0
+		property real lastLocalY: 0
 		property bool dragInitiated: false
 		property bool repositionDrag: false
 
 		Component.onDestruction: {
+			mouseArea.pointerDown = false;
 			if (typeof dragDropHandler !== 'undefined' && mouseArea.repositionDrag) {
 				const fView = fileSlot.folderView;
 				if (fView)
@@ -887,26 +917,45 @@ Item {
 			}
 		}
 
+		function startNativeDrag(url, width, height, wx, wy) {
+			localDragTarget.Drag.imageSource = url;
+			localDragTarget.Drag.hotSpot = Qt.point(Math.round(width / 2), Math.round(height / 2));
+
+			if (typeof dragDropHandler !== 'undefined' && dragDropHandler) {
+				dragDropHandler.track_mouse_shake(wx, wy);
+				dragDropHandler.begin_drag(String(url), width, height);
+			}
+
+			mouseArea.dragStarted = true;
+			localDragTarget.Drag.active = true;
+		}
+
 		function grabAndStartNativeDrag(wx, wy) {
 			const targetToGrab = contentLayout;
 
+			// A drag ghost grabbed at press-and-hold is ready to use at once, so
+			// the drag keeps up with the finger instead of waiting on a render.
+			if (mouseArea.cachedDragImage !== "" && mouseArea.pointerDown && mouseArea.dragAllowed) {
+				mouseArea.startNativeDrag(mouseArea.cachedDragImage, targetToGrab.width, targetToGrab.height, wx, wy);
+				return;
+			}
+
 			targetToGrab.grabToImage(function (result) {
-				if (!mouseArea.dragAllowed) {
-					if (typeof dragDropHandler !== 'undefined' && dragDropHandler)
+				// The grab is asynchronous; the finger may be up by now, in which
+				// case starting the drag would leave it running with no button
+				// held. Drop it instead.
+				if (!mouseArea.pointerDown || !mouseArea.dragAllowed) {
+					if (typeof dragDropHandler !== 'undefined' && dragDropHandler) {
 						dragDropHandler.active_dragged_paths = [];
+						dragDropHandler.tooltip_active = false;
+						dragDropHandler.reposition_active = false;
+					}
+					localDragTarget.Drag.active = false;
+					mouseArea.dragStarted = false;
 					return;
 				}
 
-				localDragTarget.Drag.imageSource = result.url;
-				localDragTarget.Drag.hotSpot = Qt.point(Math.round(targetToGrab.width / 2), Math.round(targetToGrab.height / 2));
-
-				if (typeof dragDropHandler !== 'undefined' && dragDropHandler) {
-					dragDropHandler.track_mouse_shake(wx, wy);
-					dragDropHandler.begin_drag(result.url.toString(), targetToGrab.width, targetToGrab.height);
-				}
-
-				mouseArea.dragStarted = true;
-				localDragTarget.Drag.active = true;
+				mouseArea.startNativeDrag(result.url, targetToGrab.width, targetToGrab.height, wx, wy);
 			});
 		}
 
@@ -978,6 +1027,14 @@ Item {
 		}
 
 		onPositionChanged: mouse => {
+			// Record where the finger actually is before anything else: this is
+			// the position a release or cancel has to trust.
+			const scene = mouseArea.mapToItem(null, mouse.x, mouse.y);
+			mouseArea.lastSceneX = scene.x;
+			mouseArea.lastSceneY = scene.y;
+			mouseArea.lastLocalX = mouse.x;
+			mouseArea.lastLocalY = mouse.y;
+
 			if (typeof dragDropHandler === 'undefined')
 				return;
 
@@ -1016,6 +1073,8 @@ Item {
 
 		onPressed: mouse => {
 			mouseArea.touchInput = mouse.source !== Qt.MouseEventNotSynthesized;
+			if (mouse.button === Qt.LeftButton)
+				mouseArea.pointerDown = true;
 
 			if (mouse.button === Qt.LeftButton && fileSlot.pressHandler)
 				fileSlot.pressHandler(mouse);
@@ -1031,6 +1090,10 @@ Item {
 				const startScene = mouseArea.mapToItem(null, mouse.x, mouse.y);
 				mouseArea.startSceneX = startScene.x;
 				mouseArea.startSceneY = startScene.y;
+				mouseArea.lastSceneX = startScene.x;
+				mouseArea.lastSceneY = startScene.y;
+				mouseArea.lastLocalX = mouse.x;
+				mouseArea.lastLocalY = mouse.y;
 				mouseArea.pressContentY = fileSlot.folderView ? fileSlot.folderView.viewContentY : 0;
 			}
 		}
@@ -1038,9 +1101,12 @@ Item {
 		onReleased: mouse => {
 			mouseArea.isPressAndHoldActive = false;
 			mouseArea.dragInitiated = false;
+			mouseArea.pointerDown = false;
 
 			if (mouseArea.repositionDrag) {
-				const pt = mouseArea.mapToItem(null, mouse.x, mouse.y);
+				// Trust the last move point, not the release event: the touch
+				// release coordinate is offset on this device.
+				const pt = Qt.point(mouseArea.lastSceneX, mouseArea.lastSceneY);
 				const fView = fileSlot.folderView;
 				if (fView)
 					fView.endRepositionDrag(pt.x, pt.y);
@@ -1072,6 +1138,24 @@ Item {
 		}
 
 		onCanceled: {
+			mouseArea.pointerDown = false;
+			// A canceled gesture must not leave a reposition drag running: the
+			// preview ghost and the drop highlight would stay on screen.
+			if (mouseArea.repositionDrag) {
+				const fView = fileSlot.folderView;
+				if (fView)
+					fView.cancelRepositionDrag();
+				mouseArea.repositionDrag = false;
+				if (typeof dragDropHandler !== 'undefined' && dragDropHandler) {
+					dragDropHandler.active_dragged_paths = [];
+					dragDropHandler.tooltip_active = false;
+					dragDropHandler.reposition_active = false;
+				}
+				localDragTarget.Drag.active = false;
+				mouseArea.dragStarted = false;
+				return;
+			}
+
 			// Qt cancels the press of a rapid second tap even when the view is
 			// not scrolling. Treat that as the tap it was; a real scroll either
 			// moves the view or moves the finger past the tap distance.
@@ -1082,9 +1166,10 @@ Item {
 					|| Math.abs(fileSlot.folderView.viewContentY - mouseArea.pressContentY) > 1)
 					return;
 			}
-			const endScene = mouseArea.mapToItem(null, mouseArea.mouseX, mouseArea.mouseY);
-			if (Math.abs(endScene.x - mouseArea.startSceneX) > 12
-				|| Math.abs(endScene.y - mouseArea.startSceneY) > 12)
+			// The release event's coordinates are wrong on this device, so use
+			// the last move point (or the press point for a tap).
+			if (Math.abs(mouseArea.lastSceneX - mouseArea.startSceneX) > 12
+				|| Math.abs(mouseArea.lastSceneY - mouseArea.startSceneY) > 12)
 				return;
 			fileSlot.activateOrFocus();
 		}
@@ -1092,6 +1177,11 @@ Item {
 		onPressAndHold: {
 			mouseArea.isPressAndHoldActive = true;
 			fileSlot.pressHeld(fileSlot.path, fileSlot.index);
+			// Grab the drag ghost now, while the finger is held, so a drag
+			// starting on the next move begins immediately.
+			contentLayout.grabToImage(function (result) {
+				mouseArea.cachedDragImage = result.url.toString();
+			});
 		}
 
 		onClicked: mouse => {

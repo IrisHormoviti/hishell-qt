@@ -385,6 +385,11 @@ Module {
 			Parameter { name: "row"; type: "int" }
 		}
 		Method {
+			name: "set_free_positions"
+			type: "void"
+			Parameter { name: "positions_json"; type: "string" }
+		}
+		Method {
 			name: "reset_free_positions"
 			type: "void"
 		}

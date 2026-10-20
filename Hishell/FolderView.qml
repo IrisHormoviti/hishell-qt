@@ -68,6 +68,10 @@ Item {
 	property bool folderDropActive: false
 	property string folderDropPath: ""
 
+	// Folder a spring-load navigation is armed for (free placement, where the
+	// background owns drops). Hovering it long enough opens it.
+	property string folderNavPath: ""
+
 	// Custom in-window reposition drag: the selection is previewed and moved
 	// directly instead of starting an OS drag-and-drop sequence.
 	property bool repositionDragActive: false
@@ -1083,10 +1087,31 @@ Item {
 
 	function resetFolderDrop() {
 		folderDropTimer.stop();
+		folderView.updateFolderNavTarget("");
 		if (folderView.folderDropPath !== "")
 			folderView.folderDropPath = "";
 		if (folderView.folderDropActive)
 			folderView.folderDropActive = false;
+	}
+
+	// Arm (or clear) the spring-load navigation into a folder during a drag.
+	// Re-arming on every move of the same folder would keep restarting the
+	// timer, so the timer keeps running while the target is unchanged.
+	function updateFolderNavTarget(path) {
+		if (path === "") {
+			if (folderView.folderNavPath !== "") {
+				folderView.folderNavPath = "";
+				folderNavTimer.stop();
+			}
+			return;
+		}
+		if (folderView.folderNavPath === path) {
+			if (!folderNavTimer.running)
+				folderNavTimer.restart();
+			return;
+		}
+		folderView.folderNavPath = path;
+		folderNavTimer.restart();
 	}
 
 	function updateFreeDropTarget(x, y) {
@@ -1251,6 +1276,10 @@ Item {
 			const action = handler.drag_action ? String(handler.drag_action) : "move";
 			if (uris.length > 0 && fm && fm.process_uris_action(dropFolder, uris, action))
 				folderView.directory.reload();
+			// Dropping into a folder ends the drag too; clear the selection it
+			// made.
+			if (folderView.selectionManager)
+				folderView.selectionManager.exit_selection_mode();
 			return;
 		}
 
@@ -1285,11 +1314,20 @@ Item {
 		dRow -= minRow;
 
 		folderView.repositionAnimating = true;
+		// Place the whole moved set in one write so its target cells win over
+		// any older saved position in them (a visible item or a stashed
+		// dotfile), then let the unpositioned items reflow around it.
+		const movedPositions = {};
 		for (let i = 0; i < entries.length; i++) {
 			const e = entries[i];
-			folderView.directory.set_free_position(e.name, e.c + dCol, e.r + dRow);
+			movedPositions[e.name] = [e.c + dCol, e.r + dRow];
 		}
+		folderView.directory.set_free_positions(JSON.stringify(movedPositions));
 		repositionAnimTimer.restart();
+		// The drag selected the items it moved; the drop ends that gesture, so
+		// the selection should not linger.
+		if (folderView.selectionManager)
+			folderView.selectionManager.exit_selection_mode();
 		return true;
 	}
 
@@ -1385,6 +1423,12 @@ Item {
 				return;
 			}
 
+			// Free placement has no per-slot DropArea (the background owns the
+			// drops), so spring-load navigation into a hovered folder is driven
+			// from here. The regular grid keeps it in FileSlot's drop area.
+			if (folderView.gridMetrics.free)
+				folderView.updateFolderNavTarget(overFolder ? folderPath : "");
+
 			bgDropArea.isHovered = !overFolder;
 			if (typeof dragHandler !== 'undefined' && dragHandler) {
 				dragHandler.reposition_active = false;
@@ -1447,7 +1491,7 @@ Item {
 
 			if (uris.length > 0 && typeof fileManager !== 'undefined' && fileManager) {
 				const target = dropIntoFolder ? folderPath : folderView.directory.path;
-				const action = (typeof dragHandler !== 'undefined' && dragHandler) ? dragHandler.drag_action : "copy";
+				const action = (typeof dragHandler !== 'undefined' && dragHandler) ? dragHandler.drag_action : "move";
 				if (fileManager.process_uris_action(target, uris, action)) {
 					folderView.directory.reload();
 				}
@@ -1471,6 +1515,23 @@ Item {
 				handler.reposition_active = false;
 				handler.tooltip_active = true;
 			}
+		}
+	}
+
+	// Hovering a folder during a drag long enough opens it, so a drag can
+	// descend into it (spring-load). Used by the free-placement background,
+	// which owns the drops there; the regular grid does this per slot.
+	Timer {
+		id: folderNavTimer
+		interval: 600
+		repeat: false
+		onTriggered: {
+			const path = folderView.folderNavPath;
+			folderView.folderNavPath = "";
+			if (path === "" || !folderView.directory)
+				return;
+			folderView.playSound("window-new");
+			folderView.directory.open_path(path);
 		}
 	}
 

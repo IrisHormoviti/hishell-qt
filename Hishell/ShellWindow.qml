@@ -304,6 +304,9 @@ Kirigami.ApplicationWindow {
 			root.visibility = Window.FullScreen;
 	}
 
+	// Which output the file manager actually landed on (DSI-2 expected).
+	onScreenChanged: console.log("file manager: output", String(root.screen.name))
+
 	// Whenever the keyboard is left unclaimed, hand it back to the window's own
 	// pane. Deferred so Qt has settled focus after (de)activation.
 	onActiveChanged: Qt.callLater(() => root.ensureFolderViewFocus())

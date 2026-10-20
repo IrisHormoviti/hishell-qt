@@ -793,6 +793,25 @@ impl Config {
 		self.write_free_positions(path, &positions);
 	}
 
+	/// Record several manually placed coordinates at once. The entries being
+	/// placed win their cells: a saved position for any other item in the same
+	/// cell is dropped, including a stashed dotfile that is not on screen. That
+	/// keeps a drop where the user put it instead of letting an older saved
+	/// position (or an off-screen entry) push it aside.
+	pub fn set_free_positions(&mut self, path: &Path, entries: &[(String, i32, i32)]) {
+		let mut positions = self.parse_free_positions();
+		for (name, col, row) in entries {
+			positions.retain(|existing, value| {
+				let (c, r) = *value;
+				existing == name || c != *col || r != *row
+			});
+		}
+		for (name, col, row) in entries {
+			positions.insert(name.clone(), (*col, *row));
+		}
+		self.write_free_positions(path, &positions);
+	}
+
 	/// Move a saved coordinate to a new filename after a rename, keeping the
 	/// manually placed item in position.
 	pub fn rename_free_position(&mut self, path: &Path, old_name: &str, new_name: &str) {

@@ -562,6 +562,17 @@ pub struct Directory {
 		}
 	),
 
+	set_free_positions: qt_method!(
+		pub fn set_free_positions(&mut self, positions_json: String) {
+			let path = self.path_str.clone();
+			let entries = parse_free_position_entries(&positions_json);
+			self.config
+				.pinned()
+				.borrow_mut()
+				.set_free_positions(Path::new(&path), &entries);
+		}
+	),
+
 	reset_free_positions: qt_method!(
 		pub fn reset_free_positions(&mut self) {
 			let path = self.path_str.clone();
@@ -689,6 +700,14 @@ impl Directory {
 				}
 
 				let entry_path = entry.path();
+				// A desktop entry that asks not to be displayed is stashed like
+				// a dotfile: hidden while the stash is on, shown when it is off.
+				if !include_hidden
+					&& crate::config::entry_path(&entry_path)
+						.is_some_and(|_| crate::desktop_entry::read(&entry_path).no_display)
+				{
+					continue;
+				}
 				let p = entry_path.to_string_lossy().to_string();
 				let title = get_item_title(&entry_path);
 				let file_type = entry.file_type().ok();
@@ -1043,6 +1062,24 @@ impl Directory {
 		})
 		.to_string()
 	}
+}
+
+/// Parse a `{ "name": [col, row], ... }` map as used by
+/// `FreePlacementPositions`.
+fn parse_free_position_entries(json: &str) -> Vec<(String, i32, i32)> {
+	let mut entries = Vec::new();
+	if let Ok(value) = serde_json::from_str::<serde_json::Value>(json)
+		&& let Some(obj) = value.as_object()
+	{
+		for (name, pos) in obj {
+			if let Some(arr) = pos.as_array() {
+				let col = arr.first().and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+				let row = arr.get(1).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+				entries.push((name.clone(), col, row));
+			}
+		}
+	}
+	entries
 }
 
 fn first_available(

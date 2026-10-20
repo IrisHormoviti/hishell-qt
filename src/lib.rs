@@ -42,6 +42,9 @@ use crate::selection_manager::SelectionManager;
 /// The QML root that draws the file manager.
 pub const ROOT_QML: &str = "qrc:///Hishell/ShellWindow.qml";
 
+/// The QML root that draws the crash-recovery prompt.
+pub const RECOVERY_QML: &str = "qrc:///Hishell/Recovery.qml";
+
 /// The QML import path the app's resources live under.
 pub const IMPORT_PATH: &str = "qrc:///";
 
@@ -90,6 +93,7 @@ pub fn install() {
 			"LayoutEngine.qml",
 			"LaunchConfirmDialog.qml",
 			"OpenWithDialog.qml",
+			"Recovery.qml",
 			"ShellContextMenu.qml",
 			"ShellWindow.qml",
 			"WindowOverlay.qml",
@@ -131,4 +135,14 @@ pub fn load(engine: &mut QmlEngine, initial_path: &str) {
 	);
 	engine.add_import_path(IMPORT_PATH.into());
 	engine.load_file(ROOT_QML.into());
+}
+
+/// Load the crash-recovery prompt instead of the file manager.
+///
+/// Shares the QML import path with [`load`] but nothing else: the prompt does
+/// not touch the file manager's objects, so it survives whatever state the
+/// crashed process left behind.
+pub fn load_recovery(engine: &mut QmlEngine) {
+	engine.add_import_path(IMPORT_PATH.into());
+	engine.load_file(RECOVERY_QML.into());
 }
