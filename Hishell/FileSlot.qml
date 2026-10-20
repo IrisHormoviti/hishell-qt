@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import ClamOS.Theme
 import Hishell
 
 Item {
@@ -25,6 +26,16 @@ Item {
 	property int gridSize: 64
 	property bool labelBesideIcon: gridSize < 32
 	property bool showLabels: true
+	// Folders (and the home icon) are recoloured to the accent by the shell
+	// (Breeze draws their bodies with its ColorScheme-Accent class); anything
+	// else keeps the icon its resolver chose, and an icon that cannot be
+	// recoloured falls back to its plain name.
+	readonly property string displayIcon: {
+		if (!fileSlot.is_dir)
+			return fileSlot.icon;
+		const recoloured = ClamTheme.accentFolderIcon(fileManager, fileSlot.icon, fileSlot.iconDisplaySize);
+		return recoloured.length > 0 ? recoloured : fileSlot.icon;
+	}
 	// With no label the icon takes over the whole slot, so the view reads as a gallery.
 	readonly property real iconDisplaySize: fileSlot.showLabels ? fileSlot.gridSize : Math.max(fileSlot.gridSize, Math.min(fileSlot.width, fileSlot.height) - Kirigami.Units.smallSpacing * 2)
 	// Whether the label shows the file name instead of the item's title.
@@ -33,7 +44,10 @@ Item {
 	property bool showIcon: icon !== ""
 	required property bool is_symlink
 	required property int index
-	property bool is_dir: false
+	// The delegate model does not hand the `is_dir` role to a same-named
+	// property, so derive it from the path. Views that know better (the path
+	// bar) can still override it.
+	property bool is_dir: fileManager ? fileManager.is_directory(String(fileSlot.path)) : false
 
 	// A `Type=Button` entry is a control, not a thing to open (docs §2 of
 	// docs/settings-as-folders.md): it acts where it stands. Drawing it like the
@@ -41,6 +55,39 @@ Item {
 	// a button instead — a filled, rounded plate behind the icon and label,
 	// which is the shape every other control on the device already has.
 	readonly property bool isButton: fileManager ? fileManager.is_button(String(fileSlot.path)) : false
+
+	// Some slots represent the same path family without being a choice in the
+	// parent folder's radio group (path-bar breadcrumbs); they opt out here.
+	property bool radioMember: true
+
+	// A child of a folder-owned `[Radio]` group (docs/theming.md): the parent
+	// folder decides whether this item is selectable and owns the selection; the
+	// child carries only display metadata.  `radio_only` narrows the group to
+	// directories or files.
+	readonly property bool isRadio: {
+		if (!fileSlot.radioMember)
+			return false;
+		const view = fileSlot.folderView;
+		if (!view || !view.directory || !view.directory.config || !view.directory.config.radio_enabled)
+			return false;
+		const only = view.directory.config.radio_only;
+		return only === 0 || (only === 1 && fileSlot.is_dir) || (only === 2 && !fileSlot.is_dir);
+	}
+	readonly property string radioValue: {
+		if (!fileSlot.isRadio || !fileSlot.folderView || !fileSlot.folderView.directory)
+			return "";
+		return String(fileSlot.folderView.directory.radio_value(fileSlot.path));
+	}
+	readonly property bool isRadioSelected: {
+		const view = fileSlot.folderView;
+		if (!fileSlot.isRadio || !view || !view.directory || !view.directory.config)
+			return false;
+		return String(view.directory.config.radio_selected) === fileSlot.radioValue;
+	}
+
+	// The selected radio choice is the folder's current item, so give it the
+	// same active treatment (bold label, selection wash) as an active item.
+	readonly property bool active: fileSlot.isActive || fileSlot.isRadioSelected
 
 	// The FolderView that owns this slot; used to detect free-placement mode,
 	// where the background DropArea owns all drops (including folder targets).
@@ -78,6 +125,10 @@ Item {
 	// Focus state passed from FolderView (independent of selection)
 	property bool focusActive: false
 	property bool isFocused: false
+	// The last item this slot opened and when, so a mouse double click, which
+	// sends both `clicked` and `doubleClicked`, only activates once.
+	property string lastActivatedPath: ""
+	property double lastActivatedTime: 0
 	property string focusBorderSource: ""
 	property double focusBorderScale: 1
 	property double focusBorderMovment: 0.03
@@ -227,21 +278,104 @@ Item {
 	// Only for `Type=Button` entries. The same footprint as the selection box:
 	// the whole slot, inset by smallSpacing, so a button, a selected item and a
 	// focused one all cover the same area. Every button being the same size
-	// comes free.
-	Rectangle {
+	// comes free. The surface is a raised key: a shaded rim with a lighter face
+	// set into it, a top highlight, a bottom shade and a soft blurred drop
+	// shadow; pressing sinks the face into the shadow.
+	Item {
 		id: buttonPlate
 		visible: fileSlot.isButton
 		anchors.fill: parent
 		anchors.margins: Kirigami.Units.smallSpacing
-		radius: Kirigami.Units.cornerRadius * 1.5
-		color: mouseArea.pressed ? Kirigami.Theme.highlightColor
-			: (mouseArea.containsMouse ? Qt.lighter(Kirigami.Theme.backgroundColor, 1.15) : Qt.darker(Kirigami.Theme.backgroundColor, 1.08))
-		border.width: 1
-		border.color: mouseArea.pressed || mouseArea.containsMouse ? Kirigami.Theme.highlightColor : Kirigami.Theme.disabledTextColor
-		opacity: 0.85
 
-		Behavior on color {
+		readonly property bool down: mouseArea.pressed
+		readonly property bool hot: mouseArea.containsMouse
+		readonly property real plateRadius: Kirigami.Units.cornerRadius * 1.5
+		readonly property color body: down ? Qt.lighter(Kirigami.Theme.highlightColor, 1.25)
+			: (hot ? Qt.lighter(Kirigami.Theme.backgroundColor, 1.10) : Kirigami.Theme.backgroundColor)
+
+		// Soft drop shadow, stacked translucent rounded rectangles (renders on
+		// every backend); each layer is the rim pushed down by `d` and grown
+		// by `s`.
+		readonly property var shadowLayers: [
+			{ "s": 1.0, "d": 1.5, "o": 0.10 },
+			{ "s": 2.0, "d": 2.5, "o": 0.07 },
+			{ "s": 3.0, "d": 3.5, "o": 0.05 },
+			{ "s": 4.0, "d": 4.5, "o": 0.03 }
+		]
+		Repeater {
+			model: buttonPlate.shadowLayers
+			Rectangle {
+				required property var modelData
+				anchors.fill: buttonRim
+				anchors.leftMargin: -modelData.s
+				anchors.rightMargin: -modelData.s
+				anchors.topMargin: modelData.d - modelData.s
+				anchors.bottomMargin: -(modelData.s + modelData.d)
+				radius: buttonRim.radius + modelData.s
+				color: ClamTheme.shadowColor
+				opacity: buttonPlate.down ? modelData.o * 0.5 : modelData.o
+			}
+		}
+
+		Rectangle {
+			id: buttonRim
+			anchors.fill: parent
+			anchors.topMargin: buttonPlate.down ? 1 : 0
+			radius: buttonPlate.plateRadius
+			gradient: Gradient {
+				GradientStop { position: 0.0; color: Qt.darker(buttonPlate.body, 1.03) }
+				GradientStop { position: 0.5; color: Qt.darker(buttonPlate.body, 1.08) }
+				GradientStop { position: 1.0; color: buttonPlate.down ? Qt.darker(buttonPlate.body, 1.12) : Qt.darker(buttonPlate.body, 1.16) }
+			}
+			border.width: 1
+			border.color: buttonPlate.down || buttonPlate.hot ? Kirigami.Theme.highlightColor : Qt.alpha(Kirigami.Theme.disabledTextColor, 0.7)
+		}
+		Rectangle {
+			id: buttonFace
+			anchors.fill: buttonRim
+			anchors.margins: 2
+			radius: Math.max(2, buttonPlate.plateRadius - 2)
+			gradient: Gradient {
+				GradientStop { position: 0.0; color: buttonPlate.down ? Qt.darker(buttonPlate.body, 1.05) : Qt.lighter(buttonPlate.body, 1.08) }
+				GradientStop { position: 0.10; color: buttonPlate.body }
+				GradientStop { position: 0.72; color: buttonPlate.body }
+				GradientStop { position: 0.92; color: buttonPlate.down ? Qt.darker(buttonPlate.body, 1.06) : Qt.darker(buttonPlate.body, 1.03) }
+				GradientStop { position: 1.0; color: buttonPlate.down ? Qt.darker(buttonPlate.body, 1.10) : Qt.darker(buttonPlate.body, 1.07) }
+			}
+		}
+	}
+
+	// ── Radio plate ──
+	// A child of a folder-owned radio group is a choice, not an app: a card
+	// behind it, and an accent border plus wash when it is the selected one.
+	// The parent folder owns the group and runs the apply command.
+	Rectangle {
+		id: radioPlate
+		visible: fileSlot.isRadio
+		anchors.fill: parent
+		anchors.margins: Kirigami.Units.smallSpacing
+		radius: Kirigami.Units.cornerRadius * 1.5
+		color: mouseArea.pressed ? Qt.alpha(Kirigami.Theme.highlightColor, 0.25)
+			: (mouseArea.containsMouse ? Qt.lighter(Kirigami.Theme.backgroundColor, 1.15) : Kirigami.Theme.backgroundColor)
+		border.width: 1
+		border.color: fileSlot.isRadioSelected ? Kirigami.Theme.highlightColor : Kirigami.Theme.disabledTextColor
+		opacity: fileSlot.isRadioSelected ? 1.0 : 0.75
+
+		// The selected choice gets an accent wash, so it reads as the current
+		// item even where the plate hides the selection rectangle behind it.
+		Rectangle {
+			anchors.fill: parent
+			radius: parent.radius
+			color: Kirigami.Theme.highlightColor
+			opacity: fileSlot.isRadioSelected ? 0.12 : 0.0
+			Behavior on opacity { NumberAnimation { duration: fileSlot.animationDuration } }
+		}
+
+		Behavior on border.color {
 			ColorAnimation { duration: fileSlot.animationDuration }
+		}
+		Behavior on opacity {
+			NumberAnimation { duration: fileSlot.animationDuration; easing.type: fileSlot.animationEase }
 		}
 	}
 
@@ -262,13 +396,13 @@ Item {
 			Loader {
 				anchors.fill: parent
 				active: fileSlot.showIcon
-				sourceComponent: (fileSlot.icon.startsWith("file://") || fileSlot.icon.startsWith("/")) ? thumbnailComponent : iconComponent
+				sourceComponent: (fileSlot.displayIcon.startsWith("file://") || fileSlot.displayIcon.startsWith("/")) ? thumbnailComponent : iconComponent
 			}
 
 			Component {
 				id: thumbnailComponent
 				Image {
-					source: fileSlot.icon
+					source: fileSlot.displayIcon
 					asynchronous: true
 					cache: false
 					fillMode: Image.PreserveAspectFit
@@ -282,7 +416,7 @@ Item {
 			Component {
 				id: iconComponent
 				Kirigami.Icon {
-					source: fileSlot.icon
+					source: fileSlot.displayIcon
 					Layout.preferredWidth: fileSlot.gridSize
 					Layout.preferredHeight: fileSlot.gridSize
 					Layout.fillWidth: false
@@ -313,15 +447,56 @@ Item {
 			wrapMode: Text.Wrap
 			maximumLineCount: 2
 
-			font.italic: fileSlot.is_symlink
-			font.bold: fileSlot.isActive
+			// Pin the font metrics so the italic face used for symlinks keeps
+			// the same size as the surrounding text.  Left to inherit, asking
+			// for italic can resolve to a fallback with a different point size
+			// (the "both point size and pixel size set" warning) and the
+			// symlink label renders smaller.
+			// Qt resolves the italic face of the default font at a smaller
+			// metric than the upright one on this device (the app font has both
+			// a point and a pixel size).  Measure both at the base size and
+			// scale the italic request up so the symlink label is the same
+			// height as the regular one.
+			readonly property real labelBasePixelSize: Qt.application.font.pixelSize
+
+			FontMetrics {
+				id: baseRegularFontMetrics
+				font: Qt.font({
+					family: Qt.application.font.family,
+					pixelSize: labelItem.labelBasePixelSize,
+					italic: false
+				})
+			}
+			FontMetrics {
+				id: baseItalicFontMetrics
+				font: Qt.font({
+					family: Qt.application.font.family,
+					pixelSize: labelItem.labelBasePixelSize,
+					italic: true
+				})
+			}
+			readonly property real labelItalicScale: baseItalicFontMetrics.height > 0
+				? baseRegularFontMetrics.height / baseItalicFontMetrics.height
+				: 1.0
+
+			font: Qt.font({
+				family: Qt.application.font.family,
+				pixelSize: fileSlot.is_symlink
+					? Math.round(labelItem.labelBasePixelSize * labelItem.labelItalicScale)
+					: labelItem.labelBasePixelSize,
+				weight: Qt.application.font.weight,
+				italic: fileSlot.is_symlink,
+				bold: fileSlot.active
+			})
 
 			elide: fileSlot.labelBesideIcon ? Text.ElideMiddle : Text.ElideMiddle
 			// A button's label is bounded by its plate; an ordinary item's by
 			// the grid cell it lives in.
 			Layout.maximumWidth: fileSlot.isButton
 				? buttonPlate.width - Kirigami.Units.largeSpacing * 2
-				: (fileSlot.labelBesideIcon ? (fileSlot.fixedWidth ? fileSlot.width - fileSlot.gridSize - Kirigami.Units.gridUnit * 2 : 250) : fileSlot.gridSize + Kirigami.Units.gridUnit * 2)
+				: (fileSlot.isRadio
+					? radioPlate.width - Kirigami.Units.largeSpacing * 2
+					: (fileSlot.labelBesideIcon ? (fileSlot.fixedWidth ? fileSlot.width - fileSlot.gridSize - Kirigami.Units.gridUnit * 2 : 250) : fileSlot.gridSize + Kirigami.Units.gridUnit * 2))
 			horizontalAlignment: fileSlot.labelBesideIcon ? Text.AlignLeft : Text.AlignHCenter
 		}
 	}
@@ -363,7 +538,7 @@ Item {
 		anchors.margins: isSelected ? Kirigami.Units.smallSpacing : 0
 		radius: Kirigami.Units.cornerRadius
 		color: Kirigami.Theme.highlightColor
-		opacity: (fileSlot.isSelected ? 0.25 : 0.0) || (fileSlot.isActive ? 0.5 : 0.0)
+		opacity: (fileSlot.isSelected ? 0.25 : 0.0) || (fileSlot.active ? 0.5 : 0.0)
 		Behavior on opacity {
 			NumberAnimation {
 				duration: fileSlot.animationDuration
@@ -661,7 +836,9 @@ Item {
 		if (fileSlot.openOnClick || fileSlot.isFocused) {
 			fileSlot.actionManager.activatePath(fileSlot.path, fileSlot);
 		} else if (fileSlot.folderView && typeof fileSlot.folderView.focusSlot === 'function') {
-			fileSlot.folderView.focusSlot(fileSlot.path);
+			// Do not reveal the item: scrolling it into view would move the grid
+			// before a quick second tap on the same spot lands.
+			fileSlot.folderView.focusSlot(fileSlot.path, false);
 		}
 	}
 
@@ -687,6 +864,11 @@ Item {
 
 		property int startX: 0
 		property int startY: 0
+		// Finger position in scene coordinates and the view position at press,
+		// so a canceled press can tell a tap from a scroll that moved the view.
+		property real startSceneX: 0
+		property real startSceneY: 0
+		property real pressContentY: 0
 		property bool dragInitiated: false
 		property bool repositionDrag: false
 
@@ -845,6 +1027,11 @@ Item {
 
 				mouseArea.startX = mouse.x;
 				mouseArea.startY = mouse.y;
+
+				const startScene = mouseArea.mapToItem(null, mouse.x, mouse.y);
+				mouseArea.startSceneX = startScene.x;
+				mouseArea.startSceneY = startScene.y;
+				mouseArea.pressContentY = fileSlot.folderView ? fileSlot.folderView.viewContentY : 0;
 			}
 		}
 
@@ -884,6 +1071,24 @@ Item {
 			mouseArea.dragStarted = false;
 		}
 
+		onCanceled: {
+			// Qt cancels the press of a rapid second tap even when the view is
+			// not scrolling. Treat that as the tap it was; a real scroll either
+			// moves the view or moves the finger past the tap distance.
+			if (fileSlot.selectionActive || fileSlot.clickHandler)
+				return;
+			if (fileSlot.folderView) {
+				if (fileSlot.folderView.viewMoving
+					|| Math.abs(fileSlot.folderView.viewContentY - mouseArea.pressContentY) > 1)
+					return;
+			}
+			const endScene = mouseArea.mapToItem(null, mouseArea.mouseX, mouseArea.mouseY);
+			if (Math.abs(endScene.x - mouseArea.startSceneX) > 12
+				|| Math.abs(endScene.y - mouseArea.startSceneY) > 12)
+				return;
+			fileSlot.activateOrFocus();
+		}
+
 		onPressAndHold: {
 			mouseArea.isPressAndHoldActive = true;
 			fileSlot.pressHeld(fileSlot.path, fileSlot.index);
@@ -910,8 +1115,34 @@ Item {
 			} else if (fileSlot.clickHandler) {
 				fileSlot.clickHandler(mouse);
 			} else {
+				if (fileSlot.openOnClick || fileSlot.isFocused) {
+					fileSlot.lastActivatedPath = fileSlot.path;
+					fileSlot.lastActivatedTime = Date.now();
+				}
 				fileSlot.activateOrFocus();
 			}
+		}
+
+		// Qt turns a quick second press into a double click and skips its
+		// `clicked`, so with OpenOnClick off the second tap has to be handled
+		// here: on the same item it opens, on another item it moves the cursor.
+		onDoubleClicked: mouse => {
+			if (mouse.button !== Qt.LeftButton || fileSlot.selectionActive
+				|| (mouse.modifiers & Qt.ControlModifier))
+				return;
+			if (fileSlot.clickHandler) {
+				fileSlot.clickHandler(mouse);
+				return;
+			}
+			// A mouse double click has already activated on its first click.
+			if (fileSlot.lastActivatedPath === fileSlot.path
+				&& Date.now() - fileSlot.lastActivatedTime < 400)
+				return;
+			if (fileSlot.openOnClick || fileSlot.isFocused) {
+				fileSlot.lastActivatedPath = fileSlot.path;
+				fileSlot.lastActivatedTime = Date.now();
+			}
+			fileSlot.activateOrFocus();
 		}
 	}
 

@@ -251,6 +251,10 @@ Module {
 		Property { name: "stash_shown"; type: "bool"; isReadonly: true }
 		Property { name: "stash_dotfiles"; type: "bool"; isReadonly: true }
 		Property { name: "free_placement_positions"; type: "string"; isReadonly: true }
+		Property { name: "radio_enabled"; type: "bool"; isReadonly: true }
+		Property { name: "radio_only"; type: "u8"; isReadonly: true }
+		Property { name: "radio_selected"; type: "string"; isReadonly: true }
+		Property { name: "radio_exec"; type: "string"; isReadonly: true }
 		Property { name: "error"; type: "string"; isReadonly: true }
 		Property { name: "error_file"; type: "string"; isReadonly: true }
 		Signal { name: "config_changed" }
@@ -299,6 +303,21 @@ Module {
 		Method {
 			name: "is_link"
 			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "is_radio_member"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "radio_value"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "select_radio"
+			type: "void"
 			Parameter { name: "path"; type: "string" }
 		}
 		Method {
@@ -581,6 +600,23 @@ Module {
 			name: "is_button"
 			type: "bool"
 			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "set_icon_theme"
+			type: "bool"
+			Parameter { name: "theme"; type: "string" }
+		}
+		Method {
+			name: "accent_icon"
+			type: "string"
+			Parameter { name: "name"; type: "string" }
+			Parameter { name: "size"; type: "int" }
+			Parameter { name: "accent_r"; type: "int" }
+			Parameter { name: "accent_g"; type: "int" }
+			Parameter { name: "accent_b"; type: "int" }
+			Parameter { name: "text_r"; type: "int" }
+			Parameter { name: "text_g"; type: "int" }
+			Parameter { name: "text_b"; type: "int" }
 		}
 		Method {
 			name: "get_home_directory"

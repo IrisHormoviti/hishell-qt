@@ -2,10 +2,15 @@
 #include <KIO/ApplicationLauncherJob>
 #include <KIO/CopyJob>
 #include <KIO/Job>
+#include <KIconColors>
+#include <KIconEngine>
+#include <KIconLoader>
 #include <KService>
 #include <QCoreApplication>
+#include <QDir>
 #include <QEvent>
 #include <QEventLoop>
+#include <QFileInfo>
 #include <QVariantList>
 #include <canberra.h>
 #include <QFileInfo>
@@ -532,6 +537,15 @@ void hishell_set_sound_volume(double factor)
 // fixed names (only their presence in the menu changes with the focused item),
 // and Qt's theme lookup stats every theme directory per icon — hundreds of
 // file probes per focus on this device's slow storage.
+extern "C" bool hishell_set_icon_theme(const char *name)
+{
+	if (!name) {
+		return false;
+	}
+	QIcon::setThemeName(QString::fromUtf8(name));
+	return true;
+}
+
 extern "C" void hishell_warm_icons(void)
 {
 	static bool done = false;
@@ -554,6 +568,51 @@ extern "C" void hishell_warm_icons(void)
 			(void)QIcon::fromTheme(QString::fromLatin1(name)).pixmap(QSize(size, size));
 		}
 	}
+}
+
+// Renders a themed icon with the ClamOS accent applied to the parts the icon
+// theme marks with its `ColorScheme-Accent` class — Breeze draws every folder
+// body that way — using KDE's own KIconEngine, so folders follow the accent
+// exactly the way KDE apps do. The result is cached as a PNG (the cache is
+// keyed by icon, size and both colours, so all folders sharing an icon render
+// once) and returned as a file:// URI, or "" when it cannot be rendered.
+const char *hishell_accent_icon(const char *name, int size, int accent_r, int accent_g, int accent_b, int text_r, int text_g, int text_b, const char *cache_dir)
+{
+	if (!name || !*name || !cache_dir || !*cache_dir || size <= 0) {
+		return "";
+	}
+
+	QString safeName = QString::fromUtf8(name);
+	safeName.replace(QLatin1Char('/'), QLatin1Char('_'));
+
+	const QString dir = QString::fromUtf8(cache_dir);
+	QDir().mkpath(dir);
+
+	const QString fileName = QStringLiteral("%1_%2_%3-%4-%5_%6-%7-%8.png")
+	                                 .arg(safeName)
+	                                 .arg(size)
+	                                 .arg(accent_r)
+	                                 .arg(accent_g)
+	                                 .arg(accent_b)
+	                                 .arg(text_r)
+	                                 .arg(text_g)
+	                                 .arg(text_b);
+	const QString path = dir + QLatin1Char('/') + fileName;
+
+	if (!QFileInfo::exists(path)) {
+		KIconColors colors;
+		colors.setAccent(QColor(accent_r, accent_g, accent_b));
+		colors.setText(QColor(text_r, text_g, text_b));
+
+		const QIcon icon = KDE::icon(QString::fromUtf8(name), colors);
+		const QPixmap pixmap = icon.pixmap(QSize(size, size));
+		if (pixmap.isNull() || !pixmap.save(path, "PNG")) {
+			return "";
+		}
+	}
+
+	g_result = QUrl::fromLocalFile(path).toString().toUtf8();
+	return g_result.constData();
 }
 
 // Applies an icon (a themed name, a local path or a file:// URI) to the focused

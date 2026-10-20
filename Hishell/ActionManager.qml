@@ -289,21 +289,35 @@ Item {
 		&& actionManager.targetDirectory
 		&& actionManager.targetDirectory.is_link(actionManager.firstTargetPath)
 
+	// A child of a folder-owned `[Radio]` group is a selection, not a launch.
+	readonly property bool isTargetRadio: actionManager.hasTarget
+		&& actionManager.isSingleTarget
+		&& actionManager.targetDirectory
+		&& actionManager.targetDirectory.is_radio_member(actionManager.firstTargetPath)
+
 	property alias executeAction: executeAction
 	Action {
 		id: executeAction
-		text: actionManager.isTargetLink ? qsTr("Open &Link") : qsTr("&Execute")
-		icon.name: actionManager.isTargetLink ? "open-link" : "system-run"
+		text: actionManager.isTargetRadio ? qsTr("&Select") : (actionManager.isTargetLink ? qsTr("Open &Link") : qsTr("&Execute"))
+		icon.name: actionManager.isTargetRadio ? "checkbox" : (actionManager.isTargetLink ? "open-link" : "system-run")
 		readonly property bool available: actionManager.hasTarget
-			&& actionManager.targetPathList.every(path => actionManager.targetDirectory.is_execute_target(path))
+			&& actionManager.targetPathList.every(path => actionManager.targetDirectory.is_radio_member(path) || actionManager.targetDirectory.is_execute_target(path))
 		enabled: available
 
 		function execute(targetPath: string, sourceItem: Item) {
 			const paths = targetPath !== "" ? [targetPath] : actionManager.targetPathList;
 			for (let i = 0; i < paths.length; i++) {
 				const path = paths[i];
-				if (!actionManager.targetDirectory.is_execute_target(path))
+				const isRadio = actionManager.targetDirectory.is_radio_member(path);
+				if (!isRadio && !actionManager.targetDirectory.is_execute_target(path))
 					continue;
+				// A radio child selects in place: the parent writes the
+				// selection and runs its own Exec, with no launch transition.
+				if (isRadio) {
+					actionManager.playSound("menu-item");
+					actionManager.targetDirectory.select_radio(path);
+					continue;
+				}
 				// A `Type=Button` entry is a control, not an app: its Exec is
 				// spawned directly (no wrapper, no guest window), so it gets the
 				// menu-item sound and none of the app-launch transition.
@@ -338,8 +352,8 @@ Item {
 	Action {
 		id: openAction
 		shortcut: actionManager.showShortcuts ? "Ctrl+O" : ""
-		text: actionManager.openApp ? qsTr("O&pen with %1").arg(actionManager.openApp.name) : qsTr("O&pen")
-		icon.name: actionManager.openAppIcon !== "" && actionManager.openAppIcon.indexOf("/") === -1 ? actionManager.openAppIcon : "open-link"
+		text: actionManager.isTargetRadio ? qsTr("&Select") : (actionManager.openApp ? qsTr("O&pen with %1").arg(actionManager.openApp.name) : qsTr("O&pen"))
+		icon.name: actionManager.isTargetRadio ? "checkbox" : (actionManager.openAppIcon !== "" && actionManager.openAppIcon.indexOf("/") === -1 ? actionManager.openAppIcon : "open-link")
 		icon.source: actionManager.openAppIcon.indexOf("/") !== -1 ? actionManager.openAppIcon : ""
 		enabled: actionManager.hasTarget
 
@@ -355,14 +369,20 @@ Item {
 				// directly (no wrapper, no guest window), so it gets the menu-item
 				// sound and none of the app-launch transition.
 				const isButton = actionManager.fileManager && actionManager.fileManager.is_button(p);
+				// A child of a folder-owned radio group is selected in place: the
+				// parent writes the selection and runs its own Exec. Opening it in a
+				// new window still navigates, since that is an explicit request to
+				// leave the group.
+				const isRadio = actionManager.targetDirectory && actionManager.targetDirectory.is_radio_member(p);
+				const selectsRadio = isRadio && !inNewWindow;
 				// A folder opens in place (a navigation); a file leaves the app for
 				// its handler. The 3DS makes the same distinction, and so does the
 				// theme: window-new for going into a folder, the launch sound for
 				// handing a file to another program.
-				actionManager.playSound(isButton ? "menu-item" : (isDir ? "window-new" : "app-launch"));
-				if (!isDir && !isButton)
+				actionManager.playSound(isButton || selectsRadio ? "menu-item" : (isDir ? "window-new" : "app-launch"));
+				if (!isDir && !isButton && !selectsRadio)
 					actionManager.prepareLaunch();
-				if (sourceItem && !isButton && !(isDir && !inNewWindow)) {
+				if (sourceItem && !isButton && !selectsRadio && !(isDir && !inNewWindow)) {
 					const layout = sourceItem.contentLayout;
 					const globalPos = layout.mapToItem(actionManager, 0, 0);
 					layout.grabToImage(result => {
@@ -374,6 +394,11 @@ Item {
 						externalOpenAnimation.visible = true;
 						externalOpenAnimationEffect.restart();
 					});
+				}
+
+				if (selectsRadio) {
+					actionManager.targetDirectory.select_radio(p);
+					continue;
 				}
 
 				if (inNewWindow) {

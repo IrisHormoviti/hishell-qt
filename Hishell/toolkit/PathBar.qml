@@ -383,7 +383,9 @@ RowLayout {
 		id: breadcrumbList
 		visible: !pathBar.editing
 		Layout.fillWidth: true
-		Layout.preferredHeight: Kirigami.Units.gridUnit * 2
+		// Fill the header bar so the breadcrumbs are as tall as the bar the
+		// theme declares, instead of a fixed two-line strip centred in it.
+		Layout.fillHeight: true
 
 		orientation: ListView.Horizontal
 		interactive: true
@@ -428,16 +430,20 @@ RowLayout {
 				}
 				icon: pathBar.window.fileManager ? pathBar.window.fileManager.get_icon(crumbSlot.path) : ""
 				showIcon: delegateRoot.isCurrent
-				implicitHeight: Kirigami.Units.iconSizes.medium
 
 				dragDropHandler: pathBar.window.dragDropHandler
 				fileManager: pathBar.window.fileManager
 				actionManager: pathBar.window.actionManager
 
 				is_dir: true
+				// A breadcrumb navigates; it is never a selection in the
+				// current folder's radio group.
+				radioMember: false
 				is_symlink: false
 				index: delegateRoot.index
-				gridSize: Kirigami.Units.iconSizes.smallMedium
+				// The breadcrumb icon scales with the taller header; match the
+				// size the header's own view button uses.
+				gridSize: Kirigami.Units.iconSizes.medium
 				labelBesideIcon: true
 				isActive: delegateRoot.isCurrent
 				fixedWidth: false
@@ -446,8 +452,7 @@ RowLayout {
 				clickHandler: delegateRoot.isCurrent ? (mouse => pathBar.crumbClicked(crumbSlot)) : null
 
 				Layout.preferredWidth: implicitWidth
-				Layout.preferredHeight: implicitHeight
-				Layout.alignment: Qt.AlignVCenter
+				Layout.fillHeight: true
 			}
 		}
 	}
@@ -456,7 +461,7 @@ RowLayout {
 		id: editField
 		visible: pathBar.editing
 		Layout.fillWidth: true
-		Layout.preferredHeight: Kirigami.Units.gridUnit * 2
+		Layout.fillHeight: true
 		placeholderText: String(pathBar.directory.path)
 		selectByMouse: true
 		// The frame turns red while the typed location is rejected.

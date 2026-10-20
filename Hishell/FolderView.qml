@@ -36,6 +36,12 @@ Item {
 	// Set while the cursor is moved to follow a manual scroll, so the
 	// focus-driven scroll does not fight the gesture.
 	property bool suppressFocusScroll: false
+	// Path a pointer click moved the cursor to. While the cursor stays there,
+	// a focus change must not reveal it: the item is already under the finger,
+	// and scrolling would move the grid out from under a quick second tap.
+	property string suppressRevealPath: ""
+	readonly property bool viewMoving: flickable.moving
+	readonly property real viewContentY: flickable.contentY
 	// True while the focus-driven scroll animation runs, so the scroll-follow
 	// logic can ignore the motion it causes.
 	property bool focusScrollAnimating: false
@@ -572,15 +578,26 @@ Item {
 	// OpenOnClick off: a click moves the cursor to the item instead of opening
 	// it. The view has to own the keyboard first (which registers/activates the
 	// pane), then the pane's focus can be pointed at the clicked item.
-	function focusSlot(path) {
+	function focusSlot(path, reveal) {
 		const fm = folderView.focusManager;
 		if (!fm || !folderView.directory)
 			return;
+		// A click puts the cursor on an item the user can already see. Scrolling
+		// to it would move the grid before a quick second tap lands, so only
+		// keyboard and startup focus ask for a reveal.
+		const show = reveal !== false;
+		if (!show)
+			folderView.suppressRevealPath = path;
 		folderView.forceActiveFocus();
-		if (folderView.paneId <= 0)
+		if (folderView.paneId <= 0) {
+			folderView.suppressRevealPath = "";
 			return;
+		}
 		folderView.updateFocusItems();
-		if (fm.set_pane_focus_path(folderView.paneId, path))
+		const found = fm.set_pane_focus_path(folderView.paneId, path);
+		if (!found)
+			folderView.suppressRevealPath = "";
+		if (found && show)
 			Qt.callLater(() => folderView.ensureFocusVisible());
 	}
 
@@ -752,9 +769,17 @@ Item {
 				&& !(folderView.Window.window && folderView.Window.window.activeFocusItem))
 				folderView.forceActiveFocus();
 			// A scroll-follow move must not trigger the focus-driven scroll that
-			// would yank the view back to the cursor.
-			if (folderView.focusOwned && fm && fm.current_pane === folderView.paneId && !folderView.suppressFocusScroll)
-				folderView.ensureFocusVisible();
+			// would yank the view back to the cursor. The same goes for a click,
+			// which must leave the item under the finger: while the cursor sits
+			// on the clicked path, no reveal is wanted.
+			if (folderView.focusOwned && fm && fm.current_pane === folderView.paneId
+				&& !folderView.suppressFocusScroll) {
+				const focused = String(fm.focused_path);
+				if (focused === "" || focused !== folderView.suppressRevealPath) {
+					folderView.suppressRevealPath = "";
+					folderView.ensureFocusVisible();
+				}
+			}
 		}
 		function onAccept_requested() {
 			if (folderView.focusOwned && folderView.focusManager.current_pane === folderView.paneId)
@@ -1125,7 +1150,7 @@ Item {
 			const slot = metrics.slots[i];
 			if (!slot)
 				continue;
-			entries.push({ name: selected[item.path], path: item.path, title: item.title, icon: item.icon, c: slot.c, r: slot.r });
+			entries.push({ name: selected[item.path], path: item.path, title: item.title, icon: item.icon, isDir: item.is_dir, c: slot.c, r: slot.r });
 		}
 		return entries;
 	}
@@ -1169,6 +1194,7 @@ Item {
 				path: e.path,
 				title: e.title,
 				icon: e.icon,
+				isDir: e.isDir,
 				x: (e.c - anchor.c) * (itemW + gap),
 				y: (e.r - anchor.r) * (itemH + gap),
 				w: itemW,

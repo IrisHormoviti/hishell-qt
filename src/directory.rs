@@ -121,6 +121,91 @@ pub fn is_execute_target(path: &Path) -> bool {
 	}
 }
 
+/// The value a parent `[Radio]` group stores for a selected child: the folder
+/// name for directories, the stem for desktop entries, the file name otherwise.
+pub fn radio_value(path: &Path) -> String {
+	let name = path
+		.file_name()
+		.and_then(|n| n.to_str())
+		.unwrap_or_default()
+		.to_string();
+	if path.is_dir() {
+		return name;
+	}
+	if path
+		.extension()
+		.and_then(|e| e.to_str())
+		.is_some_and(|e| e.eq_ignore_ascii_case("desktop"))
+	{
+		return path
+			.file_stem()
+			.and_then(|s| s.to_str())
+			.unwrap_or(&name)
+			.to_string();
+	}
+	name
+}
+
+/// Run a parent folder's `[Radio] Exec`, substituting `%v` (value), `%n`
+/// (display name), and `%p` (full path).  The command is tokenised without a
+/// shell, and placeholders are replaced inside each argument so a value with
+/// spaces stays one argument.
+fn run_radio_exec(exec: &str, value: &str, name: &str, path: &str) {
+	let args = split_command(exec);
+	let Some((command, rest)) = args.split_first() else {
+		return;
+	};
+	let mut final_args = Vec::with_capacity(rest.len());
+	for arg in rest {
+		final_args.push(
+			arg.replace("%v", value)
+				.replace("%n", name)
+				.replace("%p", path),
+		);
+	}
+	if let Err(error) = Command::new(command).args(final_args).spawn() {
+		eprintln!("failed to run radio command {command:?}: {error}");
+	}
+}
+
+fn split_command(line: &str) -> Vec<String> {
+	let mut args = Vec::new();
+	let mut current = String::new();
+	let mut quote: Option<char> = None;
+	let mut escaped = false;
+
+	for ch in line.chars() {
+		if escaped {
+			current.push(ch);
+			escaped = false;
+			continue;
+		}
+		match ch {
+			'\\' => escaped = true,
+			'\'' | '"' => {
+				if quote == Some(ch) {
+					quote = None;
+				} else if quote.is_none() {
+					quote = Some(ch);
+				} else {
+					current.push(ch);
+				}
+			}
+			c if c.is_whitespace() && quote.is_none() => {
+				if !current.is_empty() {
+					args.push(std::mem::take(&mut current));
+				}
+			}
+			c => current.push(c),
+		}
+	}
+
+	if !current.is_empty() {
+		args.push(current);
+	}
+	args
+}
+
 #[derive(Default, Clone)]
 pub struct FileItem {
 	pub name: String,
@@ -190,6 +275,73 @@ pub struct Directory {
 		}
 	),
 
+	/// True when this folder owns a `[Radio]` group and `path` is one of its
+	/// selectable children.  The parent folder — not the child — decides this.
+	is_radio_member: qt_method!(
+		pub fn is_radio_member(&self, path: String) -> bool {
+			let config = self.config.pinned();
+			let config = config.borrow();
+			if !config.radio_enabled {
+				return false;
+			}
+
+			let path = Path::new(&path);
+			// Only a direct child of this folder is a choice in its radio
+			// group.  Without this, any directory (a path-bar ancestor, say)
+			// passes the `Only=Directories` test and is treated as selectable.
+			let base = Path::new(self.path_str.trim_end_matches('/'));
+			let parent_ok = path
+				.parent()
+				.is_some_and(|parent| parent == base || parent.as_os_str().is_empty() && base.as_os_str().is_empty());
+			if !parent_ok {
+				return false;
+			}
+
+			match config.radio_only {
+				1 => path.is_dir(),
+				2 => path.is_file(),
+				_ => true,
+			}
+		}
+	),
+
+	/// The stable value stored in the parent's `[Radio] Selected`.
+	radio_value: qt_method!(
+		pub fn radio_value(&self, path: String) -> String {
+			radio_value(Path::new(&path))
+		}
+	),
+
+	/// Select a child of this folder's radio group: write `[Radio] Selected`
+	/// into this folder's `.directory` and run the parent's `Exec` command.
+	select_radio: qt_method!(
+		pub fn select_radio(&mut self, path: String) {
+			if !self.is_radio_member(path.clone()) {
+				return;
+			}
+			let value = radio_value(Path::new(&path));
+			if value.is_empty() {
+				return;
+			}
+
+			let parent = self.path_str.clone();
+			self.config
+				.pinned()
+				.borrow_mut()
+				._set(Path::new(&parent), "Radio", "Selected", &value, true);
+
+			let (exec, name) = {
+				let config = self.config.pinned();
+				let config = config.borrow();
+				(config.radio_exec.to_string(), get_item_title(Path::new(&path)))
+			};
+			if !exec.trim().is_empty() {
+				run_radio_exec(&exec, &value, &name, &path);
+			}
+			self.config_changed();
+		}
+	),
+
 	/// Run this folder's own `Refresh=<command line>` when it has one: how a
 	/// folder asks its provider for fresh contents (docs §4.7). Fire and forget
 	/// — the provider rewrites the folder and the shell's watch picks it up.
@@ -212,6 +364,10 @@ pub struct Directory {
 
 	execute_action: qt_method!(
 		pub fn execute_action(&mut self, path: String) -> String {
+			if self.is_radio_member(path.clone()) {
+				self.select_radio(path);
+				return String::new();
+			}
 			let path_buf = Path::new(&path);
 			if crate::desktop_entry::is_action_entry(path_buf) {
 				launch_desktop_entry(path_buf)

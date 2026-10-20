@@ -43,7 +43,7 @@ fn build_kde_bridge() {
 		}
 	}
 	build.include(&qt_include);
-	for module in ["QtCore", "QtGui", "QtDBus"] {
+	for module in ["QtCore", "QtGui", "QtWidgets", "QtDBus"] {
 		let module_dir = Path::new(&qt_include).join(module);
 		if module_dir.is_dir() {
 			build.include(module_dir);
@@ -58,7 +58,7 @@ fn build_kde_bridge() {
 	let out_dir = env::var("OUT_DIR").expect("OUT_DIR is missing");
 	build.include(&out_dir);
 
-	for component in ["KService", "KIO", "KIOCore", "KIOGui", "KCoreAddons"] {
+	for component in ["KService", "KIO", "KIOCore", "KIOGui", "KCoreAddons", "KIconThemes"] {
 		// KF6 headers normally live under /usr/include/KF6, but a cross build
 		// (RG DS Plus sysroot) keeps them under the sysroot prefix. Honour a
 		// KF6_INCLUDE_PATH override, then try the sysroot the pkg-config setup
@@ -104,6 +104,8 @@ fn build_kde_bridge() {
 		"KF6KIOGui",
 		"KF6KIOCore",
 		"KF6CoreAddons",
+		"KF6IconThemes",
+		"KF6ColorScheme",
 		"Qt6DBus",
 		"canberra",
 	] {

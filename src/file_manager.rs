@@ -576,6 +576,43 @@ pub struct FileManager {
 		}
 	),
 
+	/// Switch the process icon theme at runtime.  The active ClamOS theme can
+	/// declare `[Icons] Theme=`; ClamTheme calls this when it changes so the
+	/// file tiles follow a dark theme without restarting the shell.
+	set_icon_theme: qt_method!(
+		fn set_icon_theme(&self, theme: String) -> bool {
+			crate::kde_bridge::set_icon_theme(&theme)
+		}
+	),
+
+	/// A folder icon recoloured to the current accent, as a cached `file://`
+	/// PNG.  Breeze draws the folder body with its `ColorScheme-Accent` class,
+	/// so this is how folders follow the accent the way KDE apps do.  Returns
+	/// an empty string when the icon cannot be rendered, so the caller can keep
+	/// the plain themed icon name.
+	accent_icon: qt_method!(
+		fn accent_icon(
+			&self,
+			name: String,
+			size: i32,
+			accent_r: i32,
+			accent_g: i32,
+			accent_b: i32,
+			text_r: i32,
+			text_g: i32,
+			text_b: i32,
+		) -> String {
+			let clamp = |value: i32| value.clamp(0, 255) as u8;
+			crate::kde_bridge::accent_icon(
+				&name,
+				size.max(1) as u32,
+				(clamp(accent_r), clamp(accent_g), clamp(accent_b)),
+				(clamp(text_r), clamp(text_g), clamp(text_b)),
+			)
+			.unwrap_or_default()
+		}
+	),
+
 	get_home_directory: qt_method!(
 		pub fn get_home_directory(&self) -> String {
 			dirs::home_dir()

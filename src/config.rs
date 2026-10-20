@@ -236,6 +236,17 @@ const EXPECTED_KEYS: &[(&str, &str, ExpectedKind)] = &[
 	("Folder Navigation", "SmoothScrolling", ExpectedKind::Bool),
 	("Folder Navigation", "OpenOnClick", ExpectedKind::Bool),
 	("Folder Navigation", "FocusEmptySlots", ExpectedKind::Bool),
+	// A folder-owned single-selection group.  The children carry only display
+	// metadata; the parent owns the group, its selection, and the command that
+	// runs when the selection changes (ClamOS extension).
+	("Radio", "Enabled", ExpectedKind::Bool),
+	(
+		"Radio",
+		"Only",
+		ExpectedKind::StrEnum(&["ALL", "DIRECTORIES", "FILES"]),
+	),
+	("Radio", "Selected", ExpectedKind::Str),
+	("Radio", "Exec", ExpectedKind::Str),
 ];
 
 /// Flags configured keys whose value does not match the expected kind.
@@ -435,6 +446,14 @@ pub struct Config {
 	pub stash_shown: qt_property!(bool; NOTIFY config_changed),
 	pub stash_dotfiles: qt_property!(bool; NOTIFY config_changed),
 	pub free_placement_positions: qt_property!(String; NOTIFY config_changed),
+
+	// Parent-owned radio group ([Radio] in this folder's .directory).  Children
+	// are selected by name and the parent `Exec` runs on a change.
+	pub radio_enabled: qt_property!(bool; NOTIFY config_changed),
+	// 0 = all children, 1 = directories only, 2 = files only.
+	pub radio_only: qt_property!(u8; NOTIFY config_changed),
+	pub radio_selected: qt_property!(String; NOTIFY config_changed),
+	pub radio_exec: qt_property!(String; NOTIFY config_changed),
 
 	pub error: qt_property!(String; NOTIFY config_changed),
 	pub error_file: qt_property!(String; NOTIFY config_changed),
@@ -710,6 +729,31 @@ impl Config {
 		if changed!("Folder View", "FreePlacementPositions") {
 			self.free_placement_positions =
 				json_value(get("Folder View", "FreePlacementPositions"), "{}").into();
+		}
+
+		if changed!("Radio", "Enabled") {
+			self.radio_enabled = bool_value(get("Radio", "Enabled"), false);
+		}
+		if changed!("Radio", "Only") {
+			self.radio_only = match enum_value(get("Radio", "Only"), "ALL").as_str() {
+				"DIRECTORIES" => 1,
+				"FILES" => 2,
+				_ => 0,
+			};
+		}
+		if changed!("Radio", "Selected") {
+			self.radio_selected = match get("Radio", "Selected") {
+				Some(ConfigValue::String(v)) => v.clone(),
+				_ => String::new(),
+			}
+			.into();
+		}
+		if changed!("Radio", "Exec") {
+			self.radio_exec = match get("Radio", "Exec") {
+				Some(ConfigValue::String(v)) => v.clone(),
+				_ => String::new(),
+			}
+			.into();
 		}
 
 		self.config_changed();

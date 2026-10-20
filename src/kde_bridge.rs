@@ -23,7 +23,19 @@ unsafe extern "C" {
 	fn hishell_file_uri(path: *const c_char) -> *const c_char;
 	fn hishell_mime_type(path: *const c_char) -> *const c_char;
 	fn hishell_clear_app_cache();
+	fn hishell_set_icon_theme(name: *const c_char) -> bool;
 	fn hishell_warm_icons();
+	fn hishell_accent_icon(
+		name: *const c_char,
+		size: i32,
+		accent_r: i32,
+		accent_g: i32,
+		accent_b: i32,
+		text_r: i32,
+		text_g: i32,
+		text_b: i32,
+		cache_dir: *const c_char,
+	) -> *const c_char;
 	fn hishell_thumbnailer_dirs() -> *const c_char;
 	fn hishell_thumbnail_image(
 		src: *const c_char,
@@ -73,6 +85,49 @@ pub fn set_sound_volume(factor: f64) {
 /// a synchronous icon-theme scan. See the C++ side for why.
 pub fn warm_icons() {
 	unsafe { hishell_warm_icons() }
+}
+
+/// Switch the process icon theme at runtime (e.g. to `breeze-dark` when the
+/// active theme declares `[Icons] Theme=...`).  QIcon caches per theme, so
+/// existing items re-resolve on their next paint.
+pub fn set_icon_theme(name: &str) -> bool {
+	let Ok(name) = CString::new(name) else {
+		return false;
+	};
+	unsafe { hishell_set_icon_theme(name.as_ptr()) }
+}
+
+/// Renders a themed icon with the accent applied to the parts the icon theme
+/// marks `ColorScheme-Accent` (Breeze draws every folder body that way), and
+/// returns the cached PNG's `file://` URI. `None` means the icon could not be
+/// rendered; callers fall back to the plain themed icon name.
+pub fn accent_icon(name: &str, size: u32, accent: (u8, u8, u8), text: (u8, u8, u8)) -> Option<String> {
+	if name.is_empty() || size == 0 {
+		return None;
+	}
+	let cache_dir = dirs::cache_dir()?.join("hishell").join("accent-icons");
+	let cache_dir = CString::new(cache_dir.to_string_lossy().as_bytes()).ok()?;
+	let name = CString::new(name).ok()?;
+	let rendered = unsafe {
+		hishell_accent_icon(
+			name.as_ptr(),
+			size as i32,
+			accent.0 as i32,
+			accent.1 as i32,
+			accent.2 as i32,
+			text.0 as i32,
+			text.1 as i32,
+			text.2 as i32,
+			cache_dir.as_ptr(),
+		)
+	};
+	if rendered.is_null() {
+		return None;
+	}
+	let value = unsafe { CStr::from_ptr(rendered) }
+		.to_string_lossy()
+		.into_owned();
+	if value.is_empty() { None } else { Some(value) }
 }
 
 /// Applies an icon to the focused top-level window, so the task switcher and

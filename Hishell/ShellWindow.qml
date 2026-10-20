@@ -5,6 +5,7 @@ import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import Hishell
 import Hishell.toolkit
+import ClamOS.Theme
 
 Kirigami.ApplicationWindow {
 	id: root
@@ -35,6 +36,16 @@ Kirigami.ApplicationWindow {
 	property alias directory: directory
 	property alias actionManager: actionManager
 	property alias sound: sound
+
+	// Follow the active theme's icon theme (e.g. breeze-dark for a dark
+	// theme) at runtime, without restarting the shell.
+	Connections {
+		target: ClamTheme
+		function onIconThemeChanged() {
+			if (ClamTheme.iconTheme !== "" && root.fileManager)
+				root.fileManager.set_icon_theme(ClamTheme.iconTheme);
+		}
+	}
 
 	WindowOverlay {
 		enabled: !directory.config.native_titlebar
@@ -274,6 +285,11 @@ Kirigami.ApplicationWindow {
 		directory.path = initialPath;
 		root.refreshWindowIcon();
 
+		// Pick up the active theme's icon theme on first start; later changes
+		// arrive through the ClamTheme Connections above.
+		if (ClamTheme.iconTheme !== "" && root.fileManager)
+			root.fileManager.set_icon_theme(ClamTheme.iconTheme);
+
 		// Show first, then choose the output, then go fullscreen.
 		//
 		// This order is load-bearing. Showing a window makes the platform place
@@ -330,6 +346,13 @@ Kirigami.ApplicationWindow {
 			Kirigami.AbstractApplicationHeader {
 				Layout.fillWidth: true
 				Kirigami.Theme.colorSet: Kirigami.Theme.Header
+
+				// The bar height is a Clam theme metric; the header content
+				// (breadcrumb, view button, window control) keeps its own size
+				// and stays vertically centred inside the taller strip.
+				minimumHeight: ClamTheme.headerHeight
+				preferredHeight: ClamTheme.headerHeight
+				maximumHeight: ClamTheme.headerHeight
 
 				z: 1
 
