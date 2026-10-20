@@ -11,6 +11,7 @@ pub mod config;
 pub mod config_parser;
 pub mod desktop_entry;
 pub mod directory;
+pub mod directory_descriptor;
 pub mod dragdrop_handler;
 pub mod drop_validator;
 pub mod file_manager;

@@ -1151,6 +1151,12 @@ pub fn get_item_title(path: &Path) -> String {
 		}
 	}
 
+	if let Some(descriptor) = crate::directory_descriptor::lookup(path) {
+		if let Some(name) = descriptor.name.filter(|name| !name.is_empty()) {
+			return name;
+		}
+	}
+
 	if let Some(entry) = crate::appimage::desktop_entry(path) {
 		if let Some(name) = entry.name.filter(|name| !name.is_empty()) {
 			return name;
@@ -1253,6 +1259,15 @@ pub fn get_folder_icon(path: &str) -> String {
 
 	if let Some(icon) = config::get_image(&abs_path, "Desktop Entry", "Icon") {
 		if !icon.is_empty() {
+			return icon_source(icon, &abs_path);
+		}
+	}
+
+	// A directory descriptor supplies the name and icon from outside the
+	// directory, so a mounted card that cannot carry its own `.directory`
+	// still shows a device icon (see `directory_descriptor`).
+	if let Some(descriptor) = crate::directory_descriptor::lookup(&abs_path) {
+		if let Some(icon) = descriptor.icon {
 			return icon_source(icon, &abs_path);
 		}
 	}
