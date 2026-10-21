@@ -80,6 +80,32 @@ pub fn load_entry_checked(path: &Path) -> ParseOutput {
 	load_path_checked(path)
 }
 
+/// System-wide config files, lowest priority first.
+///
+/// `XDG_CONFIG_DIRS` lists directories with the leftmost having the highest
+/// priority, but `ConfigParser` lets later files override earlier ones, so the
+/// list is reversed. The spec's default is `/etc/xdg`. This gives a host a place
+/// for device policy (ClamOS sets its `ExecutionWrapper` here) while the bundled
+/// `config/default.cfg` stays generic and the user's
+/// `$XDG_CONFIG_HOME/hishell/folder.cfg` can still override both.
+fn system_config_paths() -> Vec<PathBuf> {
+	let dirs = std::env::var("XDG_CONFIG_DIRS")
+		.ok()
+		.filter(|value| !value.is_empty())
+		.unwrap_or_else(|| String::from("/etc/xdg"));
+	system_config_paths_from(&dirs)
+}
+
+fn system_config_paths_from(dirs: &str) -> Vec<PathBuf> {
+	let mut paths: Vec<PathBuf> = dirs
+		.split(':')
+		.filter(|dir| !dir.is_empty())
+		.map(|dir| Path::new(dir).join("hishell").join("folder.cfg"))
+		.collect();
+	paths.reverse();
+	paths
+}
+
 fn load_with_override(override_path: &Path) -> ParseOutput {
 	let default_cfg = Path::new("config/default.cfg");
 	let global_cfg = dirs::config_dir()
@@ -89,7 +115,12 @@ fn load_with_override(override_path: &Path) -> ParseOutput {
 			p
 		})
 		.unwrap_or_else(|| std::path::PathBuf::from("config/default.cfg"));
-	let paths: Vec<&Path> = vec![default_cfg, global_cfg.as_path(), override_path];
+	let system_cfg = system_config_paths();
+	let mut paths: Vec<&Path> = Vec::with_capacity(3 + system_cfg.len());
+	paths.push(default_cfg);
+	paths.extend(system_cfg.iter().map(PathBuf::as_path));
+	paths.push(global_cfg.as_path());
+	paths.push(override_path);
 	ConfigParser::parse_files(&paths)
 }
 
@@ -864,5 +895,32 @@ impl Config {
 		}
 		let json = serde_json::Value::Object(obj).to_string();
 		self._set(path, "Folder View", "FreePlacementPositions", &json, true);
+	}
+}
+
+#[cfg(test)]
+mod system_config_tests {
+	use super::system_config_paths_from;
+	use std::path::PathBuf;
+
+	#[test]
+	fn earlier_xdg_dirs_take_priority() {
+		// XDG_CONFIG_DIRS is highest-priority-first; the parser wants the
+		// lowest-priority file first, so the list is reversed.
+		assert_eq!(
+			system_config_paths_from("/etc/xdg:/usr/local/etc/xdg"),
+			vec![
+				PathBuf::from("/usr/local/etc/xdg/hishell/folder.cfg"),
+				PathBuf::from("/etc/xdg/hishell/folder.cfg"),
+			]
+		);
+	}
+
+	#[test]
+	fn empty_entries_are_skipped() {
+		assert_eq!(
+			system_config_paths_from(":/etc/xdg:"),
+			vec![PathBuf::from("/etc/xdg/hishell/folder.cfg")]
+		);
 	}
 }

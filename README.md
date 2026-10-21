@@ -46,7 +46,7 @@ You shouldn't have to open the file manager directly in order to navigate to a f
 Most desktop environments have some sort of standard way to have shortcuts to your folders, be it desktop icons or a "Places" menu. That should be used instead for quickly opening folders.
 If you still want a sidebar though, you'll want to add a specific folder to the left of your screen within the default config, and set it to list view.
 ### Settings?
-The settings will be the "general config", a folder config that can will be applied to every folder by default, stored in `~/.config/hishell/folder.cfg`. Everything there can be altered on a per folder basis. There will be a GUI for everything in here, just don't expect a "Settings" menu.
+The settings will be the "general config", a folder config that can will be applied to every folder by default, stored in `~/.config/hishell/folder.cfg`, with a system-wide layer at `$XDG_CONFIG_DIRS/hishell/folder.cfg` (default `/etc/xdg/hishell/folder.cfg`) underneath it for device defaults. Everything there can be altered on a per folder basis. There will be a GUI for everything in here, just don't expect a "Settings" menu.
 
 ## Install / Build
 

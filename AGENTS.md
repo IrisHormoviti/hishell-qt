@@ -35,6 +35,8 @@
 
 - Per-folder config is a `.cfg` file (INI-style), e.g., `~/.config/hishell/folder.cfg`.
 - Default config: `config/default.cfg`.
+- System config: `$XDG_CONFIG_DIRS/hishell/folder.cfg` (default `/etc/xdg/hishell/folder.cfg`).
+  Loaded after the default and before the user's config, with later files overriding earlier ones.
 - Config keys control layout, sorting, grid size, thumbnails, and navigation behavior.
 
 ## Testing
