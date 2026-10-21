@@ -185,6 +185,7 @@ const EXPECTED_KEYS: &[(&str, &str, ExpectedKind)] = &[
 	("Layout", "Header", ExpectedKind::Array),
 	("Layout", "NativeMenuBar", ExpectedKind::Bool),
 	("Layout", "NativeTitleBar", ExpectedKind::Bool),
+	("Layout", "NativeDrag", ExpectedKind::Bool),
 	("Layout", "ShowShortcuts", ExpectedKind::Bool),
 	("Layout", "ExecutionWrapper", ExpectedKind::Str),
 	("Layout", "Screen", ExpectedKind::Str),
@@ -407,6 +408,10 @@ pub struct Config {
 	// when reopened.
 	pub native_menus: qt_property!(bool; NOTIFY config_changed),
 	pub native_titlebar: qt_property!(bool; NOTIFY config_changed),
+	// Use the compositor's own drag icon instead of the shell's ghost of the
+	// dragged item. Off by default: the compositor's drag icon does not render
+	// on some targets (the RG DS Plus), so the shell draws its own.
+	pub native_drag: qt_property!(bool; NOTIFY config_changed),
 	// Show and register the keyboard shortcuts next to menu items. Off on the
 	// RG DS Plus, which has no keyboard.
 	pub show_shortcuts: qt_property!(bool; NOTIFY config_changed),
@@ -612,6 +617,9 @@ impl Config {
 		}
 		if changed!("Layout", "NativeTitleBar") {
 			self.native_titlebar = bool_value(get("Layout", "NativeTitleBar"), true);
+		}
+		if changed!("Layout", "NativeDrag") {
+			self.native_drag = bool_value(get("Layout", "NativeDrag"), false);
 		}
 		if changed!("Layout", "ShowShortcuts") {
 			self.show_shortcuts = bool_value(get("Layout", "ShowShortcuts"), false);

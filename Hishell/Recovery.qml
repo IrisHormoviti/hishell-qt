@@ -97,7 +97,7 @@ Window {
 			}
 
 			Button {
-				text: qsTr("Hold Return to restart")
+				text: qsTr("Press Return to restart")
 				Layout.alignment: Qt.AlignHCenter
 				Layout.preferredWidth: Kirigami.Units.gridUnit * 12
 				Layout.preferredHeight: Kirigami.Units.gridUnit * 2.5

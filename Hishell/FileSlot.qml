@@ -143,7 +143,11 @@ Item {
 			w.sound.play(name);
 	}
 
-	property bool isDraggingThisSlot: localDragTarget.Drag.active
+	// True while this slot's payload is the active native drag. Set by the drag
+	// handlers (the drag source itself is the window's persistent item, so this
+	// cannot be read from a Drag object here). Kept a plain property so the
+	// cleanup below cannot form a binding loop with the drag handler's state.
+	property bool isDraggingThisSlot: false
 	onIsDraggingThisSlotChanged: {
 		if (!isDraggingThisSlot && mouseArea.dragStarted) {
 			mouseArea.dragStarted = false;
@@ -153,6 +157,21 @@ Item {
 				fileSlot.dragDropHandler.tooltip_active = false;
 				fileSlot.dragDropHandler.end_drag();
 			}
+		}
+	}
+
+	// A native drag is ended by the platform, so this slot's MouseArea never
+	// sees the release. The window clears internalDragInProcess when the drag
+	// finishes; drop the dragging state here so the slot is not left dimmed.
+	Connections {
+		target: fileSlot.window
+		function onInternalDragInProcessChanged() {
+			if (!fileSlot.isDraggingThisSlot)
+				return;
+			if (target && target.internalDragInProcess)
+				return;
+			mouseArea.dragStarted = false;
+			fileSlot.isDraggingThisSlot = false;
 		}
 	}
 
@@ -749,6 +768,13 @@ Item {
 			// `onEntered` may not have fired if the drag started already inside.
 			if (checkValid(drag) && !hoverNavTimer.running)
 				hoverNavTimer.restart();
+			// Track the cursor here too: the background drop area does not get
+			// the moves while the drag is over an item, and the drag ghost and
+			// tooltip follow this position.
+			if (typeof dragDropHandler !== 'undefined' && dragDropHandler) {
+				const pt = slotDropArea.mapToItem(null, drag.x, drag.y);
+				dragDropHandler.update_cursor(pt.x, pt.y);
+			}
 		}
 
 		onExited: {
@@ -782,7 +808,11 @@ Item {
 					let p = fileSlot.parent;
 					while (p) {
 						if (p.directory) {
-							p.directory.reload();
+							const win = fileSlot.window;
+							if (win && typeof win.requestDirectoryReload === 'function')
+								win.requestDirectoryReload(p.directory);
+							else
+								p.directory.reload();
 							break;
 						}
 						p = p.parent;
@@ -822,20 +852,19 @@ Item {
 
 	// ── Mouse & Drag Handling ───
 
+	// The MouseArea's drag target. The payload is carried by the window's
+	// persistent nativeDragSource (see ShellWindow), so this item never owns the
+	// QDrag and can be destroyed when the view reloads.
 	Item {
 		id: localDragTarget
 		width: fileSlot.width > 0 ? fileSlot.width : fileSlot.implicitWidth
 		height: fileSlot.height > 0 ? fileSlot.height : fileSlot.implicitHeight
-		Drag.keys: ["text/uri-list", "text/plain"]
-		property DragDropHandler dragDropHandler: fileSlot.dragDropHandler ? fileSlot.dragDropHandler : null
-		Drag.mimeData: {
-			"text/uri-list": dragDropHandler ? dragDropHandler.drag_uris.join("\n") : ""
-		}
-		Drag.supportedActions: Qt.CopyAction | Qt.MoveAction
-		Drag.proposedAction: Qt.MoveAction
-		Drag.dragType: Drag.Automatic
-		Drag.active: false
-		Drag.hotSpot: Qt.point(Math.round(width / 2), Math.round(height / 2))
+	}
+
+	// Hand the in-window free-placement drag to the window's OS drag source.
+	// Wrapper so FolderView can call it on the slot (see MouseArea).
+	function handOffRepositionDrag(sceneX, sceneY) {
+		mouseArea.handOffRepositionDrag(sceneX, sceneY);
 	}
 
 	// What a plain left click on this item does. With OpenOnClick off, a click
@@ -881,6 +910,10 @@ Item {
 		// the next move does not wait for an asynchronous render on the slow
 		// software renderer (which can outlast the whole gesture).
 		property string cachedDragImage: ""
+		// The grab result behind cachedDragImage. The URL only stays valid while
+		// the result object is alive, and a spring-load handoff can start the OS
+		// drag a long time after the grab.
+		property var cachedGrabResult: null
 
 		property int startX: 0
 		property int startY: 0
@@ -918,16 +951,19 @@ Item {
 		}
 
 		function startNativeDrag(url, width, height, wx, wy) {
-			localDragTarget.Drag.imageSource = url;
-			localDragTarget.Drag.hotSpot = Qt.point(Math.round(width / 2), Math.round(height / 2));
-
 			if (typeof dragDropHandler !== 'undefined' && dragDropHandler) {
 				dragDropHandler.track_mouse_shake(wx, wy);
 				dragDropHandler.begin_drag(String(url), width, height);
 			}
 
+			const win = fileSlot.window;
+			if (win && typeof win.startNativeDrag === 'function') {
+				win.internalDragInProcess = true;
+				win.startNativeDrag(String(url), width, height);
+			}
+
 			mouseArea.dragStarted = true;
-			localDragTarget.Drag.active = true;
+			fileSlot.isDraggingThisSlot = true;
 		}
 
 		function grabAndStartNativeDrag(wx, wy) {
@@ -957,6 +993,21 @@ Item {
 
 				mouseArea.startNativeDrag(result.url, targetToGrab.width, targetToGrab.height, wx, wy);
 			});
+		}
+
+		// Turn the in-window free-placement drag into an OS drag, without
+		// waiting for a release. Spring-load navigation destroys this slot, so
+		// the payload has to move to the window's persistent drag source first.
+		function handOffRepositionDrag(sceneX, sceneY) {
+			if (!mouseArea.repositionDrag)
+				return;
+			mouseArea.repositionDrag = false;
+			const fView = fileSlot.folderView;
+			if (fView && typeof fView.cancelRepositionDrag === 'function')
+				fView.cancelRepositionDrag();
+			if (typeof dragDropHandler !== 'undefined' && dragDropHandler)
+				dragDropHandler.reposition_active = false;
+			mouseArea.grabAndStartNativeDrag(sceneX, sceneY);
 		}
 
 		function initiateDragPayload(mouse) {
@@ -1116,8 +1167,8 @@ Item {
 					dragDropHandler.tooltip_active = false;
 					dragDropHandler.reposition_active = false;
 				}
-				localDragTarget.Drag.active = false;
 				mouseArea.dragStarted = false;
+				fileSlot.isDraggingThisSlot = false;
 				return;
 			}
 
@@ -1135,6 +1186,7 @@ Item {
 			localDragTarget.Drag.active = false;
 			localDragTarget.Drag.imageSource = "";
 			mouseArea.dragStarted = false;
+			fileSlot.isDraggingThisSlot = false;
 		}
 
 		onCanceled: {
@@ -1153,6 +1205,7 @@ Item {
 				}
 				localDragTarget.Drag.active = false;
 				mouseArea.dragStarted = false;
+				fileSlot.isDraggingThisSlot = false;
 				return;
 			}
 
@@ -1180,7 +1233,11 @@ Item {
 			// Grab the drag ghost now, while the finger is held, so a drag
 			// starting on the next move begins immediately.
 			contentLayout.grabToImage(function (result) {
+				mouseArea.cachedGrabResult = result;
 				mouseArea.cachedDragImage = result.url.toString();
+				const win = fileSlot.window;
+				if (win && typeof win.preloadDragImage === 'function')
+					win.preloadDragImage(mouseArea.cachedDragImage);
 			});
 		}
 
