@@ -441,11 +441,154 @@ Module {
 		}
 	}
 	Component {
+		name: "FocusManager"
+		prototype: "QObject"
+		exports: ["Hishell/FocusManager 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Property { name: "focus_active"; type: "bool"; isReadonly: true }
+		Property { name: "focused_index"; type: "int"; isReadonly: true }
+		Property { name: "focused_path"; type: "string"; isReadonly: true }
+		Property { name: "item_count"; type: "int"; isReadonly: true }
+		Property { name: "grid_columns"; type: "int"; isReadonly: true }
+		Property { name: "focus_on_empty"; type: "bool"; isReadonly: true }
+		Property { name: "focused_column"; type: "int"; isReadonly: true }
+		Property { name: "focused_row"; type: "int"; isReadonly: true }
+		Property { name: "focus_status"; type: "string"; isReadonly: true }
+		Property { name: "window"; type: "QVariant"; isReadonly: true }
+		Property { name: "view_focused"; type: "bool"; isReadonly: true }
+		Property { name: "current_pane"; type: "int"; isReadonly: true }
+		Property { name: "suspended"; type: "bool"; isReadonly: true }
+		Property { name: "revealed"; type: "bool"; isReadonly: true }
+		Property { name: "hidden"; type: "bool"; isReadonly: true }
+		Property { name: "return_frame_url"; type: "QUrl"; isReadonly: true }
+		Property { name: "active_revision"; type: "int"; isReadonly: true }
+		Signal { name: "focus_changed" }
+		Signal { name: "suspended_changed" }
+		Signal { name: "accept_requested" }
+		Signal { name: "cancel_requested" }
+		Signal { name: "menu_requested" }
+		Signal { name: "select_requested" }
+		Signal { name: "directory_menu_requested" }
+		Method {
+			name: "register_pane"
+			type: "int"
+		}
+		Method {
+			name: "release_pane"
+			type: "void"
+			Parameter { name: "id"; type: "int" }
+		}
+		Method {
+			name: "set_pane_items"
+			type: "void"
+			Parameter { name: "id"; type: "int" }
+			Parameter { name: "paths"; type: "QVariantList" }
+			Parameter { name: "columns"; type: "int" }
+		}
+		Method {
+			name: "set_pane_columns"
+			type: "void"
+			Parameter { name: "id"; type: "int" }
+			Parameter { name: "columns"; type: "int" }
+		}
+		Method {
+			name: "set_pane_positions"
+			type: "void"
+			Parameter { name: "id"; type: "int" }
+			Parameter { name: "positions_json"; type: "string" }
+		}
+		Method {
+			name: "set_pane_grid"
+			type: "void"
+			Parameter { name: "id"; type: "int" }
+			Parameter { name: "columns"; type: "int" }
+			Parameter { name: "rows"; type: "int" }
+		}
+		Method {
+			name: "set_pane_empty_slots"
+			type: "void"
+			Parameter { name: "id"; type: "int" }
+			Parameter { name: "enabled"; type: "bool" }
+		}
+		Method {
+			name: "set_pane_horizontal"
+			type: "void"
+			Parameter { name: "id"; type: "int" }
+			Parameter { name: "horizontal"; type: "bool" }
+		}
+		Method {
+			name: "set_pane_geometry"
+			type: "void"
+			Parameter { name: "id"; type: "int" }
+			Parameter { name: "x"; type: "double" }
+			Parameter { name: "y"; type: "double" }
+			Parameter { name: "width"; type: "double" }
+			Parameter { name: "height"; type: "double" }
+		}
+		Method {
+			name: "set_pane_keyboard"
+			type: "void"
+			Parameter { name: "id"; type: "int" }
+			Parameter { name: "keyboard"; type: "bool" }
+		}
+		Method {
+			name: "activate_pane"
+			type: "void"
+			Parameter { name: "id"; type: "int" }
+		}
+		Method {
+			name: "set_pane_focus_path"
+			type: "bool"
+			Parameter { name: "id"; type: "int" }
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "set_pane_active"
+			type: "void"
+			Parameter { name: "id"; type: "int" }
+			Parameter { name: "active"; type: "bool" }
+		}
+		Method {
+			name: "clear_pane"
+			type: "void"
+			Parameter { name: "id"; type: "int" }
+		}
+		Method {
+			name: "focus_first"
+			type: "void"
+		}
+		Method {
+			name: "focus_last"
+			type: "void"
+		}
+		Method {
+			name: "move_focus"
+			type: "bool"
+			Parameter { name: "direction"; type: "string" }
+		}
+		Method {
+			name: "is_item_active"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "poll_gamepad"
+			type: "void"
+		}
+		Method {
+			name: "border_source"
+			type: "string"
+			Parameter { name: "color"; type: "string" }
+		}
+	}
+	Component {
 		name: "FileManager"
 		prototype: "QObject"
 		exports: ["Hishell/FileManager 1.0"]
 		exportMetaObjectRevisions: [256]
 
+		Signal { name: "drop_declined" }
 		Method {
 			name: "copy_file"
 			type: "bool"
@@ -484,7 +627,37 @@ Module {
 			Parameter { name: "path"; type: "string" }
 		}
 		Method {
+			name: "destroy_options"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "reset_file"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "unmount_file"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
 			name: "delete_file"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "can_rename"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "rename_display_name"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "rename_moves_path"
 			type: "bool"
 			Parameter { name: "path"; type: "string" }
 		}
@@ -627,148 +800,6 @@ Module {
 		Method {
 			name: "get_home_directory"
 			type: "string"
-		}
-	}
-	Component {
-		name: "FocusManager"
-		prototype: "QObject"
-		exports: ["Hishell/FocusManager 1.0"]
-		exportMetaObjectRevisions: [256]
-
-		Property { name: "focus_active"; type: "bool"; isReadonly: true }
-		Property { name: "focused_index"; type: "int"; isReadonly: true }
-		Property { name: "focused_path"; type: "string"; isReadonly: true }
-		Property { name: "item_count"; type: "int"; isReadonly: true }
-		Property { name: "grid_columns"; type: "int"; isReadonly: true }
-		Property { name: "focus_on_empty"; type: "bool"; isReadonly: true }
-		Property { name: "focused_column"; type: "int"; isReadonly: true }
-		Property { name: "focused_row"; type: "int"; isReadonly: true }
-		Property { name: "focus_status"; type: "string"; isReadonly: true }
-		Property { name: "window"; type: "QVariant"; isReadonly: true }
-		Property { name: "view_focused"; type: "bool"; isReadonly: true }
-		Property { name: "current_pane"; type: "int"; isReadonly: true }
-		Property { name: "suspended"; type: "bool"; isReadonly: true }
-		Property { name: "revealed"; type: "bool"; isReadonly: true }
-		Property { name: "hidden"; type: "bool"; isReadonly: true }
-		Property { name: "return_frame_url"; type: "QUrl"; isReadonly: true }
-		Property { name: "active_revision"; type: "int"; isReadonly: true }
-		Signal { name: "focus_changed" }
-		Signal { name: "suspended_changed" }
-		Signal { name: "accept_requested" }
-		Signal { name: "cancel_requested" }
-		Signal { name: "menu_requested" }
-		Signal { name: "select_requested" }
-		Signal { name: "directory_menu_requested" }
-		Method {
-			name: "register_pane"
-			type: "int"
-		}
-		Method {
-			name: "release_pane"
-			type: "void"
-			Parameter { name: "id"; type: "int" }
-		}
-		Method {
-			name: "set_pane_items"
-			type: "void"
-			Parameter { name: "id"; type: "int" }
-			Parameter { name: "paths"; type: "QVariantList" }
-			Parameter { name: "columns"; type: "int" }
-		}
-		Method {
-			name: "set_pane_columns"
-			type: "void"
-			Parameter { name: "id"; type: "int" }
-			Parameter { name: "columns"; type: "int" }
-		}
-		Method {
-			name: "set_pane_positions"
-			type: "void"
-			Parameter { name: "id"; type: "int" }
-			Parameter { name: "positions_json"; type: "string" }
-		}
-		Method {
-			name: "set_pane_grid"
-			type: "void"
-			Parameter { name: "id"; type: "int" }
-			Parameter { name: "columns"; type: "int" }
-			Parameter { name: "rows"; type: "int" }
-		}
-		Method {
-			name: "set_pane_empty_slots"
-			type: "void"
-			Parameter { name: "id"; type: "int" }
-			Parameter { name: "enabled"; type: "bool" }
-		}
-		Method {
-			name: "set_pane_horizontal"
-			type: "void"
-			Parameter { name: "id"; type: "int" }
-			Parameter { name: "horizontal"; type: "bool" }
-		}
-		Method {
-			name: "set_pane_geometry"
-			type: "void"
-			Parameter { name: "id"; type: "int" }
-			Parameter { name: "x"; type: "double" }
-			Parameter { name: "y"; type: "double" }
-			Parameter { name: "width"; type: "double" }
-			Parameter { name: "height"; type: "double" }
-		}
-		Method {
-			name: "set_pane_keyboard"
-			type: "void"
-			Parameter { name: "id"; type: "int" }
-			Parameter { name: "keyboard"; type: "bool" }
-		}
-		Method {
-			name: "activate_pane"
-			type: "void"
-			Parameter { name: "id"; type: "int" }
-		}
-		Method {
-			name: "set_pane_focus_path"
-			type: "bool"
-			Parameter { name: "id"; type: "int" }
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "set_pane_active"
-			type: "void"
-			Parameter { name: "id"; type: "int" }
-			Parameter { name: "active"; type: "bool" }
-		}
-		Method {
-			name: "clear_pane"
-			type: "void"
-			Parameter { name: "id"; type: "int" }
-		}
-		Method {
-			name: "focus_first"
-			type: "void"
-		}
-		Method {
-			name: "focus_last"
-			type: "void"
-		}
-		Method {
-			name: "move_focus"
-			type: "bool"
-			Parameter { name: "direction"; type: "string" }
-		}
-		Method {
-			name: "is_item_active"
-			type: "bool"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "poll_gamepad"
-			type: "void"
-		}
-		Method {
-			name: "border_source"
-			type: "string"
-			Parameter { name: "color"; type: "string" }
 		}
 	}
 }

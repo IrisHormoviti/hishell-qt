@@ -1114,7 +1114,7 @@ Item {
 		folderNavTimer.restart();
 	}
 
-	function updateFreeDropTarget(x, y) {
+	function updateFreeDropTarget(x, y, sourcePaths) {
 		if (!folderView.gridMetrics.free) {
 			folderView.freeDropCol = -1;
 			folderView.freeDropRow = -1;
@@ -1128,7 +1128,11 @@ Item {
 
 		const local = bgDropArea.mapToItem(gridContent, x, y);
 		const dirSlot = folderView.dirUnderPoint(local.x, local.y);
-		if (dirSlot) {
+		// Never spring-load into a folder the drop is invalid for — above all the
+		// dragged item itself (dragging a folder onto its own icon). The source
+		// paths are absolute and live on the window's drag handler for the whole
+		// drag, so this still holds after navigating in and out of folders.
+		if (dirSlot && folderView.isDropValid(dirSlot.path, sourcePaths || [])) {
 			// Spring-load: hovering a folder long enough descends into it. The
 			// background owns drops in free placement, so arm it here (the
 			// regular grid does it in FileSlot's drop area).
@@ -1245,8 +1249,8 @@ Item {
 		if (!folderView.repositionDragActive)
 			return;
 		const local = folderView.mapFromItem(null, wx, wy);
-		folderView.updateFreeDropTarget(local.x, local.y);
 		const handler = folderView.rootWindow ? folderView.rootWindow.dragDropHandler : null;
+		folderView.updateFreeDropTarget(local.x, local.y, handler ? handler.drag_source_paths : []);
 		if (handler) {
 			handler.update_cursor(wx, wy);
 			handler.reposition_active = !folderView.folderDropActive;
@@ -1437,7 +1441,7 @@ Item {
 				sourcePaths = drag.urls;
 			}
 
-			folderView.updateFreeDropTarget(drag.x, drag.y);
+			folderView.updateFreeDropTarget(drag.x, drag.y, sourcePaths);
 			// Track the cursor before any early return below (a same-folder drop
 			// is invalid and returns early, which used to freeze the drag ghost
 			// whenever the finger was not over a folder).

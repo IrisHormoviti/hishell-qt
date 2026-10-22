@@ -37,6 +37,11 @@ Kirigami.ApplicationWindow {
 	property alias actionManager: actionManager
 	property alias sound: sound
 
+	// A virtual folder is a view, not storage.  A drop it does not keep is
+	// reported for a few seconds instead of silently disappearing.
+	property string dropNoticeText: ""
+	property var dropDeclinedNames: []
+
 	// A native (Wayland) drag runs QDrag::exec() in a nested event loop on this
 	// thread, and Qt makes the QDrag a child of the dragged item's Drag object.
 	// Reloading a view from inside the drop handler would delete that item (and
@@ -224,6 +229,19 @@ Kirigami.ApplicationWindow {
 
 	FileManager {
 		id: fileManager
+
+		onDrop_declined: function(name) {
+			root.showDropDeclined(name);
+		}
+	}
+
+	Timer {
+		id: dropNoticeTimer
+		interval: 6000
+		onTriggered: {
+			root.dropNoticeText = "";
+			root.dropDeclinedNames = [];
+		}
 	}
 
 	DragDropHandler {
@@ -289,6 +307,114 @@ Kirigami.ApplicationWindow {
 
 	function requestLaunchConfirm(blockedItem, launchItem) {
 		launchConfirm.ask(blockedItem, launchItem);
+	}
+
+	// Delete is not one action for a settings section: the warning offers
+	// removing the link, resetting the section, or unmounting a device, as the
+	// source allows.  Ordinary content travels straight to Trash; a warning
+	// opens where the choice is real (docs `clam-configd.md` §5.2, §5.5).
+	DestroyConfirmDialog {
+		id: destroyConfirm
+		fileManager: root.fileManager
+		window: root
+		onDecided: function(action) { root.finishDestroyItem(action); }
+	}
+
+	property var destroyQueue: []
+	property var destroyTargetDirectory: null
+	property bool destroyDidSomething: false
+	property bool destroyWaitsForUnmount: false
+
+	Timer {
+		id: destroyReloadTimer
+		interval: 1400
+		repeat: false
+		onTriggered: {
+			if (root.destroyTargetDirectory)
+				root.destroyTargetDirectory.reload();
+		}
+	}
+
+	function requestDestroy(paths, targetDirectory) {
+		if (!root.fileManager || !paths || paths.length === 0)
+			return;
+		root.destroyQueue = Array.from(paths);
+		root.destroyTargetDirectory = targetDirectory || null;
+		root.destroyDidSomething = false;
+		root.destroyWaitsForUnmount = false;
+		root.processNextDestroy();
+	}
+
+	function processNextDestroy() {
+		const fm = root.fileManager;
+		if (!fm) {
+			root.finishDestroy();
+			return;
+		}
+		while (root.destroyQueue.length > 0) {
+			const path = root.destroyQueue.shift();
+			let info = {};
+			try {
+				info = JSON.parse(fm.destroy_options(path));
+			} catch (e) {
+				continue;
+			}
+			// Ordinary destroyable content has only one meaning: trash it.
+			// A settings section is different even when its link is removable:
+			// removing the handle and resetting the section are two wants, so
+			// the warning is the choice (§5.2).
+			if (info.destroy && !info.section) {
+				if (fm.trash_file(path))
+					root.destroyDidSomething = true;
+				continue;
+			}
+			destroyConfirm.ask(path, info);
+			return;
+		}
+		root.finishDestroy();
+	}
+
+	function finishDestroyItem(action) {
+		if (action === "cancel") {
+			root.destroyQueue = [];
+			root.finishDestroy();
+			return;
+		}
+		const fm = root.fileManager;
+		let ok = false;
+		if (fm && action === "destroy")
+			ok = fm.trash_file(destroyConfirm.path);
+		else if (fm && action === "reset")
+			ok = fm.reset_file(destroyConfirm.path);
+		else if (fm && action === "unmount") {
+			ok = fm.unmount_file(destroyConfirm.path);
+			root.destroyWaitsForUnmount = ok;
+		}
+		if (ok)
+			root.destroyDidSomething = true;
+		Qt.callLater(function() { root.processNextDestroy(); });
+	}
+
+	function finishDestroy() {
+		const directory = root.destroyTargetDirectory;
+		const changed = root.destroyDidSomething;
+		const delayed = root.destroyWaitsForUnmount;
+		root.destroyTargetDirectory = null;
+		root.destroyWaitsForUnmount = false;
+		if (!changed)
+			return;
+		if (root.sound)
+			root.sound.play("item-deleted");
+		if (root.selectionManager)
+			root.selectionManager.clear();
+		if (directory)
+			directory.reload();
+		if (delayed) {
+			// `clam-removable.sh remove` unmounts and reconciles its links after
+			// a short sleep; reload once more when the handle is actually gone.
+			root.destroyTargetDirectory = directory;
+			destroyReloadTimer.restart();
+		}
 	}
 
 	// Drop the return frame from a previous app immediately, so a launch that
@@ -419,6 +545,17 @@ Kirigami.ApplicationWindow {
 	onActiveChanged: Qt.callLater(() => root.ensureFolderViewFocus())
 	onActiveFocusItemChanged: Qt.callLater(() => root.ensureFolderViewFocus())
 
+	function showDropDeclined(name) {
+		const names = root.dropDeclinedNames.concat([String(name)]);
+		root.dropDeclinedNames = names;
+		if (names.length === 1) {
+			root.dropNoticeText = qsTr("This folder did not keep “%1”. Your original is unchanged.").arg(names[0]);
+		} else {
+			root.dropNoticeText = qsTr("This folder did not keep %1 dropped items. Your originals are unchanged.").arg(names.length);
+		}
+		dropNoticeTimer.restart();
+	}
+
 	function ensureFolderViewFocus() {
 		if (!root.active || !root.primaryFolderView)
 			return;
@@ -534,6 +671,39 @@ Kirigami.ApplicationWindow {
 					ToolButton {
 						icon.name: "dialog-close"
 						onClicked: configErrorBanner.dismissedError = directory.config.error
+					}
+				}
+			}
+
+			// A dropped file the virtual folder did not keep.
+			Rectangle {
+				id: dropNoticeBanner
+				visible: root.dropNoticeText.length > 0
+				Layout.fillWidth: true
+				Layout.preferredHeight: dropNoticeRow.implicitHeight + Kirigami.Units.largeSpacing * 2
+				color: Kirigami.Theme.neutralBackgroundColor
+
+				RowLayout {
+					id: dropNoticeRow
+					anchors.horizontalCenter: parent.horizontalCenter
+					anchors.verticalCenter: parent.verticalCenter
+					width: parent.width - Kirigami.Units.largeSpacing * 2
+					spacing: Kirigami.Units.largeSpacing
+
+					Label {
+						Layout.fillWidth: true
+						text: root.dropNoticeText
+						color: Kirigami.Theme.neutralTextColor
+						wrapMode: Text.WordWrap
+					}
+
+					ToolButton {
+						icon.name: "dialog-close"
+						onClicked: {
+							root.dropNoticeText = "";
+							root.dropDeclinedNames = [];
+							dropNoticeTimer.stop();
+						}
 					}
 				}
 			}

@@ -55,14 +55,11 @@ Item {
 
 	// A generated entry (a provider's network or control row) may be destroyed
 	// only when the provider says how: Trash then runs the entry's `Destroy=`
-	// command instead of moving the file. Cut is offered on the same terms and
-	// then means the same thing — pasting a cut generated entry runs its
-	// `Destroy=` command (FileManager::cut_into), because moving the file alone
+	// command instead of moving the file. Cut-then-Paste means the same thing
+	// for such an entry (`FileManager::cut_into`), because moving the file alone
 	// would leave the profile behind and the daemon would write it straight
-	// back. Both actions are withheld for a generated entry with no `Destroy=`;
-	// an ordinary file is always destroyable.
-	readonly property bool allTargetsDestroyable: actionManager.hasTarget
-		&& actionManager.targetPathList.every(path => actionManager.fileManager !== null && actionManager.fileManager.can_destroy(path))
+	// back. A source that is not destroyable is never copied or moved: drag
+	// Copy/Move degrade to a link, and Trash opens the warning instead (§5).
 
 	// True when every target is a folder. The menubar's Folder menu corresponds
 	// to a selected folder, so it is shown only for such a target; the folder
@@ -496,7 +493,7 @@ Item {
 		text: qsTr("C&ut")
 		icon.name: "edit-cut"
 		shortcut: actionManager.showShortcuts ? "Ctrl+X" : ""
-		enabled: actionManager.allTargetsDestroyable
+		enabled: actionManager.hasTarget
 		onTriggered: {
 			const paths = actionManager.targetPathList.join("\n");
 			if (actionManager.fileManager)
@@ -549,7 +546,8 @@ Item {
 		text: qsTr("&Rename")
 		icon.name: "edit-rename"
 		shortcut: actionManager.showShortcuts ? "F2" : ""
-		enabled: actionManager.isSingleTarget
+		enabled: actionManager.isSingleTarget && actionManager.fileManager !== null
+			&& actionManager.fileManager.can_rename(actionManager.firstTargetPath)
 		onTriggered: {
 			if (actionManager.isSingleTarget) {
 				actionManager.openRenameDialog(actionManager.firstTargetPath);
@@ -573,20 +571,25 @@ Item {
 		text: qsTr("&Trash")
 		icon.name: "user-trash"
 		shortcut: actionManager.showShortcuts ? "Delete" : ""
-		enabled: actionManager.allTargetsDestroyable
+		enabled: actionManager.hasTarget
 		onTriggered: {
-			const paths = actionManager.targetPathList;
-			let anyOk = false;
-			for (let i = 0; i < paths.length; i++) {
-				if (actionManager.fileManager && actionManager.fileManager.trash_file(paths[i]))
-					anyOk = true;
+			if (actionManager.window && actionManager.window.requestDestroy) {
+				actionManager.window.requestDestroy(actionManager.targetPathList, actionManager.targetDirectory);
+			} else {
+				// A host without the warning adapter keeps the old direct path.
+				const paths = actionManager.targetPathList;
+				let anyOk = false;
+				for (let i = 0; i < paths.length; i++) {
+					if (actionManager.fileManager && actionManager.fileManager.trash_file(paths[i]))
+						anyOk = true;
+				}
+				if (anyOk)
+					actionManager.playSound("item-deleted");
+				if (actionManager.selectionManager)
+					actionManager.selectionManager.clear();
+				if (anyOk && actionManager.targetDirectory)
+					actionManager.targetDirectory.reload();
 			}
-			if (anyOk)
-				actionManager.playSound("item-deleted");
-			if (actionManager.selectionManager)
-				actionManager.selectionManager.clear();
-			if (anyOk && actionManager.targetDirectory)
-				actionManager.targetDirectory.reload();
 		}
 	}
 
@@ -809,8 +812,10 @@ Item {
 
 	// Rename Dialog
 	function openRenameDialog(filePath) {
+		if (!actionManager.fileManager || !actionManager.fileManager.can_rename(filePath))
+			return;
 		renameDialog.filePath = filePath;
-		const name = filePath.substring(filePath.lastIndexOf("/") + 1);
+		const name = String(actionManager.fileManager.rename_display_name(filePath));
 		renameDialog.originalName = name;
 		renameDialog.newName = name;
 		renameDialog.open();
@@ -829,12 +834,18 @@ Item {
 				renameDialog.accept();
 				return;
 			}
+			const fm = actionManager.fileManager;
+			if (!fm) {
+				renameDialog.errorText = qsTr("Rename is not available.");
+				actionManager.playSound("dialog-error");
+				return;
+			}
+			const movesPath = fm.rename_moves_path(renameDialog.filePath);
 			var status = {
 				ok: true,
 				error: ""
 			};
-			if (actionManager.fileManager)
-				status = JSON.parse(actionManager.fileManager.rename_file(renameDialog.filePath, trimmed));
+			status = JSON.parse(fm.rename_file(renameDialog.filePath, trimmed));
 			if (!status.ok) {
 				renameDialog.errorText = status.error;
 				actionManager.playSound("dialog-error");
@@ -845,8 +856,16 @@ Item {
 			actionManager.playSound("dialog-ok");
 			if (actionManager.selectionManager)
 				actionManager.selectionManager.clear();
-			if (actionManager.targetDirectory)
-				actionManager.targetDirectory.rename_free_position(renameDialog.originalName, trimmed);
+			if (actionManager.targetDirectory) {
+				// A label rename leaves the file name alone, so there is no
+				// free-placement entry to move; just refresh the view.  Waiting
+				// for the provider's own revision is the same poll that already
+				// updates live entries.
+				if (movesPath)
+					actionManager.targetDirectory.rename_free_position(renameDialog.originalName, trimmed);
+				else
+					actionManager.targetDirectory.reload();
+			}
 		}
 
 		title: qsTr("Rename")

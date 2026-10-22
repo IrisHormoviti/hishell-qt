@@ -297,6 +297,17 @@ pub struct Directory {
 				return false;
 			}
 
+			// Metadata is not a choice.  `Only=Files` otherwise makes the
+			// folder's own `.directory` a radio child, so selecting it would
+			// write `Selected=.directory` and run `Exec` with that stem.
+			if path
+				.file_name()
+				.and_then(|name| name.to_str())
+				.is_some_and(|name| name.starts_with('.'))
+			{
+				return false;
+			}
+
 			match config.radio_only {
 				1 => path.is_dir(),
 				2 => path.is_file(),
@@ -347,18 +358,7 @@ pub struct Directory {
 	/// — the provider rewrites the folder and the shell's watch picks it up.
 	run_refresh_command: qt_method!(
 		pub fn run_refresh_command(&self) {
-			if self.path_str.is_empty() {
-				return;
-			}
-			let entry = Path::new(&self.path_str).join(".directory");
-			let Some(command) = crate::config::get_entry_string(&entry, "Refresh") else {
-				return;
-			};
-			let command = command.trim().to_string();
-			if command.is_empty() {
-				return;
-			}
-			crate::desktop_entry::run_refresh(Path::new(&self.path_str), &command);
+			self.run_refresh_if_configured();
 		}
 	),
 
@@ -889,6 +889,24 @@ impl Directory {
 		Path::new(&self.path_str).join(".directory").is_file()
 	}
 
+	/// Run this folder's `Refresh=` command, when it has one.  Entering a
+	/// folder calls this once; the manual Refresh action calls it too.  A plain
+	/// read never scans (docs §4.3).
+	fn run_refresh_if_configured(&self) {
+		if self.path_str.is_empty() {
+			return;
+		}
+		let entry = Path::new(&self.path_str).join(".directory");
+		let Some(command) = crate::config::get_entry_string(&entry, "Refresh") else {
+			return;
+		};
+		let command = command.trim().to_string();
+		if command.is_empty() {
+			return;
+		}
+		crate::desktop_entry::run_refresh(Path::new(&self.path_str), &command);
+	}
+
 	pub fn set_path(&mut self, path: String) {
 		if path.is_empty() {
 			return;
@@ -902,6 +920,7 @@ impl Directory {
 		let path_buf = Path::new(&path);
 		let abs_path = normalize_path(path_buf, &self.path_str);
 		let abs_str = abs_path.to_string_lossy().to_string();
+		let entered = self.path_str != abs_str;
 
 		if !self.path_str.is_empty() && self.path_str != abs_str {
 			crate::thumbnailer::cancel_folder(Path::new(&self.path_str));
@@ -933,6 +952,13 @@ impl Directory {
 
 		self.path_changed();
 		self.config_changed();
+
+		// Entering a folder is the user asking to see it now, so run its
+		// provider hook once.  The manual Refresh action still does the same
+		// thing; a plain read never scans.
+		if entered {
+			self.run_refresh_if_configured();
+		}
 	}
 
 	pub fn get_title(&self) -> String {

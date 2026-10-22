@@ -11,6 +11,7 @@ ShellWindow ShellWindow.qml
 WindowOverlay WindowOverlay.qml
 DragTooltip DragTooltip.qml
 DragPreview DragPreview.qml
+DestroyConfirmDialog DestroyConfirmDialog.qml
 ExecuteDialog ExecuteDialog.qml
 LaunchConfirmDialog LaunchConfirmDialog.qml
 OpenWithDialog OpenWithDialog.qml

@@ -10,6 +10,7 @@ pub mod appimage;
 pub mod config;
 pub mod config_parser;
 pub mod desktop_entry;
+pub mod destroy;
 pub mod directory;
 pub mod directory_descriptor;
 pub mod dragdrop_handler;
@@ -87,6 +88,7 @@ pub fn install() {
 			"ActionManager.qml",
 			"DragTooltip.qml",
 			"DragPreview.qml",
+			"DestroyConfirmDialog.qml",
 			"ExecuteDialog.qml",
 			"FileSlot.qml",
 			"FolderView.qml",

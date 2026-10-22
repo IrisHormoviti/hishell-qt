@@ -13,6 +13,7 @@
 //! Path=/mnt/sdcard
 //! Name=SD Card
 //! Icon=media-flash-sd-mmc
+//! Unmount=/usr/lib/hishell/clam-removable.sh remove /dev/sdb1
 //! ```
 //!
 //! `Path` is the directory being described; `Name` and `Icon` are what the file
@@ -47,6 +48,11 @@ const REFRESH: Duration = Duration::from_secs(1);
 pub struct Descriptor {
 	pub name: Option<String>,
 	pub icon: Option<String>,
+	/// An optional `Unmount=<command line>`: how to make the described thing
+	/// go away.  A mounted device's link is reconciled by whoever mounted it,
+	/// so trashing the link would not stick; the warning offers this instead
+	/// (`docs/clam-configd.md` §5.5).
+	pub unmount: Option<String>,
 }
 
 static CACHE: Lazy<Mutex<Option<(Instant, HashMap<PathBuf, Descriptor>)>>> =
@@ -121,6 +127,7 @@ fn read_descriptor(file: &Path) -> Option<(PathBuf, Descriptor)> {
 	let descriptor = Descriptor {
 		name: string(section, "Name").filter(|name| !name.trim().is_empty()),
 		icon: string(section, "Icon").filter(|icon| !icon.trim().is_empty()),
+		unmount: string(section, "Unmount").filter(|command| !command.trim().is_empty()),
 	};
 	Some((target, descriptor))
 }

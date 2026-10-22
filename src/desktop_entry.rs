@@ -24,6 +24,15 @@ pub struct DesktopEntry {
 	/// generated entry must not be trashed or cut, because deleting the file
 	/// would just make the daemon write it back (§6.3).
 	pub destroy: Option<String>,
+	/// `Reset=<command line>` on a section's `.directory`: what "reset this
+	/// section" means (docs `clam-configd.md` §5.2).  It is deliberately separate
+	/// from `Destroy=`, because a reset keeps the section's handle.
+	pub reset: Option<String>,
+	/// `Rename=<command line>`: how the provider lets this entry's display
+	/// label change.  A generated entry has no file to rename, so its only
+	/// honest rename is the provider's own action; `%v` is the new name.  The
+	/// key is omitted for everything that must not be renamed at all.
+	pub rename: Option<String>,
 }
 
 impl DesktopEntry {
@@ -57,12 +66,25 @@ impl DesktopEntry {
 		self.destroy.as_deref()
 	}
 
-	/// Whether the file views may offer Trash and Cut for this item.
+	/// The command that resets a section whose `.directory` this entry describes
+	/// (docs `clam-configd.md` §5.2).
+	pub fn reset_command(&self) -> Option<&str> {
+		self.reset.as_deref()
+	}
+
+	/// The command that changes this entry's display label, when the provider
+	/// allows it (docs `clam-configd.md` §5.7).
+	pub fn rename_command(&self) -> Option<&str> {
+		self.rename.as_deref()
+	}
+
+	/// Whether this item is the user's to destroy.
 	///
 	/// A generated entry belongs to the daemon that wrote it: trashing the file
 	/// would only make the provider put it straight back, so it can be destroyed
 	/// only through its own `Destroy=` command. Everything else is an ordinary
-	/// file.
+	/// file.  This also decides the copy/move downgrade; Cut itself is always
+	/// offered and says the same thing as Trash once the paste happens.
 	pub fn is_destroyable(&self) -> bool {
 		self.destroy_command().is_some() || !self.generated
 	}
@@ -112,6 +134,10 @@ fn from_values(values: &HashMap<String, ConfigValue>) -> DesktopEntry {
 			.unwrap_or(false),
 		generated: entry_boolean(values, "Generated"),
 		destroy: crate::config::entry_string(&values, "Destroy")
+			.filter(|command| !command.trim().is_empty()),
+		reset: crate::config::entry_string(&values, "Reset")
+			.filter(|command| !command.trim().is_empty()),
+		rename: crate::config::entry_string(&values, "Rename")
 			.filter(|command| !command.trim().is_empty()),
 	}
 }
@@ -306,6 +332,104 @@ pub fn run_refresh(directory: &Path, command: &str) -> bool {
 	}
 }
 
+/// Run a section's `Reset=<command line>`: clear its provider state while
+/// keeping its handle (docs `clam-configd.md` §5.2).  Like `Refresh=` and
+/// `Destroy=`, this is a control action, not a guest app launch.
+pub fn run_reset(directory: &Path, command: &str) -> bool {
+	let entry_path = directory.join(".directory");
+	let entry = read(&entry_path);
+	let args = match parse_exec(command, &entry, &entry_path, None) {
+		Ok(args) if !args.is_empty() => args,
+		Ok(_) => {
+			eprintln!("{} has an empty Reset command", entry_path.display());
+			return false;
+		}
+		Err(error) => {
+			eprintln!("{}: {error}", entry_path.display());
+			return false;
+		}
+	};
+	let name = entry.name.clone().unwrap_or_default();
+	match crate::launch::spawn_direct(
+		&args[0],
+		&args[1..],
+		&entry_path.to_string_lossy(),
+		&name,
+		Some(directory),
+	) {
+		Ok(_) => true,
+		Err(error) => {
+			eprintln!("could not reset {}: {error}", directory.display());
+			false
+		}
+	}
+}
+
+/// Run an entry's `Rename=<command line>`: how a provider changes a generated
+/// entry's display label (docs `clam-configd.md` §5.7).  Unlike the other
+/// hooks this one is waited on, so a provider that refuses ("only a paired
+/// device", "no longer in range") can put its answer in the rename dialog.
+pub fn run_rename(
+	path: &Path,
+	entry: &DesktopEntry,
+	command: &str,
+	new_name: &str,
+) -> Result<(), String> {
+	let args = rename_args(command, entry, path, new_name)?;
+	if args.is_empty() {
+		return Err("The Rename command is empty.".to_string());
+	}
+	let output = Command::new(&args[0])
+		.args(&args[1..])
+		.current_dir(crate::config::base_dir(path))
+		.env(crate::launch::ITEM_ENV, path)
+		.env(
+			crate::launch::NAME_ENV,
+			entry.name.as_deref().unwrap_or_default(),
+		)
+		.output()
+		.map_err(|error| format!("Could not run Rename: {error}"))?;
+	if output.status.success() {
+		return Ok(());
+	}
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	let message = stderr.trim();
+	if message.is_empty() {
+		Err("Rename failed.".to_string())
+	} else {
+		Err(message.to_string())
+	}
+}
+
+/// Run a command line supplied by a directory descriptor (`Unmount=`), with
+/// the described path as the action's item.  Descriptors already describe
+/// directories whose metadata lives outside them; the same mechanism gives the
+/// shell the only honest action for a mounted device (docs §5.5).
+pub fn run_hook(command: &str, item: &Path, name: &str) -> bool {
+	let entry = DesktopEntry::default();
+	let args = match parse_exec(command, &entry, item, None) {
+		Ok(args) if !args.is_empty() => args,
+		Ok(_) => return false,
+		Err(error) => {
+			eprintln!("{}: {error}", item.display());
+			return false;
+		}
+	};
+	match crate::launch::spawn_direct(
+		&args[0],
+		&args[1..],
+		&item.to_string_lossy(),
+		name,
+		item.parent(),
+	) {
+		Ok(_) => true,
+		Err(error) => {
+			eprintln!("could not run hook for {}: {error}", item.display());
+			false
+		}
+	}
+}
+
 fn launch_link(path: &Path, entry: &DesktopEntry) -> Option<Result<(), String>> {
 	let url = match entry.url.as_deref() {
 		Some(url) if !url.trim().is_empty() => url,
@@ -412,6 +536,43 @@ fn unescape_value(value: &str) -> String {
 	result
 }
 
+/// Expand a `Rename=` command: `%v` is the new label, `%n` the old display
+/// name, `%p` the entry path.  Tokenising happens before substitution, so a
+/// label with spaces still arrives as one argument.
+fn rename_args(
+	command: &str,
+	entry: &DesktopEntry,
+	path: &Path,
+	new_name: &str,
+) -> Result<Vec<String>, String> {
+	let tokens = tokenize_exec(command)?;
+	let mut args = Vec::new();
+	for token in tokens {
+		let mut expanded = String::new();
+		let mut chars = token.chars();
+		while let Some(ch) = chars.next() {
+			if ch != '%' {
+				expanded.push(ch);
+				continue;
+			}
+			match chars.next() {
+				Some('%') => expanded.push('%'),
+				Some('v') => expanded.push_str(new_name),
+				Some('n') => expanded.push_str(entry.name.as_deref().unwrap_or_default()),
+				Some('p') => expanded.push_str(&path.to_string_lossy()),
+				Some(other) => {
+					return Err(format!("unsupported field code %{other} in Rename"));
+				}
+				None => return Err("Rename ends with an incomplete field code".to_string()),
+			}
+		}
+		if !expanded.is_empty() {
+			args.push(expanded);
+		}
+	}
+	Ok(args)
+}
+
 fn parse_exec(
 	exec: &str,
 	entry: &DesktopEntry,
@@ -513,7 +674,7 @@ fn tokenize_exec(exec: &str) -> Result<Vec<String>, String> {
 
 #[cfg(test)]
 mod tests {
-	use super::{DesktopEntry, parse_exec, read, tokenize_exec};
+	use super::{DesktopEntry, parse_exec, read, rename_args, tokenize_exec};
 	use std::fs;
 	use std::path::{Path, PathBuf};
 
@@ -576,9 +737,44 @@ mod tests {
 		assert_eq!(entry.exec.as_deref(), Some("clam-connect wifi --radio off"));
 		assert!(entry.generated);
 		assert_eq!(entry.destroy_command(), None);
+		assert_eq!(entry.rename_command(), None);
 		assert!(
 			!entry.is_destroyable(),
 			"a provider's control row is not the user's to trash"
+		);
+	}
+
+	#[test]
+	fn expands_a_rename_command_without_splitting_the_label() {
+		let path = scratch("hishell-rename-test");
+		fs::write(
+			&path,
+			"[Desktop Entry]\nType=Button\nName=Old label\nGenerated=true\n\
+			 Rename=clam-connect bt --rename AA:BB:CC:DD:EE:FF %v\n",
+		)
+		.unwrap();
+		let entry = read(&path);
+		fs::remove_file(path).unwrap();
+
+		assert_eq!(
+			entry.rename_command(),
+			Some("clam-connect bt --rename AA:BB:CC:DD:EE:FF %v")
+		);
+		assert_eq!(
+			rename_args(
+				entry.rename_command().unwrap(),
+				&entry,
+				Path::new("/sections/Bluetooth/AA:BB.desktop"),
+				"New label"
+			)
+			.unwrap(),
+			[
+				"clam-connect",
+				"bt",
+				"--rename",
+				"AA:BB:CC:DD:EE:FF",
+				"New label"
+			]
 		);
 	}
 
