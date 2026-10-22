@@ -56,6 +56,11 @@ The settings will be the "general config", a folder config that can will be appl
 cargo build
 ```
 
+Qt 6 and KF6 are discovered from the system by default. If a machine keeps
+them somewhere else (a private prefix, Homebrew, a cross sysroot), point
+`QT_INCLUDE_PATH`, `QT_LIBRARY_PATH`, `KF6_INCLUDE_PATH`, `QMAKE` and `MOC` at
+it in `~/.cargo/config.toml` rather than in the repo's `.cargo/config.toml`.
+
 ### Run
 
 ```bash

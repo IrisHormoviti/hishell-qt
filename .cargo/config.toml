@@ -1,21 +1,10 @@
-[env]
-PKG_CONFIG_PATH = "/home/iris/.local/lib/qt6-devel/usr/lib64/pkgconfig:/home/linuxbrew/.linuxbrew/opt/systemd/lib/pkgconfig:/home/linuxbrew/.linuxbrew/lib/pkgconfig"
-KF6_INCLUDE_PATH = "/home/iris/.local/lib/kf6-devel/include"
-QMAKE = "/home/iris/.local/lib/qt6-devel/usr/lib64/qt6/bin/qmake6"
-MOC = "/home/iris/.local/lib/qt6-devel/usr/lib64/qt6/libexec/moc"
-QT_INCLUDE_PATH = "/home/iris/.local/lib/qt6-devel/usr/include/qt6"
-# qttypes needs the include *and* library dirs together, or neither.
-QT_LIBRARY_PATH = "/home/iris/.local/lib/qt6-devel/usr/lib64"
-# Qt's headers pull in <GL/gl.h>, which Bazzite does not ship (no mesa-devel);
-# linuxbrew's mesa supplies it. Host-triple names, so the aarch64 cross build
-# (which sets its own include/library paths) is unaffected.
-"CFLAGS_x86_64-unknown-linux-gnu" = "-I/home/linuxbrew/.linuxbrew/include"
-"CXXFLAGS_x86_64-unknown-linux-gnu" = "-I/home/linuxbrew/.linuxbrew/include"
+# Machine-specific Qt/KF6 paths (a private Qt under ~/.local, Homebrew, a
+# cross sysroot, ...) belong in ~/.cargo/config.toml, not here: Cargo merges
+# the user config with this file, so the repo stays portable and a system
+# Qt/KF6 is found by qttypes and build.rs on its own.
 
 [target.x86_64-unknown-linux-gnu]
-# /usr/lib64 and the KF6 devel dir for Qt/KF6, linuxbrew for libcanberra (whose
-# dev symlink the immutable host root does not carry).
-rustflags = ["-C", "link-arg=-Wl,-rpath,$ORIGIN/lib", "-L", "/home/iris/.local/lib/kf6-devel/lib", "-L", "/usr/lib64", "-L", "/home/linuxbrew/.linuxbrew/lib"]
+rustflags = ["-C", "link-arg=-Wl,-rpath,$ORIGIN/lib"]
 
 [target.aarch64-unknown-linux-gnu]
 linker = "aarch64-linux-gnu-gcc"
