@@ -36,8 +36,38 @@
 #include <QWindow>
 #include <fcntl.h>
 #include <unistd.h>
+#include <cstdio>
+#include <cstdlib>
 
 static thread_local QByteArray g_result;
+
+// --- logging ---------------------------------------------------------------
+// A QML error raised while a component is being created can end up drawn into
+// the window instead of reaching stderr, so a view that fails to load shows on
+// screen but leaves nothing in the launcher's log. Route every Qt message to
+// stderr and flush it, so the log always has the whole story.
+static void hishell_message_handler(QtMsgType type, const QMessageLogContext &context, const QString &message)
+{
+	Q_UNUSED(context);
+	const char *level = "info";
+	switch (type) {
+	case QtDebugMsg: level = "debug"; break;
+	case QtInfoMsg: level = "info"; break;
+	case QtWarningMsg: level = "warning"; break;
+	case QtCriticalMsg: level = "critical"; break;
+	case QtFatalMsg: level = "fatal"; break;
+	}
+	const QByteArray line = QByteArrayLiteral("hishell: ") + level + ": " + message.toUtf8() + '\n';
+	fwrite(line.constData(), 1, static_cast<size_t>(line.size()), stderr);
+	fflush(stderr);
+	if (type == QtFatalMsg)
+		abort();
+}
+
+extern "C" void hishell_install_message_handler(void)
+{
+	qInstallMessageHandler(hishell_message_handler);
+}
 
 namespace {
 

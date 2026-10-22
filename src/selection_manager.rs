@@ -107,6 +107,15 @@ pub struct SelectionManager {
 		}
 	),
 
+	// Whether a path is selected. Slots ask this instead of parsing
+	// `selected_paths` themselves: a folder of hundreds of items would otherwise
+	// re-parse the whole selection JSON once per slot on every change.
+	is_selected: qt_method!(
+		fn is_selected(&self, path: String) -> bool {
+			self.get_selected_paths().contains_key(&path)
+		}
+	),
+
 	clear: qt_method!(
 		fn clear(&mut self) {
 			self.exit_selection_mode();

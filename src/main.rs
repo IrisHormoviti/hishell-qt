@@ -30,6 +30,10 @@ use qmetaobject::prelude::*;
 use std::ffi::CStr;
 
 fn main() {
+	// First thing: make sure Qt's messages (QML load errors included) reach
+	// stderr, so a failed view is visible in the launcher's log.
+	kde_bridge::install_message_handler();
+
 	static IMPORT_NAME: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Hishell\0") };
 	static CONFIG_STR: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Config\0") };
 	static DIRECTORY_STR: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Directory\0") };
@@ -130,6 +134,10 @@ fn main() {
 			"DragPreview.qml",
 			"ExecuteDialog.qml",
 			"FileSlot.qml",
+			"FocusBorder.qml",
+			"FolderFilterBar.qml",
+			"FolderGrid.qml",
+			"FolderSelectionBar.qml",
 			"FolderView.qml",
 			"LayoutEngine.qml",
 			"LaunchConfirmDialog.qml",

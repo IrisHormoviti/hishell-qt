@@ -24,6 +24,7 @@ unsafe extern "C" {
 	fn hishell_mime_type(path: *const c_char) -> *const c_char;
 	fn hishell_clear_app_cache();
 	fn hishell_warm_icons();
+	fn hishell_install_message_handler();
 	fn hishell_thumbnailer_dirs() -> *const c_char;
 	fn hishell_thumbnail_image(
 		src: *const c_char,
@@ -73,6 +74,12 @@ pub fn set_sound_volume(factor: f64) {
 /// a synchronous icon-theme scan. See the C++ side for why.
 pub fn warm_icons() {
 	unsafe { hishell_warm_icons() }
+}
+
+/// Routes every Qt message (QML errors included) to stderr, flushed, so a QML
+/// load failure reaches the launcher's log instead of only the window.
+pub fn install_message_handler() {
+	unsafe { hishell_install_message_handler() }
 }
 
 /// Applies an icon to the focused top-level window, so the task switcher and

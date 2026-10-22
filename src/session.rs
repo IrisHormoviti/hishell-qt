@@ -20,14 +20,11 @@ use serde::{Deserialize, Serialize};
 ///
 /// * `SUSPEND` — set while a launched app owns the panels: the shell washes
 ///   itself out for the transition and holds it while the app starts.
-/// * `REVEAL` — set at the reveal moment, a beat before `HIDE`: the shell fades
-///   its wash out to black, so the panel is black before it is handed over.
-/// * `HIDE` — set once the app is on screen: the shell unmaps so the app's
-///   window (which sits below it) is revealed.
+/// * `HIDE` — set once the app is on screen: the shell fades the wash out over
+///   the app, then unmaps so the app's window is revealed.
 /// * `RETURN_FRAME` — image the shell shows for a moment on the way back.
 /// * `FOCUS` — file the shell publishes the focused item to.
 const ENV_SUSPEND: &str = "HISHELL_SESSION_SUSPEND";
-const ENV_REVEAL: &str = "HISHELL_SESSION_REVEAL";
 const ENV_HIDE: &str = "HISHELL_SESSION_HIDE";
 const ENV_RETURN_FRAME: &str = "HISHELL_SESSION_RETURN_FRAME";
 const ENV_FOCUS: &str = "HISHELL_SESSION_FOCUS";
@@ -130,12 +127,6 @@ pub fn suspended() -> bool {
 /// until it exits.
 pub fn hidden() -> bool {
 	marker_fresh(&env_path(ENV_HIDE))
-}
-
-/// Whether the app has appeared: the shell fades its launch wash out to black
-/// before the unmap, so the panel is black when the app takes over.
-pub fn revealed() -> bool {
-	marker_fresh(&env_path(ENV_REVEAL))
 }
 
 /// Image the shell shows for a moment on the way back from an app, or empty.

@@ -73,23 +73,33 @@ Item {
 		id: selectionManagerImpl
 	}
 
-	// Labels are placed beside (rather than under) the icon either when the tiny
-	// icon size makes that the natural fit, or when the folder asks for it.
-	readonly property bool labelsBesideIcons: {
-		const cfg = folderView.config;
-		if (!cfg || !cfg.show_labels)
-			return false;
-		return cfg.grid_labels_beside_icons || cfg.grid_size < 32;
+	// The grid itself — layout maths, the view, scroll feedback, the focus border
+	// and the visible-area thumbnails — lives in FolderGrid. These forward to it
+	// so the rest of the view can keep reading them by name.
+	readonly property bool labelsBesideIcons: grid.labelsBesideIcons
+	readonly property size gridItemSize: grid.gridItemSize
+	readonly property var gridMetrics: grid.gridMetrics
+	readonly property int gridStride: grid.gridStride
+	readonly property bool freeDropActive: grid.freeDropActive
+	readonly property real freeDropX: grid.freeDropX
+	readonly property real freeDropY: grid.freeDropY
+	readonly property var flickable: grid.flickable
+	readonly property var gridContent: grid.gridContent
+
+	function gridSlotX(index) {
+		return grid.gridSlotX(index);
 	}
 
-	readonly property size gridItemSize: {
-		const iconSize = folderView.config ? folderView.config.grid_size : 64;
-		if (folderView.labelsBesideIcons) {
-			// The row grows with the icon so the label always keeps a usable width.
-			const labelWidth = Kirigami.Units.gridUnit * 7;
-			return Qt.size(Math.max(Kirigami.Units.gridUnit * 10, iconSize + labelWidth + Kirigami.Units.gridUnit * 2), Math.max(Kirigami.Units.gridUnit * 2, iconSize + Kirigami.Units.smallSpacing * 2));
-		}
-		return Qt.size(iconSize + Kirigami.Units.gridUnit * 3, iconSize + Kirigami.Units.gridUnit * 3);
+	function gridSlotY(index) {
+		return grid.gridSlotY(index);
+	}
+
+	function scheduleThumbnails() {
+		grid.scheduleThumbnails();
+	}
+
+	function slotAt(index) {
+		return grid.slotAt(index);
 	}
 
 	// Width the pane needs for its fixed grid block: the block, its scrollbar inset
@@ -102,9 +112,9 @@ Item {
 		const size = folderView.gridItemSize;
 		const gap = Kirigami.Units.mediumSpacing;
 		const naturalWidth = cfg.grid_lines * size.width + (cfg.grid_lines - 1) * gap;
-		const rows = Math.max(1, Math.ceil(itemRepeater.count / cfg.grid_lines));
+		const rows = Math.max(1, Math.ceil(grid.count / cfg.grid_lines));
 		const naturalHeight = rows * size.height + (rows - 1) * gap;
-		const scrollBar = naturalHeight > flickable.height ? verticalScrollBar.width + gap : 0;
+		const scrollBar = naturalHeight > grid.flickable.height ? grid.verticalBarWidth + gap : 0;
 		return naturalWidth + scrollBar + 2 * gap;
 	}
 
@@ -164,182 +174,12 @@ Item {
 
 	function selectAll() {
 		const mgr = folderView.selectionManager;
-		if (!mgr)
+		if (!mgr || !folderView.directory)
 			return;
-		let paths = [];
-		for (let i = 0; i < itemRepeater.count; i++) {
-			let item = itemRepeater.itemAt(i);
-			if (item && item.path) {
-				paths.push(item.path);
-			}
-		}
-		mgr.select_all(paths);
+		mgr.select_all(folderView.directory.get_all_paths());
 	}
 
 
-	readonly property var gridMetrics: {
-		const cfg = folderView.config;
-		const horizontal = cfg ? cfg.scroll_horizontal : false;
-		const count = itemRepeater.count;
-		const viewWidth = flickable.width;
-		const viewHeight = flickable.height;
-		const gap = Kirigami.Units.mediumSpacing;
-		const itemWidth = folderView.gridItemSize.width;
-		const itemHeight = folderView.gridItemSize.height;
-		const barWidth = verticalScrollBar.width;
-		const barHeight = horizontalScrollBar.height;
-		const barInsetX = barWidth + gap;
-		const barInsetY = barHeight + gap;
-
-		function alignOffset(align, view, natural) {
-			if (align === 1)
-				return 0;
-			if (align === 3)
-				return Math.max(0, view - natural);
-			return Math.max(0, (view - natural) / 2);
-		}
-
-		function computeFreeLayout(width, height) {
-			const freeCfg = cfg;
-			const json = folderView.directory.free_layout(
-				freeCfg.free_placement_positions,
-				freeCfg.grid_lines,
-				horizontal,
-				width,
-				height,
-				itemWidth,
-				itemHeight,
-				gap
-			);
-			try {
-				return JSON.parse(json);
-			} catch (e) {
-				return {
-					columns: 1,
-					rows: 1,
-					slots: [],
-					naturalWidth: itemWidth,
-					naturalHeight: itemHeight
-				};
-			}
-		}
-
-		function measure(insetX, insetY) {
-			const width = viewWidth - insetX;
-			const height = viewHeight - insetY;
-			if (cfg && cfg.sort === 3 && cfg.view_mode === 0) {
-				const free = computeFreeLayout(width, height);
-				return {
-					width: width,
-					height: height,
-					stride: horizontal ? free.rows : free.columns,
-					columns: free.columns,
-					rows: free.rows,
-					naturalWidth: free.naturalWidth,
-					naturalHeight: free.naturalHeight,
-					slots: free.slots,
-					free: true
-				};
-			}
-			const lines = cfg ? cfg.grid_lines : 0;
-			const viewMain = horizontal ? height : width;
-			const itemMain = horizontal ? itemHeight : itemWidth;
-			const stride = lines > 0 ? lines : Math.max(1, Math.floor((viewMain + gap) / (itemMain + gap)));
-			const lineCount = Math.max(1, Math.ceil(count / stride));
-			const columns = horizontal ? lineCount : stride;
-			const rows = horizontal ? stride : lineCount;
-			return {
-				width: width,
-				height: height,
-				stride: stride,
-				columns: columns,
-				rows: rows,
-				naturalWidth: columns * itemWidth + (columns - 1) * gap,
-				naturalHeight: rows * itemHeight + (rows - 1) * gap
-			};
-		}
-
-		if (count === 0) {
-			return {
-				horizontal: horizontal,
-				stride: 1,
-				columns: 0,
-				rows: 0,
-				itemWidth: itemWidth,
-				itemHeight: itemHeight,
-				gap: gap,
-				insetX: 0,
-				insetY: 0,
-				offsetX: 0,
-				offsetY: 0,
-				contentWidth: viewWidth,
-				contentHeight: viewHeight
-			};
-		}
-
-		let insetX = 0;
-		let insetY = 0;
-		let metrics = measure(insetX, insetY);
-		for (let i = 0; i < 3; i++) {
-			const nextInsetX = metrics.naturalHeight > metrics.height ? barInsetX : 0;
-			const nextInsetY = metrics.naturalWidth > metrics.width ? barInsetY : 0;
-			if (nextInsetX === insetX && nextInsetY === insetY)
-				break;
-			insetX = nextInsetX;
-			insetY = nextInsetY;
-			metrics = measure(insetX, insetY);
-		}
-
-		return {
-			horizontal: horizontal,
-			stride: metrics.stride,
-			columns: metrics.columns,
-			rows: metrics.rows,
-			itemWidth: itemWidth,
-			itemHeight: itemHeight,
-			gap: gap,
-			insetX: insetX,
-			insetY: insetY,
-			offsetX: alignOffset(cfg ? cfg.grid_horizontal_align : 0, metrics.width, metrics.naturalWidth),
-			offsetY: alignOffset(cfg ? cfg.grid_vertical_align : 0, metrics.height, metrics.naturalHeight),
-			contentWidth: Math.max(viewWidth, metrics.naturalWidth + insetX),
-			contentHeight: Math.max(viewHeight, metrics.naturalHeight + insetY),
-			free: metrics.free === true,
-			slots: metrics.slots ? metrics.slots : []
-		};
-	}
-
-	readonly property int gridStride: folderView.gridMetrics.stride
-
-	readonly property bool freeDropActive: folderView.freeDropCol >= 0 && folderView.freeDropRow >= 0 && folderView.gridMetrics.free
-
-	readonly property real freeDropX: {
-		const metrics = folderView.gridMetrics;
-		return metrics.offsetX + folderView.freeDropCol * (metrics.itemWidth + metrics.gap);
-	}
-
-	readonly property real freeDropY: {
-		const metrics = folderView.gridMetrics;
-		return metrics.offsetY + folderView.freeDropRow * (metrics.itemHeight + metrics.gap);
-	}
-
-	function gridSlotX(index) {
-		const metrics = folderView.gridMetrics;
-		if (metrics.free && metrics.slots && metrics.slots[index]) {
-			return metrics.offsetX + metrics.slots[index].c * (metrics.itemWidth + metrics.gap);
-		}
-		const column = metrics.horizontal ? Math.floor(index / metrics.rows) : index % metrics.columns;
-		return metrics.offsetX + column * (metrics.itemWidth + metrics.gap);
-	}
-
-	function gridSlotY(index) {
-		const metrics = folderView.gridMetrics;
-		if (metrics.free && metrics.slots && metrics.slots[index]) {
-			return metrics.offsetY + metrics.slots[index].r * (metrics.itemHeight + metrics.gap);
-		}
-		const row = metrics.horizontal ? index % metrics.rows : Math.floor(index / metrics.columns);
-		return metrics.offsetY + row * (metrics.itemHeight + metrics.gap);
-	}
 
 	function updateFocusItems() {
 		const fm = folderView.focusManager;
@@ -373,17 +213,18 @@ Item {
 
 		const cfg = folderView.config;
 		const metrics = folderView.gridMetrics;
-		// The focused item, or the empty cell the cursor is resting on.
-		const item = itemRepeater.itemAt(fm.focused_index);
+		// The focused item, or the empty cell the cursor is resting on. The
+		// geometry comes from the layout, not the delegate: with a lazy grid the
+		// focused item may not be instantiated yet.
 		let focusX, focusY, focusWidth, focusHeight;
-		if (item) {
-			focusX = item.x;
-			focusY = item.y;
-			focusWidth = item.width;
-			focusHeight = item.height;
-		} else if (fm.focus_on_empty) {
+		if (fm.focus_on_empty) {
 			focusX = metrics.offsetX + fm.focused_column * (metrics.itemWidth + metrics.gap);
 			focusY = metrics.offsetY + fm.focused_row * (metrics.itemHeight + metrics.gap);
+			focusWidth = metrics.itemWidth;
+			focusHeight = metrics.itemHeight;
+		} else if (fm.focused_index >= 0) {
+			focusX = grid.gridSlotX(fm.focused_index);
+			focusY = grid.gridSlotY(fm.focused_index);
 			focusWidth = metrics.itemWidth;
 			focusHeight = metrics.itemHeight;
 		} else {
@@ -392,25 +233,41 @@ Item {
 
 		const viewWidth = flickable.width - metrics.insetX;
 		const viewHeight = flickable.height - metrics.insetY;
+		// Before the view has been laid out there is nothing to scroll to, and a
+		// centring computation against a zero viewport lands anywhere. Wait for a
+		// real viewport; a later focus change (or the gridMetrics handler) will
+		// bring the item into view.
+		if (viewWidth <= 0 || viewHeight <= 0)
+			return;
 		let targetY = flickable.contentY;
 		let targetX = flickable.contentX;
 
+		// Centring is what the user asked for: the cursor stays in the middle of
+		// the view instead of hugging an edge.
+		const top = focusY;
+		const bottom = focusY + focusHeight;
+		const left = focusX;
+		const right = focusX + focusWidth;
+		const offTop = top < flickable.contentY;
+		const offBottom = bottom > flickable.contentY + viewHeight;
+		const offLeft = left < flickable.contentX;
+		const offRight = right > flickable.contentX + viewWidth;
+
 		if (cfg && cfg.center_focus) {
+			// Keep the focused item in the middle of the view, always: that is
+			// what this setting means here, and re-centring even a small step is
+			// the behaviour the device expects.
 			targetY = focusY + focusHeight / 2 - viewHeight / 2;
 			targetX = focusX + focusWidth / 2 - viewWidth / 2;
 		} else {
-			const top = focusY;
-			const bottom = focusY + focusHeight;
-			if (top < flickable.contentY)
+			if (offTop)
 				targetY = top;
-			else if (bottom > flickable.contentY + viewHeight)
+			else if (offBottom)
 				targetY = bottom - viewHeight;
 
-			const left = focusX;
-			const right = focusX + focusWidth;
-			if (left < flickable.contentX)
+			if (offLeft)
 				targetX = left;
-			else if (right > flickable.contentX + viewWidth)
+			else if (offRight)
 				targetX = right - viewWidth;
 		}
 
@@ -425,8 +282,8 @@ Item {
 			// it alone while it runs.
 			folderView.focusScrollAnimating = true;
 			focusScrollY.to = targetY;
-			focusScrollY.restart();
 			focusScrollX.to = targetX;
+			focusScrollY.restart();
 			focusScrollX.restart();
 		} else {
 			focusScrollY.stop();
@@ -441,7 +298,7 @@ Item {
 		if (!fm || !fm.focus_active || String(fm.focused_path) === "")
 			return;
 		if (folderView.rootWindow && folderView.rootWindow.actionManager)
-			folderView.rootWindow.actionManager.activatePath(String(fm.focused_path), itemRepeater.itemAt(fm.focused_index));
+			folderView.rootWindow.actionManager.activatePath(String(fm.focused_path), grid.slotAt(fm.focused_index));
 	}
 
 	// Called on every scroll position change. Fires periodically during a
@@ -467,16 +324,17 @@ Item {
 			return;
 
 		const metrics = folderView.gridMetrics;
+		// Geometry from the layout, not the delegate: with a lazy grid the
+		// focused item may not be instantiated.
 		let focusX, focusY, focusWidth, focusHeight;
-		const focused = itemRepeater.itemAt(fm.focused_index);
-		if (focused) {
-			focusX = focused.x;
-			focusY = focused.y;
-			focusWidth = focused.width;
-			focusHeight = focused.height;
-		} else if (fm.focus_on_empty) {
+		if (fm.focus_on_empty) {
 			focusX = metrics.offsetX + fm.focused_column * (metrics.itemWidth + metrics.gap);
 			focusY = metrics.offsetY + fm.focused_row * (metrics.itemHeight + metrics.gap);
+			focusWidth = metrics.itemWidth;
+			focusHeight = metrics.itemHeight;
+		} else if (fm.focused_index >= 0) {
+			focusX = grid.gridSlotX(fm.focused_index);
+			focusY = grid.gridSlotY(fm.focused_index);
 			focusWidth = metrics.itemWidth;
 			focusHeight = metrics.itemHeight;
 		} else {
@@ -516,9 +374,9 @@ Item {
 		let best = -1;
 		let bestLead = 0;
 		let bestAside = Infinity;
-		const count = itemRepeater.count;
+		const count = grid.count;
 		for (let i = 0; i < count; i++) {
-			const item = itemRepeater.itemAt(i);
+			const item = grid.slotAt(i);
 			if (!item)
 				continue;
 			if (item.x + item.width <= left || item.x >= right)
@@ -539,7 +397,7 @@ Item {
 
 		if (best < 0 || best === fm.focused_index)
 			return;
-		const item = itemRepeater.itemAt(best);
+		const item = grid.slotAt(best);
 		if (!item || !item.path)
 			return;
 
@@ -596,7 +454,7 @@ Item {
 			folderView.openDirectoryMenu();
 			return;
 		}
-		const item = itemRepeater.itemAt(fm.focused_index);
+		const item = grid.slotAt(fm.focused_index);
 		if (item)
 			folderView.openMenu = item.openContextMenu();
 	}
@@ -690,7 +548,7 @@ Item {
 	}
 
 	Connections {
-		target: itemRepeater
+		target: grid
 		function onCountChanged() {
 			folderView.updateFocusItems();
 			folderView.scheduleThumbnails();
@@ -719,6 +577,10 @@ Item {
 			fm.set_pane_positions(folderView.paneId, JSON.stringify(metrics.slots));
 		fm.set_pane_grid(folderView.paneId, metrics.columns, metrics.rows);
 		fm.set_pane_empty_slots(folderView.paneId, folderView.focusEmptySlots);
+		// The viewport just became (or changed) usable; bring the cursor into
+		// view in case the first attempt ran before the view was laid out.
+		if (folderView.focusOwned && fm.focus_active && fm.current_pane === folderView.paneId)
+			Qt.callLater(() => folderView.ensureFocusVisible());
 	}
 
 	// Toggling FocusEmptySlots takes effect immediately.
@@ -821,59 +683,6 @@ Item {
 		}
 	}
 
-	// Thumbnails are only requested for the items in (or near) the visible
-	// area, like Dolphin does; the backend caches them, so scrolling back is
-	// instant and a big folder never gets previewed all at once.
-	property var thumbRequested: ({})
-	property string thumbRequestKey: ""
-
-	function scheduleThumbnails() {
-		thumbnailTimer.restart();
-	}
-
-	function requestVisibleThumbnails() {
-		const dir = folderView.directory;
-		if (!dir || !flickable || flickable.height <= 0 || flickable.width <= 0)
-			return;
-
-		const cfg = folderView.config;
-		const gridSize = cfg ? cfg.grid_size : 64;
-		// Without labels the icons fill their slots, so ask for a thumbnail tier
-		// big enough for the whole slot instead of just the icon size.
-		const displaySize = cfg && !cfg.show_labels ? folderView.gridItemSize.width : gridSize;
-		const bucket = displaySize <= 128 ? 128 : (displaySize <= 256 ? 256 : (displaySize <= 512 ? 512 : 1024));
-		const key = String(dir.path) + "|" + bucket;
-		if (key !== folderView.thumbRequestKey) {
-			folderView.thumbRequestKey = key;
-			folderView.thumbRequested = ({});
-		}
-
-		const requested = folderView.thumbRequested;
-		const metrics = folderView.gridMetrics;
-		const margin = Math.max(metrics.itemWidth, metrics.itemHeight);
-		const top = flickable.contentY - margin;
-		const bottom = flickable.contentY + flickable.height + margin;
-		const left = flickable.contentX - margin;
-		const right = flickable.contentX + flickable.width + margin;
-
-		const count = itemRepeater.count;
-		for (let i = 0; i < count; i++) {
-			const item = itemRepeater.itemAt(i);
-			if (!item || !item.path || requested[item.path])
-				continue;
-			if (item.y + item.height < top || item.y > bottom || item.x + item.width < left || item.x > right)
-				continue;
-			requested[item.path] = true;
-			dir.request_thumbnail(item.path, bucket);
-		}
-	}
-
-	Timer {
-		id: thumbnailTimer
-		interval: 120
-		repeat: false
-		onTriggered: folderView.requestVisibleThumbnails()
-	}
 
 	Connections {
 		target: folderView.directory
@@ -881,8 +690,6 @@ Item {
 		// A rebuild re-resolves every icon to its plain MIME icon, so thumbnail
 		// requests must be re-issued for the visible items afterwards.
 		function onModelReset() {
-			folderView.thumbRequested = ({});
-			folderView.thumbRequestKey = "";
 			folderView.scheduleThumbnails();
 		}
 
@@ -1044,9 +851,9 @@ Item {
 	}
 
 	function dirUnderPoint(x, y) {
-		const count = itemRepeater.count;
+		const count = grid.count;
 		for (let i = 0; i < count; i++) {
-			const slot = itemRepeater.itemAt(i);
+			const slot = grid.slotAt(i);
 			if (!slot || !slot.is_dir)
 				continue;
 			if (x >= slot.x && x <= slot.x + slot.width && y >= slot.y && y <= slot.y + slot.height)
@@ -1117,8 +924,8 @@ Item {
 		const entries = [];
 		if (!metrics.free || !metrics.slots)
 			return entries;
-		for (let i = 0; i < itemRepeater.count; i++) {
-			const item = itemRepeater.itemAt(i);
+		for (let i = 0; i < grid.count; i++) {
+			const item = grid.slotAt(i);
 			if (!item || selected[item.path] === undefined)
 			continue;
 			const slot = metrics.slots[i];
@@ -1142,6 +949,31 @@ Item {
 				anchor = e;
 		}
 		return anchor;
+	}
+
+	// The on-disk name of an item path; free positions are stored by name.
+	function itemName(path) {
+		const sep = path.lastIndexOf("/");
+		return sep >= 0 ? path.substring(sep + 1) : path;
+	}
+
+	// The free cell nearest (Manhattan) to (col,row), or null when the grid is
+	// full. `taken` is keyed "col,row".
+	function nearestFreeCell(taken, columns, rows, col, row) {
+		let best = null;
+		let bestDist = Infinity;
+		for (let r = 0; r < rows; r++) {
+			for (let c = 0; c < columns; c++) {
+				if (taken[c + "," + r])
+					continue;
+				const dist = Math.abs(r - row) + Math.abs(c - col);
+				if (dist < bestDist) {
+					bestDist = dist;
+					best = { c: c, r: r };
+				}
+			}
+		}
+		return best;
 	}
 
 	// Begin a custom, in-window reposition drag for the given selection.
@@ -1230,7 +1062,11 @@ Item {
 		folderView.applyRepositionToSlot(slot.col, slot.row);
 	}
 
-	// Move the selection to the given slot, preserving its arrangement.
+	// Move the selection so its anchor lands on (col,row). Anything already
+	// sitting on a destination cell is displaced too: a single item swaps with
+	// the one it lands on, a group pushes the occupant to the nearest free cell.
+	// Without this the layout resolved the collision by item order, so a drop
+	// could end up anywhere.
 	function applyRepositionToSlot(col, row) {
 		const handler = folderView.rootWindow ? folderView.rootWindow.dragDropHandler : null;
 		if (!handler || !handler.drag_source_paths || handler.drag_source_paths.length === 0)
@@ -1257,11 +1093,58 @@ Item {
 		dCol -= minCol;
 		dRow -= minRow;
 
+		// The cells the group is heading for, and the names in it.
+		const movingTo = ({});
+		const movingNames = ({});
+		for (let i = 0; i < entries.length; i++) {
+			const e = entries[i];
+			movingTo[(e.c + dCol) + "," + (e.r + dRow)] = true;
+			movingNames[e.name] = true;
+		}
+
+		// Occupancy starts as the destinations; everything that stays put adds to
+		// it. Anything standing on a destination has to be displaced.
+		const taken = ({});
+		for (const cell in movingTo)
+			taken[cell] = true;
+
+		const displaced = [];
+		for (let i = 0; i < grid.count; i++) {
+			const item = grid.slotAt(i);
+			const slot = metrics.slots[i];
+			if (!item || !slot)
+				continue;
+			const name = folderView.itemName(item.path);
+			if (movingNames[name])
+				continue;
+			const cell = slot.c + "," + slot.r;
+			if (movingTo[cell])
+				displaced.push({ name: name, c: slot.c, r: slot.r });
+			else
+				taken[cell] = true;
+		}
+
 		folderView.repositionAnimating = true;
 		for (let i = 0; i < entries.length; i++) {
 			const e = entries[i];
 			folderView.directory.set_free_position(e.name, e.c + dCol, e.r + dRow);
 		}
+
+		// A one-for-one drop swaps with the item it lands on. A group pushes the
+		// occupant aside; the cells the group is leaving are free, so the search
+		// naturally prefers them.
+		if (entries.length === 1 && displaced.length === 1) {
+			folderView.directory.set_free_position(displaced[0].name, entries[0].c, entries[0].r);
+		} else {
+			for (let i = 0; i < displaced.length; i++) {
+				const cell = folderView.nearestFreeCell(taken, metrics.columns, metrics.rows, displaced[i].c, displaced[i].r);
+				if (!cell)
+					continue;
+				taken[cell.c + "," + cell.r] = true;
+				folderView.directory.set_free_position(displaced[i].name, cell.c, cell.r);
+			}
+		}
+
 		repositionAnimTimer.restart();
 		return true;
 	}
@@ -1581,15 +1464,14 @@ Item {
 		}
 	}
 
-	Flickable {
-		id: flickable
+	FolderGrid {
+		id: grid
 		z: 1
-		clip: true
 		anchors {
 			top: parent.top
 			left: parent.left
 			right: parent.right
-			bottom: selectionBar.top
+			bottom: parent.bottom
 			leftMargin: Kirigami.Units.mediumSpacing
 			rightMargin: Kirigami.Units.mediumSpacing
 			bottomMargin: Kirigami.Units.mediumSpacing
@@ -1597,471 +1479,91 @@ Item {
 			topMargin: folderView.filterActive ? filterBar.height + Kirigami.Units.mediumSpacing * 2 : Kirigami.Units.mediumSpacing
 		}
 
-		onHeightChanged: folderView.scheduleThumbnails()
-		onWidthChanged: folderView.scheduleThumbnails()
-		contentWidth: folderView.gridMetrics.contentWidth
-		contentHeight: folderView.gridMetrics.contentHeight
+		directory: folderView.directory
+		config: folderView.config
+		focusManager: folderView.focusManager
+		selectionManager: folderView.selectionManager
+		window: folderView.rootWindow
+		paneId: folderView.paneId
+		focusOwned: folderView.focusOwned
+		filterActive: folderView.filterActive
+		focusBorderSource: folderView.focusBorderSource
+		horizontalScroll: folderView.horizontalScroll
+		focusEmptySlots: folderView.focusEmptySlots
+		freeDropCol: folderView.freeDropCol
+		freeDropRow: folderView.freeDropRow
+		repositionAnimating: folderView.repositionAnimating
 
-		// Scroll feedback, 3DS style. The view can scroll on either axis — the
-		// layout picks which — so this follows whichever position actually
-		// moves instead of trusting the config, which described the grid's
-		// flow, not the flickable's. One tick fires per item crossed along the
-		// moving axis, so a slow drag ticks on the same boundaries as a fast
-		// flick. Both axes use the up/down vocabulary: a sideways grid must not
-		// sound like a different kind of movement.
-		//
-		// Reaching either end plays the "edge" sound once, then stays quiet
-		// until the position moves away from the end again.
-		readonly property real scrollStepX: folderView.gridItemSize.width + Kirigami.Units.mediumSpacing
-		readonly property real scrollStepY: folderView.gridItemSize.height + Kirigami.Units.mediumSpacing
-		property real scrollRemainderX: 0
-		property real scrollRemainderY: 0
-		property real lastScrollX: 0
-		property real lastScrollY: 0
-		property bool atScrollStart: true
-		property bool atScrollEnd: true
-
-		function updateScrollEdges() {
-			// Whichever axis can actually scroll is the one whose ends matter.
-			const maxX = Math.max(0, flickable.contentWidth - flickable.width);
-			const maxY = Math.max(0, flickable.contentHeight - flickable.height);
-			const horizontal = maxX > 1 && maxY <= 1;
-			const vertical = maxY > 1 && maxX <= 1;
-			const max = horizontal ? maxX : (vertical ? maxY : Math.max(maxX, maxY));
-			if (max <= 1) {
-				flickable.atScrollStart = true;
-				flickable.atScrollEnd = true;
-				return;
-			}
-			const pos = horizontal ? flickable.contentX : flickable.contentY;
-			const wasAtStart = flickable.atScrollStart;
-			const wasAtEnd = flickable.atScrollEnd;
-			flickable.atScrollStart = pos <= 1;
-			flickable.atScrollEnd = pos >= max - 1;
-			// Announce only when a real end is *reached*: the start is where the
-			// view rests, so arriving back there is not an "edge" event.
-			if (flickable.atScrollEnd && !wasAtEnd)
-				folderView.playSound("scroll-edge");
-			else if (flickable.atScrollStart && !wasAtStart)
-				folderView.playSound("scroll-edge");
+		onItemSelectionToggled: (p, idx) => {
+			folderView.forceActiveFocus();
+			folderView.playSound("item-selected");
+			if (folderView.selectionManager)
+				folderView.selectionManager.toggle_selection(p, idx);
 		}
 
-		function tickAxis(axis) {
-			const step = axis === "x" ? flickable.scrollStepX : flickable.scrollStepY;
-			if (step <= 0)
-				return;
-			const pos = axis === "x" ? flickable.contentX : flickable.contentY;
-			const last = axis === "x" ? flickable.lastScrollX : flickable.lastScrollY;
-			let remainder = (axis === "x" ? flickable.scrollRemainderX : flickable.scrollRemainderY) + (pos - last);
-			if (axis === "x") {
-				flickable.lastScrollX = pos;
-			} else {
-				flickable.lastScrollY = pos;
-			}
-			if (Math.abs(remainder) >= step) {
-				// One sound per axis, not per direction: scrolling sideways is
-				// one kind of movement (however it is oriented), and scrolling
-				// up or down is another. Two sounds total.
-				folderView.playSound(axis === "x" ? "scroll-left" : "scroll-up");
-				remainder = 0;
-			}
-			if (axis === "x")
-				flickable.scrollRemainderX = remainder;
-			else
-				flickable.scrollRemainderY = remainder;
-			flickable.updateScrollEdges();
-		}
-
-		onMovementStarted: {
-			flickable.scrollRemainderX = 0;
-			flickable.scrollRemainderY = 0;
-			flickable.lastScrollX = flickable.contentX;
-			flickable.lastScrollY = flickable.contentY;
-			flickable.updateScrollEdges();
-		}
-		onMovementEnded: flickable.updateScrollEdges()
-
-		onContentYChanged: {
-			folderView.scheduleThumbnails();
-			flickable.tickAxis("y");
-			folderView.scheduleFocusFollow();
-		}
-		onContentXChanged: {
-			folderView.scheduleThumbnails();
-			flickable.tickAxis("x");
-			folderView.scheduleFocusFollow();
-		}
-
-		// The panel is touch-only, so use the touch presentation of the bar (a
-		// thin, auto-hiding handle with no groove) from the start. The style
-		// otherwise picks it only after the first touch, showing the full desktop
-		// bar until then.
-		ScrollBar.vertical: ScrollBar {
-			id: verticalScrollBar
-			interactive: false
-			policy: size < 1.0 ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
-			z: 2
-		}
-
-		ScrollBar.horizontal: ScrollBar {
-			id: horizontalScrollBar
-			interactive: false
-			policy: size < 1.0 ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
-			z: 2
-		}
-
-		MouseArea {
-			id: flickableBgMouseArea
-			width: flickable.contentWidth
-			height: flickable.contentHeight
-			z: 0
-			acceptedButtons: Qt.LeftButton
-			onClicked: mouse => {
-				folderView.forceActiveFocus();
-				folderView.selectionManager.clear();
-				if (folderView.focusManager)
-					folderView.focusManager.clear_pane(folderView.paneId);
+		onItemShiftSelected: idx => {
+			folderView.forceActiveFocus();
+			folderView.playSound("item-selected");
+			const mgr = folderView.selectionManager;
+			if (mgr) {
+				if (!mgr.selection_active)
+					mgr.enter_selection_mode();
+				const from = mgr.last_selected_index >= 0 ? mgr.last_selected_index : idx;
+				mgr.range_select(from, idx);
 			}
 		}
 
-		Item {
-			id: gridContent
-			z: 1
-			width: flickable.contentWidth
-			height: flickable.contentHeight
+		onItemPressHeld: (p, idx) => {
+			folderView.forceActiveFocus();
+			folderView.playSound("item-selected");
+			if (folderView.selectionManager)
+				folderView.selectionManager.toggle_selection(p, idx);
+		}
 
-			Rectangle {
-				id: freeDropHighlight
-				z: 0
-				visible: folderView.freeDropActive
-				width: folderView.gridMetrics.itemWidth
-				height: folderView.gridMetrics.itemHeight
-				x: folderView.freeDropX
-				y: folderView.freeDropY
-				radius: Kirigami.Units.cornerRadius
-				color: Kirigami.Theme.focusColor
-				opacity: 0.35
-				border.color: Kirigami.Theme.highlightColor
-				border.width: 2
+		onItemContextMenuRequested: (p, idx) => {
+			folderView.forceActiveFocus();
+			const mgr = folderView.selectionManager;
+			if (mgr && !mgr.is_selected(p)) {
+				mgr.clear();
+				mgr.toggle_selection(p, idx);
 			}
+		}
 
-			// An empty free-placement cell has no item to draw the focus border,
-			// so it is drawn here from the focused cell.
-			Item {
-				id: emptyFocusIndicator
-				z: 2
-				readonly property var fm: folderView.focusManager
-				readonly property var metrics: folderView.gridMetrics
-				readonly property bool shown: folderView.focusOwned
-					&& emptyFocusIndicator.fm
-					&& emptyFocusIndicator.fm.focus_active
-					&& emptyFocusIndicator.fm.focus_on_empty
-					&& emptyFocusIndicator.fm.current_pane === folderView.paneId
-				visible: shown
-				x: emptyFocusIndicator.fm
-					? emptyFocusIndicator.metrics.offsetX + emptyFocusIndicator.fm.focused_column * (emptyFocusIndicator.metrics.itemWidth + emptyFocusIndicator.metrics.gap)
-					: 0
-				y: emptyFocusIndicator.fm
-					? emptyFocusIndicator.metrics.offsetY + emptyFocusIndicator.fm.focused_row * (emptyFocusIndicator.metrics.itemHeight + emptyFocusIndicator.metrics.gap)
-					: 0
-				width: emptyFocusIndicator.metrics.itemWidth
-				height: emptyFocusIndicator.metrics.itemHeight
-
-				readonly property real cornerSize: Math.max(10, Math.round(Math.min(width, height) * 0.3))
-
-				Image {
-					anchors.left: parent.left
-					anchors.top: parent.top
-					width: emptyFocusIndicator.cornerSize
-					height: emptyFocusIndicator.cornerSize
-					source: folderView.focusBorderSource + "-0.svg"
-					smooth: true
-				}
-
-				Image {
-					anchors.right: parent.right
-					anchors.top: parent.top
-					width: emptyFocusIndicator.cornerSize
-					height: emptyFocusIndicator.cornerSize
-					source: folderView.focusBorderSource + "-1.svg"
-					smooth: true
-				}
-
-				Image {
-					anchors.right: parent.right
-					anchors.bottom: parent.bottom
-					width: emptyFocusIndicator.cornerSize
-					height: emptyFocusIndicator.cornerSize
-					source: folderView.focusBorderSource + "-2.svg"
-					smooth: true
-				}
-
-				Image {
-					anchors.left: parent.left
-					anchors.bottom: parent.bottom
-					width: emptyFocusIndicator.cornerSize
-					height: emptyFocusIndicator.cornerSize
-					source: folderView.focusBorderSource + "-3.svg"
-					smooth: true
-				}
-			}
-
-			Repeater {
-				id: itemRepeater
-				model: folderView.directory
-
-				delegate: FileSlot {
-					property SelectionManager selectionManager: folderView.selectionManager
-					actionManager: folderView.rootWindow ? folderView.rootWindow.actionManager : null
-					fileManager: folderView.rootWindow ? folderView.rootWindow.fileManager : null
-
-					dragDropHandler: folderView.rootWindow ? folderView.rootWindow.dragDropHandler : null
-					width: folderView.gridItemSize.width
-					height: folderView.gridItemSize.height
-					x: folderView.gridSlotX(index)
-					y: folderView.gridSlotY(index)
-
-					gridSize: folderView.config ? folderView.config.grid_size : 64
-					showLabels: folderView.config ? folderView.config.show_labels : true
-					labelBesideIcon: folderView.labelsBesideIcons
-					labelShowsFilename: folderView.config ? folderView.config.label_text === 1 : false
-					selectionActive: selectionManager ? selectionManager.selection_active : false
-					focusActive: folderView.focusOwned && folderView.focusManager && folderView.focusManager.current_pane === folderView.paneId
-					focusBorderSource: folderView.focusBorderSource
-					isFocused: folderView.focusManager ? (folderView.focusManager.focus_active && String(folderView.focusManager.focused_path) === String(path)) : false
-					isSelected: selectionManager ? (function () {
-							try {
-								return !!JSON.parse(selectionManager.selected_paths)[path];
-							} catch (e) {
-								return false;
-							}
-						})() : false
-
-					onSelectionToggled: (p, idx) => {
-						folderView.forceActiveFocus();
-						folderView.playSound("item-selected");
-						if (selectionManager) {
-							selectionManager.toggle_selection(p, idx);
-						}
-					}
-
-					onShiftSelected: idx => {
-						folderView.forceActiveFocus();
-						folderView.playSound("item-selected");
-						if (selectionManager) {
-							if (!selectionManager.selection_active)
-								selectionManager.enter_selection_mode();
-							const from = selectionManager.last_selected_index >= 0 ? selectionManager.last_selected_index : idx;
-							selectionManager.range_select(from, idx);
-						}
-					}
-
-					onPressHeld: (p, idx) => {
-						folderView.forceActiveFocus();
-						folderView.playSound("item-selected");
-						if (selectionManager) {
-							selectionManager.toggle_selection(p, idx);
-						}
-					}
-
-					onContextMenuRequested: (slotPath, slotIndex) => {
-						folderView.forceActiveFocus();
-						if (selectionManager) {
-							let isAlreadySelected = false;
-							try {
-								isAlreadySelected = !!JSON.parse(selectionManager.selected_paths)[slotPath];
-							} catch (e) {}
-							if (!isAlreadySelected) {
-								selectionManager.clear();
-								selectionManager.toggle_selection(slotPath, slotIndex);
-							}
-						}
-					}
-				}
-			}
+		onBackgroundClicked: {
+			folderView.forceActiveFocus();
+			folderView.selectionManager.clear();
+			if (folderView.focusManager)
+				folderView.focusManager.clear_pane(folderView.paneId);
 		}
 	}
 
 	// ── Filter Bar ───
 
-	Rectangle {
+	FolderFilterBar {
 		id: filterBar
-		z: 3
-
-		anchors.top: parent.top
-		anchors.left: parent.left
-		anchors.right: parent.right
-		anchors.margins: Kirigami.Units.mediumSpacing
-		height: Kirigami.Units.gridUnit * 2
-		radius: Kirigami.Units.cornerRadius
-
-		visible: opacity > 0
-		opacity: folderView.filterActive ? 1 : 0
-		Behavior on opacity {
-			NumberAnimation {
-				duration: 120
-				easing.type: Easing.OutCubic
-			}
-		}
-
-		Kirigami.Theme.colorSet: Kirigami.Theme.Header
-		color: Kirigami.Theme.backgroundColor
-		border.width: 1
-		border.color: Kirigami.Theme.highlightColor
-
-		MouseArea {
-			anchors.fill: parent
-			acceptedButtons: Qt.AllButtons
-			onPressed: mouse => {
-				mouse.accepted = true;
-				folderView.forceActiveFocus();
-			}
-		}
-
-		RowLayout {
-			anchors.fill: parent
-			anchors.leftMargin: Kirigami.Units.largeSpacing
-			anchors.rightMargin: Kirigami.Units.smallSpacing
-			spacing: Kirigami.Units.smallSpacing
-
-			Kirigami.Icon {
-				source: "search"
-				Layout.preferredWidth: Kirigami.Units.iconSizes.small
-				Layout.preferredHeight: Kirigami.Units.iconSizes.small
-			}
-
-			Label {
-				text: folderView.directory ? String(folderView.directory.filter) : ""
-				font.weight: Font.Medium
-				elide: Text.ElideRight
-				Layout.fillWidth: true
-			}
-
-			Label {
-				text: itemRepeater.count === 1 ? qsTr("1 match") : qsTr("%1 matches").arg(itemRepeater.count)
-				opacity: 0.7
-				elide: Text.ElideRight
-			}
-
-			ToolButton {
-				icon.name: "edit-clear"
-				focusPolicy: Qt.NoFocus
-				flat: true
-				ToolTip.text: qsTr("Clear filter")
-				ToolTip.visible: hovered
-				onPressed: folderView.playSound("button-pressed")
-				onReleased: folderView.playSound("button-released")
-				onClicked: {
-					folderView.directory.clear_filter();
-					folderView.forceActiveFocus();
-				}
-			}
+		directory: folderView.directory
+		matchCount: grid.count
+		filterActive: folderView.filterActive
+		window: folderView.rootWindow
+		onFocusRequested: folderView.forceActiveFocus()
+		onClearRequested: {
+			folderView.directory.clear_filter();
+			folderView.forceActiveFocus();
 		}
 	}
 
 	// ── Selection Toolbar ───
 
-	Rectangle {id: selectionBar
-	z: 2
-
-	anchors.left: parent.left
-	anchors.right: parent.right
-	anchors.bottom: parent.bottom
-	anchors.margins: Kirigami.Units.mediumSpacing
-
-	readonly property bool selectionActive: folderView.selectionManager ? folderView.selectionManager.selection_active : false
-
-	// the labels are dropped so the buttons stay reachable in a narrow pane.
-	readonly property bool compact: selectionBar.width < Kirigami.Units.largeSpacing * 50
-
-	height: selectionBar.selectionActive ? 48 : 0
-	visible: selectionBar.selectionActive
-	radius: 6
-
-	Kirigami.Theme.colorSet: Kirigami.Theme.Header
-	color: Kirigami.Theme.backgroundColor
-
-	MouseArea {
-		anchors.fill: parent
-		acceptedButtons: Qt.AllButtons
-		onClicked: mouse => {
-			mouse.accepted = true;
-		}
-		onPressed: mouse => {
-			mouse.accepted = true;
-		}
+	// The bar overlays the bottom of the grid rather than displacing it: the grid
+	// is not anchored to it, so entering selection mode cannot change how many
+	// rows fit (which re-flowed the whole folder and made the grid jump).
+	FolderSelectionBar {
+		id: selectionBar
+		selectionManager: folderView.selectionManager
+		itemCount: grid.count
+		window: folderView.rootWindow
+		onSelectAllRequested: folderView.selectAll()
 	}
-
-	TextMetrics {
-		id: countMetrics
-		font: countLabel.font
-		text: countLabel.text
-	}
-
-	Kirigami.Separator {
-		anchors.top: parent.top
-		anchors.left: parent.left
-		anchors.right: parent.right
-	}
-
-	Behavior on height {
-		NumberAnimation {
-			duration: 180
-			easing.type: Easing.OutCubic
-		}
-	}
-
-	RowLayout {
-		anchors.fill: parent
-		anchors.leftMargin: Kirigami.Units.largeSpacing
-		anchors.rightMargin: Kirigami.Units.smallSpacing
-		spacing: Kirigami.Units.smallSpacing
-
-		CheckBox {
-			id: selectAllCheckbox
-			checked: folderView.selectionManager.selected_count > 0 && folderView.selectionManager.selected_count === itemRepeater.count
-			tristate: folderView.selectionManager.selected_count > 0 && folderView.selectionManager.selected_count < itemRepeater.count
-			checkState: tristate ? Qt.PartiallyChecked : (checked ? Qt.Checked : Qt.Unchecked)
-			Layout.preferredWidth: Kirigami.Units.iconSizes.medium
-			Layout.preferredHeight: Kirigami.Units.iconSizes.medium
-			onClicked: {
-				if (folderView.selectionManager.selected_count === itemRepeater.count) {
-					folderView.selectionManager.deselect_all();
-				} else {
-					folderView.selectAll();
-				}
-			}
-		}
-
-		Label {
-			property string countText: folderView.selectionManager.selected_count + " " + (
-				selectionBar.compact
-					? ""
-					: (folderView.selectionManager.selected_count > 1
-						? qsTr("items selected")
-						: qsTr("item selected"))
-			)
-			id: countLabel
-			text: countText
-			font.weight: Font.Medium
-			elide: Text.ElideRight
-			Layout.fillWidth: true
-			Layout.minimumWidth: selectionBar.compact ? 0 : countMetrics.width
-		}
-
-		ToolButton {
-			id: deselectAllButton
-			text: qsTr("Deselect")
-			icon.name: "edit-select-none"
-			display: selectionBar.compact ? AbstractButton.IconOnly : AbstractButton.TextUnderIcon
-			ToolTip.text: qsTr("Deselect")
-			ToolTip.visible: hovered
-			flat: true
-			onPressed: folderView.playSound("button-pressed")
-			onReleased: folderView.playSound("button-released")
-			onClicked: folderView.selectionManager.deselect_all()
-		}
-	}}
 
 	ExecuteDialog {
 		id: execDialog

@@ -68,12 +68,10 @@ Item {
 	property var pressHandler: null
 	property var clickHandler: null
 
-	// Focus state passed from FolderView (independent of selection)
-	property bool focusActive: false
+	// Focus state passed from FolderView (independent of selection). The border
+	// itself is drawn by the grid as one shared item (FocusBorder.qml), not per
+	// slot; only `isFocused` is needed here, for the click-to-open rule below.
 	property bool isFocused: false
-	property string focusBorderSource: ""
-	property double focusBorderScale: 1
-	property double focusBorderMovment: 0.03
 
 	property int currentDragCount: 1
 
@@ -353,78 +351,9 @@ Item {
 	}
 
 	// ── Focus ──
-
-	Item {
-		id: focusIndicator
-		anchors.fill: parent
-		z: 3
-		visible: fileSlot.focusActive && fileSlot.isFocused
-
-		readonly property real cornerSize: Math.max(10, Math.round(Math.min(width, height) * 0.3))
-		property real pulse: 0.0
-
-		SequentialAnimation on pulse {
-			running: focusIndicator.visible
-			loops: Animation.Infinite
-			NumberAnimation {
-				to: 1.0
-				duration: animationDuration * 4
-				easing.type: Easing.InOutQuad
-			}
-			NumberAnimation {
-				to: -1.0
-				duration: animationDuration * 2
-				easing.type: Easing.InOutQuad
-			}
-		}
-
-		Item {
-			id: focusCorners
-			anchors.fill: parent
-			scale: focusBorderScale + focusIndicator.pulse * focusBorderMovment
-			opacity: 0.95 - focusIndicator.pulse * 0.35
-
-			// Each corner is its own 32x32 document holding one bracket, drawn
-			// straight at the corner size. The corners used to be clipped out of
-			// one raster, which broke whenever sourceSize and sourceClipRect were
-			// not in the same coordinate space (anything but a 1:1 pixel ratio).
-			Image {
-				anchors.left: parent.left
-				anchors.top: parent.top
-				width: focusIndicator.cornerSize
-				height: focusIndicator.cornerSize
-				source: fileSlot.focusBorderSource + "-0.svg"
-				smooth: true
-			}
-
-			Image {
-				anchors.right: parent.right
-				anchors.top: parent.top
-				width: focusIndicator.cornerSize
-				height: focusIndicator.cornerSize
-				source: fileSlot.focusBorderSource + "-1.svg"
-				smooth: true
-			}
-
-			Image {
-				anchors.right: parent.right
-				anchors.bottom: parent.bottom
-				width: focusIndicator.cornerSize
-				height: focusIndicator.cornerSize
-				source: fileSlot.focusBorderSource + "-2.svg"
-				smooth: true
-			}
-
-			Image {
-				anchors.left: parent.left
-				anchors.bottom: parent.bottom
-				width: focusIndicator.cornerSize
-				height: focusIndicator.cornerSize
-				source: fileSlot.focusBorderSource + "-3.svg"
-				smooth: true
-			}
-		}
-	}
+	// The focus border is not drawn here: the grid owns one shared border that
+	// follows the cursor (FocusBorder.qml). Drawing it per slot meant loading
+	// four SVG documents for every item in the folder.
 
 	Rectangle {
 		Kirigami.Theme.colorSet: Kirigami.Theme.Selection

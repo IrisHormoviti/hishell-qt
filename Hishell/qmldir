@@ -5,6 +5,10 @@ ActionManager ActionManager.qml
 ActionGroupMenu ActionGroupMenu.qml
 ShellContextMenu ShellContextMenu.qml
 FileSlot FileSlot.qml
+FocusBorder FocusBorder.qml
+FolderFilterBar FolderFilterBar.qml
+FolderGrid FolderGrid.qml
+FolderSelectionBar FolderSelectionBar.qml
 FolderView FolderView.qml
 LayoutEngine LayoutEngine.qml
 ShellWindow ShellWindow.qml

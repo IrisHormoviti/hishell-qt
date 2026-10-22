@@ -66,15 +66,24 @@ Kirigami.ApplicationWindow {
 
 	// ClamOS guest handover: the app manager suspends the shell with a marker
 	// file, this window washes to white and holds it while the app boots
-	// underneath, then — once the manager has revealed the app — switches to
-	// black and finally unmaps so the app takes the panel. The white marks "the
-	// app is starting"; the black marks "the panel is about to be handed over",
-	// so an app that only uses one screen does not snap from white to nothing.
-	// Without the manager none of the markers ever exist and this stays inert.
+	// underneath, then unmaps so the app takes the panel. The white marks "the
+	// app is starting"; there is no black phase and no fade — the app is a
+	// separate toplevel, so the handover is a single unmap. Without the manager
+	// none of the markers ever exist and this stays inert.
 	Connections {
 		target: focusManager
 		function onSuspendedChanged() {
-			root.visible = !focusManager.hidden;
+			if (focusManager.hidden) {
+				// The app is on screen underneath: keep the window mapped with
+				// the opaque wash for a beat (unmapTimer), then unmap so the app
+				// takes the panel. The wash never fades, so this window is never
+				// seen through it.
+				if (!unmapTimer.running)
+					unmapTimer.restart();
+			} else {
+				unmapTimer.stop();
+				root.visible = true;
+			}
 			if (focusManager.suspended) {
 				// A new launch is starting: drop any lingering return frame at
 				// once, so the wash fades from the shell rather than the last
@@ -112,25 +121,24 @@ Kirigami.ApplicationWindow {
 		}
 	}
 
-	// The launch transition: white while the app boots (and holds it), then a
-	// fade out to black once the app is on screen, and finally unmap. White says
-	// "starting"; the black starts over the app (which is already painted
-	// underneath), so an app that only uses one screen leaves this panel fading
-	// to nothing rather than snapping. `holdUp` keeps the window mapped until
-	// the fade has played.
+	// The launch transition: the panel fades in to white while the app boots and
+	// stays opaque until this window unmaps, at which point the app — already
+	// painted underneath — takes the panel. The wash only fades IN: fading it
+	// back out would just reveal this window (the app is a separate toplevel,
+	// not something this window can crossfade to), and a black phase would show
+	// as a gap before the app appears. White, then the app. It stays opaque for
+	// as long as a guest owns the panel, so the suspend marker dropping (which
+	// happens with the hide marker) cannot fade it out early and flash this
+	// window.
 	Rectangle {
 		id: launchWash
 		anchors.fill: parent
 		z: 1000
 		visible: opacity > 0
-		property bool holdUp: false
-		opacity: (focusManager.suspended || holdUp) ? 1 : 0
-		color: holdUp ? "#000000" : "#ffffff"
-		Behavior on color {
-			ColorAnimation { duration: 500; easing.type: Easing.InOutQuad }
-		}
+		opacity: (focusManager.suspended || focusManager.hidden) ? 1 : 0
+		color: "#ffffff"
 		Behavior on opacity {
-			NumberAnimation { duration: 400; easing.type: Easing.InQuad }
+			NumberAnimation { duration: 250; easing.type: Easing.InQuad }
 		}
 		// The wash also eats input: nothing under it should react while the
 		// app is taking over.
@@ -139,14 +147,13 @@ Kirigami.ApplicationWindow {
 		}
 	}
 
-	// Unmaps the window once the launch fade has played, so the black is seen.
+	// Unmaps the window once the app is on screen, so the app takes the panel.
+	// The short delay lets the app's first frame land before the wash goes; the
+	// manager already waited for it, so this only covers the poll latency.
 	Timer {
 		id: unmapTimer
-		interval: 700
-		onTriggered: {
-			launchWash.holdUp = false
-			root.visible = !focusManager.hidden;
-		}
+		interval: 250
+		onTriggered: root.visible = !focusManager.hidden;
 	}
 
 	// Open on a named screen/output when the config asks for one. The RG DS Plus

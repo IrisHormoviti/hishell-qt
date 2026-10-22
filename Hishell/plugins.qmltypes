@@ -115,6 +115,11 @@ Module {
 			type: "QVariantList"
 		}
 		Method {
+			name: "is_selected"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
 			name: "clear"
 			type: "void"
 		}
@@ -426,7 +431,6 @@ Module {
 		Property { name: "view_focused"; type: "bool"; isReadonly: true }
 		Property { name: "current_pane"; type: "int"; isReadonly: true }
 		Property { name: "suspended"; type: "bool"; isReadonly: true }
-		Property { name: "revealed"; type: "bool"; isReadonly: true }
 		Property { name: "hidden"; type: "bool"; isReadonly: true }
 		Property { name: "return_frame_url"; type: "QUrl"; isReadonly: true }
 		Property { name: "active_revision"; type: "int"; isReadonly: true }

@@ -380,16 +380,13 @@ pub struct FocusManager {
 	current_pane: qt_property!(i32; NOTIFY focus_changed),
 	/// True while a guest app owns the panels (the wrapper's suspend marker).
 	/// ClamOS' launch transition: QML washes the window out to white and holds
-	/// it until the wrapper reveals the app, and the gamepad polling stops so
-	/// the guest gets the buttons and no shell sounds leak into the game.
+	/// it until the app is on screen, then fades it out over the guest. The
+	/// gamepad polling stops so the guest gets the buttons and no shell sounds
+	/// leak into the game.
 	suspended: qt_property!(bool; NOTIFY suspended_changed),
-	/// True at the reveal moment, a beat before `hidden`: QML fades its launch
-	/// wash out to black so the panel is black before it is handed to the app
-	/// (an app that uses only one screen leaves this panel showing nothing).
-	revealed: qt_property!(bool; NOTIFY suspended_changed),
-	/// True once the wrapper revealed the guest: QML unmaps the window until
-	/// the guest exits. Without the ClamOS wrapper neither marker ever exists
-	/// and the shell behaves exactly as before.
+	/// True once the guest is on screen: QML fades its launch wash out over the
+	/// guest and unmaps the window until it exits. Without the ClamOS wrapper
+	/// neither marker ever exists and the shell behaves exactly as before.
 	hidden: qt_property!(bool; NOTIFY suspended_changed),
 	/// The guest's last bottom-screen frame, versioned so QML reloads it. On
 	/// the way back from an app the shell shows it for a moment and fades to
@@ -705,21 +702,18 @@ pub struct FocusManager {
 	poll_gamepad: qt_method!(
 		fn poll_gamepad(&mut self) {
 			// While a guest owns the panels the shell is suspended: report the
-			// state (QML washes to white, then unmaps on the reveal marker)
-			// and stop consuming the buttons, so the app gets them and no
-			// shell sounds leak into the game.
+			// state (QML washes to white, then fades out and unmaps on the hide
+			// marker) and stop consuming the buttons, so the app gets them and
+			// no shell sounds leak into the game.
 			let suspended = crate::session::suspended();
-			let revealed = crate::session::revealed();
 			let hidden = crate::session::hidden();
 			let return_frame = bottom_shot_url();
 			if suspended != self.suspended
-				|| revealed != self.revealed
 				|| hidden != self.hidden
 				|| return_frame != self.return_frame_url
 			{
 				let was_paused = self.suspended || self.hidden;
 				self.suspended = suspended;
-				self.revealed = revealed;
 				self.hidden = hidden;
 				self.return_frame_url = return_frame;
 				// The suspended set can only change with the markers, so this is
