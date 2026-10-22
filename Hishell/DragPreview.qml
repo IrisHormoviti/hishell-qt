@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import ClamOS.Theme
 
 // Floating ghost of a free-placement reposition drag. It mirrors the selection
 // in its original arrangement, anchored so the grabbed item stays under the
@@ -65,7 +66,11 @@ Item {
 			width: modelData.w
 			height: modelData.h
 
-			readonly property string slotIcon: modelData.icon ? String(modelData.icon) : ""
+			readonly property string slotIcon: {
+				const icon = modelData.icon ? String(modelData.icon) : "";
+				const recoloured = modelData.isDir ? ClamTheme.accentFolderIcon(dragPreview.fileManager, icon, previewItem.iconDisplaySize) : "";
+				return recoloured.length > 0 ? recoloured : icon;
+			}
 			readonly property string slotTitle: {
 				const t = modelData.title ? String(modelData.title) : "";
 				if (t !== "")

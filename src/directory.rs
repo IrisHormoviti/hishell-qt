@@ -8,13 +8,17 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::config;
 use crate::config::Config;
 use crate::thumbnailer;
 
 static ICON_CACHE: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// How often the change poll may re-read desktop entries. The folder mtime check
+/// runs at the timer's rate; re-resolving icons is throttled to this.
+const ICON_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 fn query_gio_icon(path: &str) -> Option<String> {
 	// `gio info ""` inspects the working directory and reports a folder icon.
@@ -117,6 +121,99 @@ pub fn is_execute_target(path: &Path) -> bool {
 	}
 }
 
+/// The value a parent `[Radio]` group stores for a selected child: the folder
+/// name for directories, the stem for desktop entries, the file name otherwise.
+pub fn radio_value(path: &Path) -> String {
+	let name = path
+		.file_name()
+		.and_then(|n| n.to_str())
+		.unwrap_or_default()
+		.to_string();
+	if path.is_dir() {
+		return name;
+	}
+	if path
+		.extension()
+		.and_then(|e| e.to_str())
+		.is_some_and(|e| e.eq_ignore_ascii_case("desktop"))
+	{
+		return path
+			.file_stem()
+			.and_then(|s| s.to_str())
+			.unwrap_or(&name)
+			.to_string();
+	}
+	name
+}
+
+/// Run a parent folder's `[Radio] Exec`, substituting `%v` (value), `%n`
+/// (display name), and `%p` (full path).  The command is tokenised without a
+/// shell, and placeholders are replaced inside each argument so a value with
+/// spaces stays one argument.
+fn run_radio_exec(exec: &str, value: &str, name: &str, path: &str) {
+	let args = split_command(exec);
+	let Some((command, rest)) = args.split_first() else {
+		return;
+	};
+	let mut final_args = Vec::with_capacity(rest.len());
+	for arg in rest {
+		final_args.push(
+			arg.replace("%v", value)
+				.replace("%n", name)
+				.replace("%p", path),
+		);
+	}
+	// The selected entry's path still has to travel with the command.  It is
+	// how a provider action finds the live file, including through a user-moved
+	// symlink; without it `clam-connect` has only the bare MAC/UUID and would
+	// fall back to guessing a folder (docs `clam-configd.md` §5.3).
+	let item = Path::new(path);
+	let cwd = crate::config::base_dir(item);
+	if let Err(error) =
+		crate::launch::spawn_direct(command, &final_args, path, name, Some(cwd))
+	{
+		eprintln!("failed to run radio command {command:?}: {error}");
+	}
+}
+
+fn split_command(line: &str) -> Vec<String> {
+	let mut args = Vec::new();
+	let mut current = String::new();
+	let mut quote: Option<char> = None;
+	let mut escaped = false;
+
+	for ch in line.chars() {
+		if escaped {
+			current.push(ch);
+			escaped = false;
+			continue;
+		}
+		match ch {
+			'\\' => escaped = true,
+			'\'' | '"' => {
+				if quote == Some(ch) {
+					quote = None;
+				} else if quote.is_none() {
+					quote = Some(ch);
+				} else {
+					current.push(ch);
+				}
+			}
+			c if c.is_whitespace() && quote.is_none() => {
+				if !current.is_empty() {
+					args.push(std::mem::take(&mut current));
+				}
+			}
+			c => current.push(c),
+		}
+	}
+
+	if !current.is_empty() {
+		args.push(current);
+	}
+	args
+}
+
 #[derive(Default, Clone)]
 pub struct FileItem {
 	pub name: String,
@@ -145,6 +242,11 @@ pub struct Directory {
 	// Last icon source applied to the window, so the periodic refresh does not
 	// rebuild an unchanged icon.
 	last_window_icon: String,
+
+	// The folder's own mtime at the last scan, and when icons were last
+	// re-resolved: the state the periodic change poll compares against.
+	dir_modified: u64,
+	last_icon_poll: Option<Instant>,
 
 	title: qt_property!(String; READ get_title),
 	icon: qt_property!(String; READ get_icon NOTIFY path_changed),
@@ -181,8 +283,99 @@ pub struct Directory {
 		}
 	),
 
+	/// True when this folder owns a `[Radio]` group and `path` is one of its
+	/// selectable children.  The parent folder — not the child — decides this.
+	is_radio_member: qt_method!(
+		pub fn is_radio_member(&self, path: String) -> bool {
+			let config = self.config.pinned();
+			let config = config.borrow();
+			if !config.radio_enabled {
+				return false;
+			}
+
+			let path = Path::new(&path);
+			// Only a direct child of this folder is a choice in its radio
+			// group.  Without this, any directory (a path-bar ancestor, say)
+			// passes the `Only=Directories` test and is treated as selectable.
+			let base = Path::new(self.path_str.trim_end_matches('/'));
+			let parent_ok = path
+				.parent()
+				.is_some_and(|parent| parent == base || parent.as_os_str().is_empty() && base.as_os_str().is_empty());
+			if !parent_ok {
+				return false;
+			}
+
+			// Metadata is not a choice.  `Only=Files` otherwise makes the
+			// folder's own `.directory` a radio child, so selecting it would
+			// write `Selected=.directory` and run `Exec` with that stem.
+			if path
+				.file_name()
+				.and_then(|name| name.to_str())
+				.is_some_and(|name| name.starts_with('.'))
+			{
+				return false;
+			}
+
+			match config.radio_only {
+				1 => path.is_dir(),
+				2 => path.is_file(),
+				_ => true,
+			}
+		}
+	),
+
+	/// The stable value stored in the parent's `[Radio] Selected`.
+	radio_value: qt_method!(
+		pub fn radio_value(&self, path: String) -> String {
+			radio_value(Path::new(&path))
+		}
+	),
+
+	/// Select a child of this folder's radio group: write `[Radio] Selected`
+	/// into this folder's `.directory` and run the parent's `Exec` command.
+	select_radio: qt_method!(
+		pub fn select_radio(&mut self, path: String) {
+			if !self.is_radio_member(path.clone()) {
+				return;
+			}
+			let value = radio_value(Path::new(&path));
+			if value.is_empty() {
+				return;
+			}
+
+			let parent = self.path_str.clone();
+			self.config
+				.pinned()
+				.borrow_mut()
+				._set(Path::new(&parent), "Radio", "Selected", &value, true);
+
+			let (exec, name) = {
+				let config = self.config.pinned();
+				let config = config.borrow();
+				(config.radio_exec.to_string(), get_item_title(Path::new(&path)))
+			};
+			if !exec.trim().is_empty() {
+				run_radio_exec(&exec, &value, &name, &path);
+			}
+			self.config_changed();
+		}
+	),
+
+	/// Run this folder's own `Refresh=<command line>` when it has one: how a
+	/// folder asks its provider for fresh contents (docs §4.7). Fire and forget
+	/// — the provider rewrites the folder and the shell's watch picks it up.
+	run_refresh_command: qt_method!(
+		pub fn run_refresh_command(&self) {
+			self.run_refresh_if_configured();
+		}
+	),
+
 	execute_action: qt_method!(
 		pub fn execute_action(&mut self, path: String) -> String {
+			if self.is_radio_member(path.clone()) {
+				self.select_radio(path);
+				return String::new();
+			}
 			let path_buf = Path::new(&path);
 			if crate::desktop_entry::is_action_entry(path_buf) {
 				launch_desktop_entry(path_buf)
@@ -264,6 +457,54 @@ pub struct Directory {
 		}
 	),
 
+	/// Periodic poll for folders that an out-of-process provider rewrites, so a
+	/// changed `Icon=` or a newly appeared entry shows up without leaving and
+	/// returning. Driven by the same timer as `poll_thumbnails`.
+	poll_changes: qt_method!(
+		pub fn poll_changes(&mut self) {
+			if self.path_str.is_empty() {
+				return;
+			}
+			// The folder's own mtime moves when an entry is added, removed or
+			// atomically replaced (a provider writes a temp file and renames it
+			// over the old one), so this cheap stat gates the expensive rebuild.
+			let modified = folder_modified(&self.path_str);
+			if modified != 0 && modified != self.dir_modified {
+				self.reload();
+				return;
+			}
+			// The listing is unchanged, so only file contents can differ. Re-read
+			// desktop entries (a tiny file each; they return before ICON_CACHE)
+			// and repaint just the rows whose icon moved. Non-entries are
+			// skipped, so a rendered thumbnail is never clobbered.
+			if self
+				.last_icon_poll
+				.is_some_and(|last| last.elapsed() < ICON_POLL_INTERVAL)
+			{
+				return;
+			}
+			self.last_icon_poll = Some(Instant::now());
+
+			let mut updates = Vec::new();
+			for (row, index) in self.visible.iter().enumerate() {
+				let item = &self.items[*index];
+				if crate::config::entry_path(Path::new(&item.path)).is_none() {
+					continue;
+				}
+				let icon = get_icon(&item.path);
+				if icon != item.icon {
+					updates.push((row, icon));
+				}
+			}
+			for (row, icon) in updates {
+				let index = self.visible[row];
+				self.items[index].icon = icon;
+				let model_index = self.row_index(row as i32);
+				self.data_changed(model_index, model_index);
+			}
+		}
+	),
+
 	request_thumbnail: qt_method!(
 		pub fn request_thumbnail(&mut self, path: String, size: i32) {
 			let size = size.max(1) as u32;
@@ -326,6 +567,17 @@ pub struct Directory {
 				.pinned()
 				.borrow_mut()
 				.set_free_position(Path::new(&path), &name, col, row);
+		}
+	),
+
+	set_free_positions: qt_method!(
+		pub fn set_free_positions(&mut self, positions_json: String) {
+			let path = self.path_str.clone();
+			let entries = parse_free_position_entries(&positions_json);
+			self.config
+				.pinned()
+				.borrow_mut()
+				.set_free_positions(Path::new(&path), &entries);
 		}
 	),
 
@@ -456,6 +708,14 @@ impl Directory {
 				}
 
 				let entry_path = entry.path();
+				// A desktop entry that asks not to be displayed is stashed like
+				// a dotfile: hidden while the stash is on, shown when it is off.
+				if !include_hidden
+					&& crate::config::entry_path(&entry_path)
+						.is_some_and(|_| crate::desktop_entry::read(&entry_path).no_display)
+				{
+					continue;
+				}
 				let p = entry_path.to_string_lossy().to_string();
 				let title = get_item_title(&entry_path);
 				let file_type = entry.file_type().ok();
@@ -496,6 +756,10 @@ impl Directory {
 		self.apply_filter();
 
 		self.end_reset_model();
+
+		// Remember the folder's mtime so `poll_changes` can tell an unchanged
+		// listing from one that needs rebuilding.
+		self.dir_modified = folder_modified(&self.path_str);
 	}
 
 	/// Re-sort the in-memory items after a sort-related config change, without
@@ -633,6 +897,24 @@ impl Directory {
 		Path::new(&self.path_str).join(".directory").is_file()
 	}
 
+	/// Run this folder's `Refresh=` command, when it has one.  Entering a
+	/// folder calls this once; the manual Refresh action calls it too.  A plain
+	/// read never scans (docs §4.3).
+	fn run_refresh_if_configured(&self) {
+		if self.path_str.is_empty() {
+			return;
+		}
+		let entry = Path::new(&self.path_str).join(".directory");
+		let Some(command) = crate::config::get_entry_string(&entry, "Refresh") else {
+			return;
+		};
+		let command = command.trim().to_string();
+		if command.is_empty() {
+			return;
+		}
+		crate::desktop_entry::run_refresh(Path::new(&self.path_str), &command);
+	}
+
 	pub fn set_path(&mut self, path: String) {
 		if path.is_empty() {
 			return;
@@ -646,6 +928,7 @@ impl Directory {
 		let path_buf = Path::new(&path);
 		let abs_path = normalize_path(path_buf, &self.path_str);
 		let abs_str = abs_path.to_string_lossy().to_string();
+		let entered = self.path_str != abs_str;
 
 		if !self.path_str.is_empty() && self.path_str != abs_str {
 			crate::thumbnailer::cancel_folder(Path::new(&self.path_str));
@@ -677,6 +960,13 @@ impl Directory {
 
 		self.path_changed();
 		self.config_changed();
+
+		// Entering a folder is the user asking to see it now, so run its
+		// provider hook once.  The manual Refresh action still does the same
+		// thing; a plain read never scans.
+		if entered {
+			self.run_refresh_if_configured();
+		}
 	}
 
 	pub fn get_title(&self) -> String {
@@ -808,6 +1098,24 @@ impl Directory {
 	}
 }
 
+/// Parse a `{ "name": [col, row], ... }` map as used by
+/// `FreePlacementPositions`.
+fn parse_free_position_entries(json: &str) -> Vec<(String, i32, i32)> {
+	let mut entries = Vec::new();
+	if let Ok(value) = serde_json::from_str::<serde_json::Value>(json)
+		&& let Some(obj) = value.as_object()
+	{
+		for (name, pos) in obj {
+			if let Some(arr) = pos.as_array() {
+				let col = arr.first().and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+				let row = arr.get(1).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+				entries.push((name.clone(), col, row));
+			}
+		}
+	}
+	entries
+}
+
 fn first_available(
 	occupied: &[Vec<bool>],
 	columns: i32,
@@ -898,10 +1206,24 @@ fn time_ms(time: Option<SystemTime>) -> u64 {
 		.unwrap_or(0)
 }
 
+/// A folder's own modification time, in milliseconds (0 when it cannot be read).
+/// Adding, removing or atomically replacing an entry bumps it.
+fn folder_modified(path: &str) -> u64 {
+	fs::metadata(path)
+		.map(|meta| time_ms(meta.modified().ok()))
+		.unwrap_or(0)
+}
+
 pub fn get_item_title(path: &Path) -> String {
 	if crate::config::entry_path(path).is_some() {
 		let entry = crate::desktop_entry::read(path);
 		if let Some(name) = entry.name.filter(|name| !name.is_empty()) {
+			return name;
+		}
+	}
+
+	if let Some(descriptor) = crate::directory_descriptor::lookup(path) {
+		if let Some(name) = descriptor.name.filter(|name| !name.is_empty()) {
 			return name;
 		}
 	}
@@ -1012,6 +1334,15 @@ pub fn get_folder_icon(path: &str) -> String {
 		}
 	}
 
+	// A directory descriptor supplies the name and icon from outside the
+	// directory, so a mounted card that cannot carry its own `.directory`
+	// still shows a device icon (see `directory_descriptor`).
+	if let Some(descriptor) = crate::directory_descriptor::lookup(&abs_path) {
+		if let Some(icon) = descriptor.icon {
+			return icon_source(icon, &abs_path);
+		}
+	}
+
 	if let Some(home) = dirs::home_dir().and_then(|h| std::fs::canonicalize(h).ok()) {
 		if abs_path == home {
 			return "user-home".to_string();
@@ -1070,4 +1401,51 @@ pub fn is_executable(path: &str) -> bool {
 		return false;
 	}
 	buffer == [0x7f, b'E', b'L', b'F'] || &buffer[..2] == b"#!"
+}
+
+#[cfg(test)]
+mod tests {
+	use super::run_radio_exec;
+	use std::os::unix::fs::PermissionsExt;
+	use std::time::{Duration, Instant};
+
+	#[test]
+	fn radio_exec_exports_the_selected_item() {
+		let root = std::env::temp_dir().join(format!(
+			"hishell-radio-exec-{}",
+			std::process::id()
+		));
+		std::fs::create_dir_all(&root).unwrap();
+		let script = root.join("capture.sh");
+		let output = root.join("item");
+		std::fs::write(
+			&script,
+			format!(
+				"#!/bin/sh\nprintf '%s' \"$HISHELL_APP_ITEM\" > '{}'\n",
+				output.display()
+			),
+		)
+		.unwrap();
+		std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+		let selected = root.join("Bluetooth/AA:BB:CC:DD:EE:FF.desktop");
+		std::fs::create_dir_all(selected.parent().unwrap()).unwrap();
+		run_radio_exec(
+			script.to_str().unwrap(),
+			"AA:BB:CC:DD:EE:FF",
+			"Controller",
+			selected.to_str().unwrap(),
+		);
+
+		let deadline = Instant::now() + Duration::from_secs(5);
+		let item = loop {
+			if let Ok(text) = std::fs::read_to_string(&output) {
+				break text;
+			}
+			assert!(Instant::now() < deadline, "radio command did not run");
+			std::thread::sleep(Duration::from_millis(20));
+		};
+		assert_eq!(item, selected.to_str().unwrap());
+		std::fs::remove_dir_all(&root).ok();
+	}
 }

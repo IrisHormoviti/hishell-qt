@@ -53,6 +53,14 @@ Item {
 
 	readonly property bool isFirstTargetDir: (isSingleTarget && fileManager) ? fileManager.is_directory(firstTargetPath) : false
 
+	// A generated entry (a provider's network or control row) may be destroyed
+	// only when the provider says how: Trash then runs the entry's `Destroy=`
+	// command instead of moving the file. Cut-then-Paste means the same thing
+	// for such an entry (`FileManager::cut_into`), because moving the file alone
+	// would leave the profile behind and the daemon would write it straight
+	// back. A source that is not destroyable is never copied or moved: drag
+	// Copy/Move degrade to a link, and Trash opens the warning instead (§5).
+
 	// True when every target is a folder. The menubar's Folder menu corresponds
 	// to a selected folder, so it is shown only for such a target; the folder
 	// view's own menu carries the directory-level actions separately.
@@ -278,35 +286,55 @@ Item {
 		&& actionManager.targetDirectory
 		&& actionManager.targetDirectory.is_link(actionManager.firstTargetPath)
 
+	// A child of a folder-owned `[Radio]` group is a selection, not a launch.
+	readonly property bool isTargetRadio: actionManager.hasTarget
+		&& actionManager.isSingleTarget
+		&& actionManager.targetDirectory
+		&& actionManager.targetDirectory.is_radio_member(actionManager.firstTargetPath)
+
 	property alias executeAction: executeAction
 	Action {
 		id: executeAction
-		text: actionManager.isTargetLink ? qsTr("Open &Link") : qsTr("&Execute")
-		icon.name: actionManager.isTargetLink ? "open-link" : "system-run"
+		text: actionManager.isTargetRadio ? qsTr("&Select") : (actionManager.isTargetLink ? qsTr("Open &Link") : qsTr("&Execute"))
+		icon.name: actionManager.isTargetRadio ? "checkbox" : (actionManager.isTargetLink ? "open-link" : "system-run")
 		readonly property bool available: actionManager.hasTarget
-			&& actionManager.targetPathList.every(path => actionManager.targetDirectory.is_execute_target(path))
+			&& actionManager.targetPathList.every(path => actionManager.targetDirectory.is_radio_member(path) || actionManager.targetDirectory.is_execute_target(path))
 		enabled: available
 
 		function execute(targetPath: string, sourceItem: Item) {
 			const paths = targetPath !== "" ? [targetPath] : actionManager.targetPathList;
 			for (let i = 0; i < paths.length; i++) {
 				const path = paths[i];
-				if (!actionManager.targetDirectory.is_execute_target(path))
+				const isRadio = actionManager.targetDirectory.is_radio_member(path);
+				if (!isRadio && !actionManager.targetDirectory.is_execute_target(path))
 					continue;
-				actionManager.prepareLaunch();
-				actionManager.playSound("app-launch");
-				if (sourceItem) {
-					const layout = sourceItem.contentLayout;
-					const globalPos = layout.mapToItem(actionManager, 0, 0);
-					layout.grabToImage(result => {
-						externalOpenAnimation.x = globalPos.x;
-						externalOpenAnimation.y = globalPos.y;
-						externalOpenAnimation.width = layout.width;
-						externalOpenAnimation.height = layout.height;
-						externalOpenImage.source = result.url;
-						externalOpenAnimation.visible = true;
-						externalOpenAnimationEffect.restart();
-					});
+				// A radio child selects in place: the parent writes the
+				// selection and runs its own Exec, with no launch transition.
+				if (isRadio) {
+					actionManager.playSound("menu-item");
+					actionManager.targetDirectory.select_radio(path);
+					continue;
+				}
+				// A `Type=Button` entry is a control, not an app: its Exec is
+				// spawned directly (no wrapper, no guest window), so it gets the
+				// menu-item sound and none of the app-launch transition.
+				const isButton = actionManager.fileManager && actionManager.fileManager.is_button(path);
+				actionManager.playSound(isButton ? "menu-item" : "app-launch");
+				if (!isButton) {
+					actionManager.prepareLaunch();
+					if (sourceItem) {
+						const layout = sourceItem.contentLayout;
+						const globalPos = layout.mapToItem(actionManager, 0, 0);
+						layout.grabToImage(result => {
+							externalOpenAnimation.x = globalPos.x;
+							externalOpenAnimation.y = globalPos.y;
+							externalOpenAnimation.width = layout.width;
+							externalOpenAnimation.height = layout.height;
+							externalOpenImage.source = result.url;
+							externalOpenAnimation.visible = true;
+							externalOpenAnimationEffect.restart();
+						});
+					}
 				}
 				const warning = String(actionManager.targetDirectory.execute_action(path));
 				if (warning !== "")
@@ -321,8 +349,8 @@ Item {
 	Action {
 		id: openAction
 		shortcut: actionManager.showShortcuts ? "Ctrl+O" : ""
-		text: actionManager.openApp ? qsTr("O&pen with %1").arg(actionManager.openApp.name) : qsTr("O&pen")
-		icon.name: actionManager.openAppIcon !== "" && actionManager.openAppIcon.indexOf("/") === -1 ? actionManager.openAppIcon : "open-link"
+		text: actionManager.isTargetRadio ? qsTr("&Select") : (actionManager.openApp ? qsTr("O&pen with %1").arg(actionManager.openApp.name) : qsTr("O&pen"))
+		icon.name: actionManager.isTargetRadio ? "checkbox" : (actionManager.openAppIcon !== "" && actionManager.openAppIcon.indexOf("/") === -1 ? actionManager.openAppIcon : "open-link")
 		icon.source: actionManager.openAppIcon.indexOf("/") !== -1 ? actionManager.openAppIcon : ""
 		enabled: actionManager.hasTarget
 
@@ -334,14 +362,24 @@ Item {
 				// source item, taking any in-flight grab with it while the render
 				// thread is still using it. Only grab when the item survives the open.
 				const isDir = actionManager.fileManager && actionManager.fileManager.is_directory(p);
+				// A `Type=Button` entry is a control, not an app: it runs its Exec
+				// directly (no wrapper, no guest window), so it gets the menu-item
+				// sound and none of the app-launch transition.
+				const isButton = actionManager.fileManager && actionManager.fileManager.is_button(p);
+				// A child of a folder-owned radio group is selected in place: the
+				// parent writes the selection and runs its own Exec. Opening it in a
+				// new window still navigates, since that is an explicit request to
+				// leave the group.
+				const isRadio = actionManager.targetDirectory && actionManager.targetDirectory.is_radio_member(p);
+				const selectsRadio = isRadio && !inNewWindow;
 				// A folder opens in place (a navigation); a file leaves the app for
 				// its handler. The 3DS makes the same distinction, and so does the
 				// theme: window-new for going into a folder, the launch sound for
 				// handing a file to another program.
-				actionManager.playSound(isDir ? "window-new" : "app-launch");
-				if (!isDir)
+				actionManager.playSound(isButton || selectsRadio ? "menu-item" : (isDir ? "window-new" : "app-launch"));
+				if (!isDir && !isButton && !selectsRadio)
 					actionManager.prepareLaunch();
-				if (sourceItem && !(isDir && !inNewWindow)) {
+				if (sourceItem && !isButton && !selectsRadio && !(isDir && !inNewWindow)) {
 					const layout = sourceItem.contentLayout;
 					const globalPos = layout.mapToItem(actionManager, 0, 0);
 					layout.grabToImage(result => {
@@ -353,6 +391,11 @@ Item {
 						externalOpenAnimation.visible = true;
 						externalOpenAnimationEffect.restart();
 					});
+				}
+
+				if (selectsRadio) {
+					actionManager.targetDirectory.select_radio(p);
+					continue;
 				}
 
 				if (inNewWindow) {
@@ -503,7 +546,8 @@ Item {
 		text: qsTr("&Rename")
 		icon.name: "edit-rename"
 		shortcut: actionManager.showShortcuts ? "F2" : ""
-		enabled: actionManager.isSingleTarget
+		enabled: actionManager.isSingleTarget && actionManager.fileManager !== null
+			&& actionManager.fileManager.can_rename(actionManager.firstTargetPath)
 		onTriggered: {
 			if (actionManager.isSingleTarget) {
 				actionManager.openRenameDialog(actionManager.firstTargetPath);
@@ -529,18 +573,23 @@ Item {
 		shortcut: actionManager.showShortcuts ? "Delete" : ""
 		enabled: actionManager.hasTarget
 		onTriggered: {
-			const paths = actionManager.targetPathList;
-			let anyOk = false;
-			for (let i = 0; i < paths.length; i++) {
-				if (actionManager.fileManager && actionManager.fileManager.trash_file(paths[i]))
-					anyOk = true;
+			if (actionManager.window && actionManager.window.requestDestroy) {
+				actionManager.window.requestDestroy(actionManager.targetPathList, actionManager.targetDirectory);
+			} else {
+				// A host without the warning adapter keeps the old direct path.
+				const paths = actionManager.targetPathList;
+				let anyOk = false;
+				for (let i = 0; i < paths.length; i++) {
+					if (actionManager.fileManager && actionManager.fileManager.trash_file(paths[i]))
+						anyOk = true;
+				}
+				if (anyOk)
+					actionManager.playSound("item-deleted");
+				if (actionManager.selectionManager)
+					actionManager.selectionManager.clear();
+				if (anyOk && actionManager.targetDirectory)
+					actionManager.targetDirectory.reload();
 			}
-			if (anyOk)
-				actionManager.playSound("item-deleted");
-			if (actionManager.selectionManager)
-				actionManager.selectionManager.clear();
-			if (anyOk && actionManager.targetDirectory)
-				actionManager.targetDirectory.reload();
 		}
 	}
 
@@ -595,9 +644,14 @@ Item {
 		shortcut: actionManager.showShortcuts ? "F5" : ""
 		enabled: actionManager.directory !== null
 		onTriggered: {
-			// Full reload: re-reads the folder contents and its config.
-			if (actionManager.directory)
+			// A folder may carry its own `Refresh=` command (a ClamOS
+			// extension): it is how the folder asks its provider for fresh
+			// contents. Run it, then reload, so the view is never left
+			// showing what the provider has already replaced.
+			if (actionManager.directory) {
+				actionManager.directory.run_refresh_command();
 				actionManager.directory.reload();
+			}
 		}
 	}
 
@@ -758,8 +812,10 @@ Item {
 
 	// Rename Dialog
 	function openRenameDialog(filePath) {
+		if (!actionManager.fileManager || !actionManager.fileManager.can_rename(filePath))
+			return;
 		renameDialog.filePath = filePath;
-		const name = filePath.substring(filePath.lastIndexOf("/") + 1);
+		const name = String(actionManager.fileManager.rename_display_name(filePath));
 		renameDialog.originalName = name;
 		renameDialog.newName = name;
 		renameDialog.open();
@@ -778,12 +834,18 @@ Item {
 				renameDialog.accept();
 				return;
 			}
+			const fm = actionManager.fileManager;
+			if (!fm) {
+				renameDialog.errorText = qsTr("Rename is not available.");
+				actionManager.playSound("dialog-error");
+				return;
+			}
+			const movesPath = fm.rename_moves_path(renameDialog.filePath);
 			var status = {
 				ok: true,
 				error: ""
 			};
-			if (actionManager.fileManager)
-				status = JSON.parse(actionManager.fileManager.rename_file(renameDialog.filePath, trimmed));
+			status = JSON.parse(fm.rename_file(renameDialog.filePath, trimmed));
 			if (!status.ok) {
 				renameDialog.errorText = status.error;
 				actionManager.playSound("dialog-error");
@@ -794,8 +856,16 @@ Item {
 			actionManager.playSound("dialog-ok");
 			if (actionManager.selectionManager)
 				actionManager.selectionManager.clear();
-			if (actionManager.targetDirectory)
-				actionManager.targetDirectory.rename_free_position(renameDialog.originalName, trimmed);
+			if (actionManager.targetDirectory) {
+				// A label rename leaves the file name alone, so there is no
+				// free-placement entry to move; just refresh the view.  Waiting
+				// for the provider's own revision is the same poll that already
+				// updates live entries.
+				if (movesPath)
+					actionManager.targetDirectory.rename_free_position(renameDialog.originalName, trimmed);
+				else
+					actionManager.targetDirectory.reload();
+			}
 		}
 
 		title: qsTr("Rename")
@@ -912,7 +982,11 @@ Item {
 
 	function openOpenWithDialog(filePath) {
 		const w = actionManager.window;
-		const parentItem = (w && w.contentItem) ? w.contentItem : actionManager;
+		// Dialogs belong on the window's overlay layer, which draws above the
+		// content whatever z the panes use (a focused FileSlot is z: 3). See
+		// ViewButton.openViewDialog.
+		const parentItem = (w && w.overlay) ? w.overlay
+			: ((w && w.contentItem) ? w.contentItem : actionManager);
 		if (!actionManager.openWithSheet) {
 			actionManager.openWithSheet = openWithSheetComponent.createObject(parentItem, {
 				fileManager: actionManager.fileManager,

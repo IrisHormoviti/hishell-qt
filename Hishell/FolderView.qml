@@ -36,6 +36,12 @@ Item {
 	// Set while the cursor is moved to follow a manual scroll, so the
 	// focus-driven scroll does not fight the gesture.
 	property bool suppressFocusScroll: false
+	// Path a pointer click moved the cursor to. While the cursor stays there,
+	// a focus change must not reveal it: the item is already under the finger,
+	// and scrolling would move the grid out from under a quick second tap.
+	property string suppressRevealPath: ""
+	readonly property bool viewMoving: flickable.moving
+	readonly property real viewContentY: flickable.contentY
 	// True while the focus-driven scroll animation runs, so the scroll-follow
 	// logic can ignore the motion it causes.
 	property bool focusScrollAnimating: false
@@ -61,6 +67,10 @@ Item {
 	// hover the drop switches from repositioning to dropping into the folder.
 	property bool folderDropActive: false
 	property string folderDropPath: ""
+
+	// Folder a spring-load navigation is armed for (free placement, where the
+	// background owns drops). Hovering it long enough opens it.
+	property string folderNavPath: ""
 
 	// Custom in-window reposition drag: the selection is previewed and moved
 	// directly instead of starting an OS drag-and-drop sequence.
@@ -430,15 +440,26 @@ Item {
 	// OpenOnClick off: a click moves the cursor to the item instead of opening
 	// it. The view has to own the keyboard first (which registers/activates the
 	// pane), then the pane's focus can be pointed at the clicked item.
-	function focusSlot(path) {
+	function focusSlot(path, reveal) {
 		const fm = folderView.focusManager;
 		if (!fm || !folderView.directory)
 			return;
+		// A click puts the cursor on an item the user can already see. Scrolling
+		// to it would move the grid before a quick second tap lands, so only
+		// keyboard and startup focus ask for a reveal.
+		const show = reveal !== false;
+		if (!show)
+			folderView.suppressRevealPath = path;
 		folderView.forceActiveFocus();
-		if (folderView.paneId <= 0)
+		if (folderView.paneId <= 0) {
+			folderView.suppressRevealPath = "";
 			return;
+		}
 		folderView.updateFocusItems();
-		if (fm.set_pane_focus_path(folderView.paneId, path))
+		const found = fm.set_pane_focus_path(folderView.paneId, path);
+		if (!found)
+			folderView.suppressRevealPath = "";
+		if (found && show)
 			Qt.callLater(() => folderView.ensureFocusVisible());
 	}
 
@@ -614,9 +635,17 @@ Item {
 				&& !(folderView.Window.window && folderView.Window.window.activeFocusItem))
 				folderView.forceActiveFocus();
 			// A scroll-follow move must not trigger the focus-driven scroll that
-			// would yank the view back to the cursor.
-			if (folderView.focusOwned && fm && fm.current_pane === folderView.paneId && !folderView.suppressFocusScroll)
-				folderView.ensureFocusVisible();
+			// would yank the view back to the cursor. The same goes for a click,
+			// which must leave the item under the finger: while the cursor sits
+			// on the clicked path, no reveal is wanted.
+			if (folderView.focusOwned && fm && fm.current_pane === folderView.paneId
+				&& !folderView.suppressFocusScroll) {
+				const focused = String(fm.focused_path);
+				if (focused === "" || focused !== folderView.suppressRevealPath) {
+					folderView.suppressRevealPath = "";
+					folderView.ensureFocusVisible();
+				}
+			}
 		}
 		function onAccept_requested() {
 			if (folderView.focusOwned && folderView.focusManager.current_pane === folderView.paneId)
@@ -679,6 +708,7 @@ Item {
 		onTriggered: {
 			if (folderView.directory) {
 				folderView.directory.poll_thumbnails();
+				folderView.directory.poll_changes();
 			}
 		}
 	}
@@ -864,13 +894,34 @@ Item {
 
 	function resetFolderDrop() {
 		folderDropTimer.stop();
+		folderView.updateFolderNavTarget("");
 		if (folderView.folderDropPath !== "")
 			folderView.folderDropPath = "";
 		if (folderView.folderDropActive)
 			folderView.folderDropActive = false;
 	}
 
-	function updateFreeDropTarget(x, y) {
+	// Arm (or clear) the spring-load navigation into a folder during a drag.
+	// Re-arming on every move of the same folder would keep restarting the
+	// timer, so the timer keeps running while the target is unchanged.
+	function updateFolderNavTarget(path) {
+		if (path === "") {
+			if (folderView.folderNavPath !== "") {
+				folderView.folderNavPath = "";
+				folderNavTimer.stop();
+			}
+			return;
+		}
+		if (folderView.folderNavPath === path) {
+			if (!folderNavTimer.running)
+				folderNavTimer.restart();
+			return;
+		}
+		folderView.folderNavPath = path;
+		folderNavTimer.restart();
+	}
+
+	function updateFreeDropTarget(x, y, sourcePaths) {
 		if (!folderView.gridMetrics.free) {
 			folderView.freeDropCol = -1;
 			folderView.freeDropRow = -1;
@@ -884,7 +935,15 @@ Item {
 
 		const local = bgDropArea.mapToItem(gridContent, x, y);
 		const dirSlot = folderView.dirUnderPoint(local.x, local.y);
-		if (dirSlot) {
+		// Never spring-load into a folder the drop is invalid for — above all the
+		// dragged item itself (dragging a folder onto its own icon). The source
+		// paths are absolute and live on the window's drag handler for the whole
+		// drag, so this still holds after navigating in and out of folders.
+		if (dirSlot && folderView.isDropValid(dirSlot.path, sourcePaths || [])) {
+			// Spring-load: hovering a folder long enough descends into it. The
+			// background owns drops in free placement, so arm it here (the
+			// regular grid does it in FileSlot's drop area).
+			folderView.updateFolderNavTarget(dirSlot.path);
 			if (folderView.folderDropPath !== dirSlot.path) {
 				folderView.folderDropPath = dirSlot.path;
 				folderView.folderDropActive = false;
@@ -931,7 +990,7 @@ Item {
 			const slot = metrics.slots[i];
 			if (!slot)
 				continue;
-			entries.push({ name: selected[item.path], path: item.path, title: item.title, icon: item.icon, c: slot.c, r: slot.r });
+			entries.push({ name: selected[item.path], path: item.path, title: item.title, icon: item.icon, isDir: item.is_dir, c: slot.c, r: slot.r });
 		}
 		return entries;
 	}
@@ -1000,6 +1059,7 @@ Item {
 				path: e.path,
 				title: e.title,
 				icon: e.icon,
+				isDir: e.isDir,
 				x: (e.c - anchor.c) * (itemW + gap),
 				y: (e.r - anchor.r) * (itemH + gap),
 				w: itemW,
@@ -1021,8 +1081,8 @@ Item {
 		if (!folderView.repositionDragActive)
 			return;
 		const local = folderView.mapFromItem(null, wx, wy);
-		folderView.updateFreeDropTarget(local.x, local.y);
 		const handler = folderView.rootWindow ? folderView.rootWindow.dragDropHandler : null;
+		folderView.updateFreeDropTarget(local.x, local.y, handler ? handler.drag_source_paths : []);
 		if (handler) {
 			handler.update_cursor(wx, wy);
 			handler.reposition_active = !folderView.folderDropActive;
@@ -1056,6 +1116,10 @@ Item {
 			const action = handler.drag_action ? String(handler.drag_action) : "move";
 			if (uris.length > 0 && fm && fm.process_uris_action(dropFolder, uris, action))
 				folderView.directory.reload();
+			// Dropping into a folder ends the drag too; clear the selection it
+			// made.
+			if (folderView.selectionManager)
+				folderView.selectionManager.exit_selection_mode();
 			return;
 		}
 
@@ -1125,10 +1189,15 @@ Item {
 		}
 
 		folderView.repositionAnimating = true;
+		// Place the whole moved set in one write so its target cells win over
+		// any older saved position in them (a visible item or a stashed
+		// dotfile), then let the unpositioned items reflow around it.
+		const movedPositions = {};
 		for (let i = 0; i < entries.length; i++) {
 			const e = entries[i];
-			folderView.directory.set_free_position(e.name, e.c + dCol, e.r + dRow);
+			movedPositions[e.name] = [e.c + dCol, e.r + dRow];
 		}
+		folderView.directory.set_free_positions(JSON.stringify(movedPositions));
 
 		// A one-for-one drop swaps with the item it lands on. A group pushes the
 		// occupant aside; the cells the group is leaving are free, so the search
@@ -1146,6 +1215,10 @@ Item {
 		}
 
 		repositionAnimTimer.restart();
+		// The drag selected the items it moved; the drop ends that gesture, so
+		// the selection should not linger.
+		if (folderView.selectionManager)
+			folderView.selectionManager.exit_selection_mode();
 		return true;
 	}
 
@@ -1162,6 +1235,39 @@ Item {
 
 		const slot = folderView.freeSlotAt(drop.x, drop.y);
 		return folderView.applyRepositionToSlot(slot.col, slot.row);
+	}
+
+	// Scroll the view when the drag cursor is within an edge margin. Farther
+	// into the margin scrolls faster.
+	function updateDragEdgeScroll() {
+		const handler = folderView.rootWindow ? folderView.rootWindow.dragDropHandler : null;
+		if (!handler || flickable.width <= 0 || flickable.height <= 0)
+			return;
+		const local = flickable.mapFromItem(null, handler.drag_cursor_x, handler.drag_cursor_y);
+		const margin = Kirigami.Units.gridUnit * 2;
+		const maxStep = 28;
+		const horizontal = folderView.config ? folderView.config.scroll_horizontal : false;
+		let dx = 0;
+		let dy = 0;
+		if (horizontal) {
+			if (local.x >= 0 && local.x < margin)
+				dx = -Math.ceil((1 - local.x / margin) * maxStep);
+			else if (local.x > flickable.width - margin && local.x <= flickable.width)
+				dx = Math.ceil((1 - (flickable.width - local.x) / margin) * maxStep);
+		} else {
+			if (local.y >= 0 && local.y < margin)
+				dy = -Math.ceil((1 - local.y / margin) * maxStep);
+			else if (local.y > flickable.height - margin && local.y <= flickable.height)
+				dy = Math.ceil((1 - (flickable.height - local.y) / margin) * maxStep);
+		}
+		if (dx !== 0) {
+			const maxX = Math.max(0, flickable.contentWidth - flickable.width);
+			flickable.contentX = Math.max(0, Math.min(flickable.contentX + dx, maxX));
+		}
+		if (dy !== 0) {
+			const maxY = Math.max(0, flickable.contentHeight - flickable.height);
+			flickable.contentY = Math.max(0, Math.min(flickable.contentY + dy, maxY));
+		}
 	}
 
 	// Keeps the move animation armed only for the reposition that just happened.
@@ -1218,7 +1324,14 @@ Item {
 				sourcePaths = drag.urls;
 			}
 
-			folderView.updateFreeDropTarget(drag.x, drag.y);
+			folderView.updateFreeDropTarget(drag.x, drag.y, sourcePaths);
+			// Track the cursor before any early return below (a same-folder drop
+			// is invalid and returns early, which used to freeze the drag ghost
+			// whenever the finger was not over a folder).
+			if (typeof dragHandler !== 'undefined' && dragHandler) {
+				const pt = bgDropArea.mapToItem(null, drag.x, drag.y);
+				dragHandler.track_mouse_shake(pt.x, pt.y);
+			}
 			const folderPath = folderView.folderDropPath;
 			const overFolder = folderPath !== "";
 
@@ -1237,9 +1350,18 @@ Item {
 				bgDropArea.isHovered = false;
 				if (typeof dragHandler !== 'undefined' && dragHandler)
 					dragHandler.tooltip_active = false;
-				drag.accepted = false;
+				// Keep the drop area as the drag target so it keeps receiving
+				// move events; the ghost follows the cursor. The drop itself is
+				// a no-op (a same-folder move with no destination).
+				drag.accept();
 				return;
 			}
+
+			// Free placement has no per-slot DropArea (the background owns the
+			// drops), so spring-load navigation into a hovered folder is driven
+			// from here. The regular grid keeps it in FileSlot's drop area.
+			if (folderView.gridMetrics.free)
+				folderView.updateFolderNavTarget(overFolder ? folderPath : "");
 
 			bgDropArea.isHovered = !overFolder;
 			if (typeof dragHandler !== 'undefined' && dragHandler) {
@@ -1303,9 +1425,13 @@ Item {
 
 			if (uris.length > 0 && typeof fileManager !== 'undefined' && fileManager) {
 				const target = dropIntoFolder ? folderPath : folderView.directory.path;
-				const action = (typeof dragHandler !== 'undefined' && dragHandler) ? dragHandler.drag_action : "copy";
+				const action = (typeof dragHandler !== 'undefined' && dragHandler) ? dragHandler.drag_action : "move";
 				if (fileManager.process_uris_action(target, uris, action)) {
-					folderView.directory.reload();
+					const win = folderView.rootWindow;
+					if (win && typeof win.requestDirectoryReload === 'function')
+						win.requestDirectoryReload(folderView.directory);
+					else
+						folderView.directory.reload();
 				}
 				drop.accept();
 			}
@@ -1328,6 +1454,52 @@ Item {
 				handler.tooltip_active = true;
 			}
 		}
+	}
+
+	// Hovering a folder during a drag long enough opens it, so a drag can
+	// descend into it (spring-load). Used by the free-placement background,
+	// which owns the drops there; the regular grid does this per slot.
+	Timer {
+		id: folderNavTimer
+		interval: 600
+		repeat: false
+		onTriggered: {
+			const path = folderView.folderNavPath;
+			folderView.folderNavPath = "";
+			if (path === "" || !folderView.directory)
+				return;
+			// In free placement the drag is an in-window reposition tracked by
+			// the slot; navigating would destroy it. Hand it to an OS drag (which
+			// lives on the window, not the slot) so it survives the folder change.
+			if (folderView.repositionDragActive) {
+				const handler = folderView.rootWindow ? folderView.rootWindow.dragDropHandler : null;
+				const mainPath = handler ? String(handler.drag_main_path) : "";
+				let source = null;
+				for (let i = 0; i < itemRepeater.count; ++i) {
+					const it = itemRepeater.itemAt(i);
+					if (it && String(it.path) === mainPath) {
+						source = it;
+						break;
+					}
+				}
+				if (source && handler && typeof source.handOffRepositionDrag === 'function')
+					source.handOffRepositionDrag(handler.drag_cursor_x, handler.drag_cursor_y);
+			}
+			folderView.playSound("window-new");
+			folderView.directory.open_path(path);
+		}
+	}
+
+	// Auto-scroll the view while an item is dragged near an edge, so a drag can
+	// reach items that are off-screen. Runs for both the in-window reposition
+	// drag and native drags (the window tracks their cursor position).
+	Timer {
+		id: dragEdgeScrollTimer
+		interval: 24
+		repeat: true
+		running: folderView.repositionDragActive
+			|| (folderView.rootWindow && folderView.rootWindow.internalDragInProcess)
+		onTriggered: folderView.updateDragEdgeScroll()
 	}
 
 	// ── Input Shortcuts ───

@@ -4,10 +4,17 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use trash;
 
 static INTERNAL_CLIPBOARD: Lazy<Mutex<Option<(Vec<String>, bool)>>> =
 	Lazy::new(|| Mutex::new(None));
+
+/// How long a virtual folder gets to consume an accepted drop before the shell
+/// calls the name it left behind ignored.  A Wi-Fi install removes its staged
+/// keyfile as soon as the copy is written, so this is normally only paid by a
+/// drop the provider declines.
+const DROP_SETTLE: Duration = Duration::from_millis(1500);
 
 fn rename_status(ok: bool, error: &str) -> String {
 	serde_json::json!({ "ok": ok, "error": error }).to_string()
@@ -51,14 +58,127 @@ fn unique_path(parent: &Path, base_name: &str, suffix: &str) -> PathBuf {
 	parent.join(format!("{}{}_{}{}", stem, suffix, std::process::id(), ext))
 }
 
+/// Whether `path` itself is a symlink, without following it.  A handle is
+/// copied, moved and trashed as a link, never as the settings or device it
+/// names (docs §5.4, §7.2).
+fn is_symlink(path: &Path) -> bool {
+	fs::symlink_metadata(path)
+		.map(|metadata| metadata.file_type().is_symlink())
+		.unwrap_or(false)
+}
+
+/// Whether `path` is a provider-owned virtual folder.  Its contents are a view
+/// of machine state, and a write is a request the provider may ignore rather
+/// than storage, so a move into it must not remove the source.
+fn is_virtual_folder(path: &Path) -> bool {
+	if !path.is_dir() {
+		return false;
+	}
+	crate::desktop_entry::read(&path.join(".directory")).generated
+}
+
+/// Whether a provider entry changes its display label rather than its file
+/// name.  A symlink is always the user's handle, even when it points at such an
+/// entry: renaming it renames the link.
+fn rename_is_label_only(path: &Path) -> bool {
+	if is_symlink(path) || path.is_dir() {
+		return false;
+	}
+	let entry = crate::desktop_entry::read(path);
+	entry.generated && entry.rename_command().is_some()
+}
+
+/// Whether Rename may be offered for `path`.
+///
+/// Ordinary files and folders are the user's to rename, and so is a symlink
+/// handle.  Anything the provider owns is a view of machine state: it may be
+/// renamed only when the provider writes a `Rename=` command, which today means
+/// a paired Bluetooth device changing its label (docs `clam-configd.md` §5.7).
+fn can_rename(path: &Path) -> bool {
+	// The mounter owns a mounted device's link (§5.5): renaming it would only
+	// leave a stray handle for `clam-removable.sh` to reconcile.  It has an
+	// honest delete action (unmount), but no honest rename.
+	if crate::directory_descriptor::lookup(path)
+		.and_then(|descriptor| descriptor.unmount)
+		.is_some()
+	{
+		return false;
+	}
+	if is_symlink(path) {
+		return true;
+	}
+	if rename_is_label_only(path) {
+		return true;
+	}
+	let entry = crate::desktop_entry::read(path);
+	if entry.generated || is_virtual_folder(path) {
+		return false;
+	}
+	!path.parent().is_some_and(is_virtual_folder)
+}
+
+/// Copy a source without ever following a symlink into its target.
+fn copy_for_user(src: &Path, dst: &Path) -> bool {
+	if is_symlink(src) {
+		return link_item(src, dst);
+	}
+	if src.is_dir() {
+		copy_dir_recursive(src, dst)
+	} else {
+		fs::copy(src, dst).is_ok()
+	}
+}
+
+/// Whether a write into a virtual folder was kept by its provider.
+///
+/// The provider sees a write as a request.  It either lists the name (a theme
+/// bundle is stored in the folder itself) or consumes it (a Wi-Fi profile is
+/// installed and its staged keyfile removed).  A name that is still in the
+/// mount but never listed was accepted by the filesystem and ignored by the
+/// provider, so the shell says so instead of letting the drop vanish.
+fn drop_was_kept(dir: &Path, name: &str) -> bool {
+	let present = fs::symlink_metadata(dir.join(name)).is_ok();
+	let listed = fs::read_dir(dir)
+		.map(|entries| {
+			entries
+				.flatten()
+				.any(|entry| entry.file_name().to_string_lossy() == name)
+		})
+		.unwrap_or(false);
+	drop_kept(present, listed)
+}
+
+/// A consumed name is kept (the provider installed it), and a listed name is
+/// kept (the provider stored it).  Only a name that is present but unlisted was
+/// accepted and then ignored.
+fn drop_kept(present: bool, listed: bool) -> bool {
+	!present || listed
+}
+
+/// Remember the name a virtual-folder copy landed under, for a single wait
+/// shared by the whole drop rather than one wait per file.
+fn note_virtual_drop(pending: &mut Vec<(PathBuf, String)>, dir: &Path, dst: &Path) {
+	if let Some(name) = dst.file_name() {
+		pending.push((dir.to_path_buf(), name.to_string_lossy().into_owned()));
+	}
+}
+
 #[derive(QObject, Default)]
 pub struct FileManager {
 	base: qt_base_class!(trait QObject),
+
+	/// A drop into a virtual folder was accepted by the filesystem and then
+	/// ignored by the provider.  QML says so instead of leaving the user to
+	/// wonder where the file went.
+	drop_declined: qt_signal!(name: String),
 
 	copy_file: qt_method!(
 		fn copy_file(&self, source: String, dest: String) -> bool {
 			let src = clean_path(&source.to_string());
 			let dst = clean_path(&dest.to_string());
+			if is_symlink(Path::new(&src)) {
+				return link_item(Path::new(&src), Path::new(&dst));
+			}
 			fs::copy(src, dst).is_ok()
 		}
 	),
@@ -78,6 +198,19 @@ pub struct FileManager {
 				Some(name) => name.to_string_lossy().to_string(),
 				None => return false,
 			};
+			// Duplicating a handle duplicates the link, never the section,
+			// profile or device behind it.
+			if is_symlink(path) {
+				let dest = unique_path(parent, &fname, " (link)");
+				return link_item(path, &dest);
+			}
+			// Duplicate is a copy: a source that is not the user's to destroy
+			// must not be materialised, because a virtual folder's copy would
+			// be a real folder full of projections (docs §5.4, §7.2).
+			if !crate::destroy::can_destroy(path) {
+				let dest = unique_path(parent, &fname, " (link)");
+				return link_item(path, &dest);
+			}
 			let dest = unique_path(parent, &fname, " (copy)");
 			if path.is_dir() {
 				copy_dir_recursive(path, &dest)
@@ -173,22 +306,74 @@ pub struct FileManager {
 					dst_path.to_path_buf()
 				}
 			};
-			#[cfg(unix)]
-			{
-				std::os::unix::fs::symlink(src_path, dst).is_ok()
-			}
-			#[cfg(not(unix))]
-			{
-				false
-			}
+			link_item(src_path, &dst)
 		}
 	),
 
 	/// Move a file/directory to the system trash.
+	///
+	/// A generated desktop entry belongs to the provider that wrote it, so it
+	/// cannot simply be moved: when it declares a `Destroy=` command that command
+	/// runs instead (deleting the profile and the file together).  Anything the
+	/// provider marks as not-the-user's is refused here; the QML warning offers
+	/// reset/unmount instead (docs `clam-configd.md` §5).  A symlink is the
+	/// user's handle: it is trashed itself, never its target.
 	trash_file: qt_method!(
 		fn trash_file(&self, path: String) -> bool {
 			let p = clean_path(&path.to_string());
-			trash::delete(p).is_ok()
+			let path = Path::new(&p);
+			if !crate::destroy::can_destroy(path) {
+				return false;
+			}
+			// The link is the user's handle.  Reading through it here would
+			// find the section's or entry's `Destroy=` and forget the thing it
+			// names instead of deleting the handle.
+			if is_symlink(path) {
+				return trash::delete(path).is_ok();
+			}
+			let entry = crate::desktop_entry::read(path);
+			if let Some(command) = entry.destroy_command() {
+				return crate::desktop_entry::run_destroy(path, &entry, command);
+			}
+			trash::delete(path).is_ok()
+		}
+	),
+
+	/// Whether the file views may offer ordinary Trash/Cut for this path.  A
+	/// false result is not "nothing can be done": the delete warning uses
+	/// `destroy_options` to offer reset/unmount instead (§5).
+	can_destroy: qt_method!(
+		fn can_destroy(&self, path: String) -> bool {
+			let p = clean_path(&path.to_string());
+			crate::destroy::can_destroy(Path::new(&p))
+		}
+	),
+
+	/// The delete warning's choices for one path, as JSON:
+	/// `{destroy, reset, unmount, title, path}`.  "destroy" means the ordinary
+	/// Trash path is possible; the other flags are the alternatives the source
+	/// allows (docs `clam-configd.md` §5.2, §5.5).
+	destroy_options: qt_method!(
+		fn destroy_options(&self, path: String) -> String {
+			let p = clean_path(&path.to_string());
+			serde_json::to_string(&crate::destroy::options(Path::new(&p))).unwrap_or_default()
+		}
+	),
+
+	/// Reset a section through its generated `Reset=` command, keeping the
+	/// handle.
+	reset_file: qt_method!(
+		fn reset_file(&self, path: String) -> bool {
+			let p = clean_path(&path.to_string());
+			crate::destroy::reset(Path::new(&p))
+		}
+	),
+
+	/// Unmount a described device through its descriptor's `Unmount=` command.
+	unmount_file: qt_method!(
+		fn unmount_file(&self, path: String) -> bool {
+			let p = clean_path(&path.to_string());
+			crate::destroy::unmount(Path::new(&p))
 		}
 	),
 
@@ -197,7 +382,9 @@ pub struct FileManager {
 		fn delete_file(&self, path: String) -> bool {
 			let p = clean_path(&path.to_string());
 			let p = Path::new(&p);
-			if p.is_dir() {
+			if is_symlink(p) {
+				fs::remove_file(p).is_ok()
+			} else if p.is_dir() {
 				fs::remove_dir_all(p).is_ok()
 			} else {
 				fs::remove_file(p).is_ok()
@@ -205,8 +392,49 @@ pub struct FileManager {
 		}
 	),
 
-	/// Rename (move) a file or directory to a new name within the same parent.
-	/// Returns a JSON status object: `{"ok":bool,"error":string}`.
+	/// Whether the Rename action may be offered for this path.  Virtual
+	/// entries are read-only views, except where the provider declares a
+	/// `Rename=` command (a paired Bluetooth device's label).
+	can_rename: qt_method!(
+		fn can_rename(&self, path: String) -> bool {
+			let p = clean_path(&path.to_string());
+			can_rename(Path::new(&p))
+		}
+	),
+
+	/// The text the rename dialog starts with: the file name for ordinary
+	/// items, or the entry's current display label where `Rename=` applies.
+	rename_display_name: qt_method!(
+		fn rename_display_name(&self, path: String) -> String {
+			let p = clean_path(&path.to_string());
+			let path = Path::new(&p);
+			let file_name = path
+				.file_name()
+				.map(|name| name.to_string_lossy().into_owned())
+				.unwrap_or_default();
+			if rename_is_label_only(path) {
+				crate::desktop_entry::read(path)
+					.name
+					.filter(|name| !name.is_empty())
+					.unwrap_or(file_name)
+			} else {
+				file_name
+			}
+		}
+	),
+
+	/// Whether a successful rename changes the path (and so any remembered
+	/// free-placement position), or only the provider's display label.
+	rename_moves_path: qt_method!(
+		fn rename_moves_path(&self, path: String) -> bool {
+			let p = clean_path(&path.to_string());
+			!rename_is_label_only(Path::new(&p))
+		}
+	),
+
+	/// Rename a file or directory, or change a provider entry's label through
+	/// its `Rename=` command.  Returns a JSON status object:
+	/// `{"ok":bool,"error":string}`.
 	rename_file: qt_method!(
 		fn rename_file(&self, path: String, new_name: String) -> String {
 			let p = clean_path(&path.to_string());
@@ -221,6 +449,25 @@ pub struct FileManager {
 			}
 			if n.contains('/') {
 				return rename_status(false, "A name cannot contain \"/\".");
+			}
+			if !can_rename(src) {
+				return rename_status(
+					false,
+					"This item belongs to the system and cannot be renamed.",
+				);
+			}
+			if rename_is_label_only(src) {
+				let entry = crate::desktop_entry::read(src);
+				let Some(command) = entry.rename_command() else {
+					return rename_status(
+						false,
+						"This item belongs to the system and cannot be renamed.",
+					);
+				};
+				return match crate::desktop_entry::run_rename(src, &entry, command, &n) {
+					Ok(()) => rename_status(true, ""),
+					Err(error) => rename_status(false, &error),
+				};
 			}
 			let dest = parent.join(&n);
 			if dest.exists() && dest != src {
@@ -286,13 +533,18 @@ pub struct FileManager {
 			if uris.is_empty() {
 				return false;
 			}
-			let uris_str = uris.join("\n");
-			let action = if is_cut { "move" } else { "copy" };
-			let ok = self.process_uris_action(
-				String::from(dest.as_str()),
-				String::from(uris_str.as_str()),
-				String::from(action),
-			);
+			let mut pending = Vec::new();
+			let ok = if is_cut {
+				cut_into(dest_path, &uris, &mut pending)
+			} else {
+				let uris_str = uris.join("\n");
+				self.process_uris_action(
+					String::from(dest.as_str()),
+					String::from(uris_str.as_str()),
+					String::from("copy"),
+				)
+			};
+			self.report_declined_drops(pending);
 			if ok && is_cut {
 				if let Ok(mut guard) = INTERNAL_CLIPBOARD.lock() {
 					*guard = None;
@@ -350,52 +602,86 @@ pub struct FileManager {
 			if uris.is_empty() {
 				return false;
 			}
-			let action_str = action.to_string();
+			// A virtual folder is a view whose provider may accept a write and
+			// then ignore it.  Moving into one would delete the source while the
+			// dropped file never appears, so the shell copies instead and keeps
+			// the user's original (docs §3.5, §5.4).
+			let virtual_dest = is_virtual_folder(dest_path);
+			let action_str = if action == "move" && virtual_dest {
+				"copy".to_string()
+			} else {
+				action.to_string()
+			};
 			let mut any_ok = false;
+			let mut pending = Vec::new();
 			for uri in &uris {
 				let src_str = clean_path(uri);
 				let src = Path::new(&src_str);
 				if !src.exists() {
 					continue;
 				}
-				if let Some(fname_os) = src.file_name() {
-					let fname = fname_os.to_string_lossy().to_string();
-					let mut dst = dest_path.join(&fname);
-					match action_str.as_str() {
-						"move" => {
-							if src == dst {
-								continue;
-							}
-							if move_item(src, &dst) {
+				let Some(fname_os) = src.file_name() else {
+					continue;
+				};
+				let fname = fname_os.to_string_lossy().to_string();
+				let dst = dest_path.join(&fname);
+				// The one gate: a source that is not the user's to destroy is
+				// never copied or moved.  Copying a view of machine state is
+				// meaningless, and moving it would either unlink the only handle
+				// or materialise a virtual folder through move_item()'s
+				// copy-then-delete fallback (docs §5.4, §7.2).
+				let destroyable = crate::destroy::can_destroy(src);
+				match action_str.as_str() {
+					"move" => {
+						if src == dst {
+							continue;
+						}
+						if !destroyable {
+							if link_item(src, &dst) {
 								any_ok = true;
+								if virtual_dest {
+									note_virtual_drop(&mut pending, dest_path, &dst);
+								}
+							}
+							continue;
+						}
+						if move_for_user(src, &dst) {
+							any_ok = true;
+						}
+					}
+					"link" => {
+						if link_item(src, &dst) {
+							any_ok = true;
+							if virtual_dest {
+								note_virtual_drop(&mut pending, dest_path, &dst);
 							}
 						}
-						"link" => {
-							#[cfg(unix)]
-							{
-								if dst.exists() {
-									dst = unique_path(dest_path, &fname, " (link)");
-								}
-								if std::os::unix::fs::symlink(src, &dst).is_ok() {
-									any_ok = true;
-								}
-							}
-						}
-						_ => {
-							if src == dst || dst.exists() {
-								dst = unique_path(dest_path, &fname, " (copy)");
-							}
-							if src.is_dir() {
-								if copy_dir_recursive(src, &dst) {
-									any_ok = true;
-								}
-							} else if fs::copy(src, &dst).is_ok() {
+					}
+					_ => {
+						if !destroyable {
+							if link_item(src, &dst) {
 								any_ok = true;
+								if virtual_dest {
+									note_virtual_drop(&mut pending, dest_path, &dst);
+								}
+							}
+							continue;
+						}
+						let dst = if src == dst || dst.exists() {
+							unique_path(dest_path, &fname, " (copy)")
+						} else {
+							dst
+						};
+						if copy_for_user(src, &dst) {
+							any_ok = true;
+							if virtual_dest {
+								note_virtual_drop(&mut pending, dest_path, &dst);
 							}
 						}
 					}
 				}
 			}
+			self.report_declined_drops(pending);
 			any_ok
 		}
 	),
@@ -540,6 +826,53 @@ pub struct FileManager {
 		}
 	),
 
+	/// Whether the entry is a `Type=Button` control rather than an app. A Button
+	/// runs its `Exec` directly (no wrapper, no guest window), so the views give
+	/// it the button sound and none of the app-launch transition (docs §6.2).
+	is_button: qt_method!(
+		fn is_button(&self, path: String) -> bool {
+			let p = clean_path(&path.to_string());
+			crate::desktop_entry::is_button(Path::new(&p))
+		}
+	),
+
+	/// Switch the process icon theme at runtime.  The active ClamOS theme can
+	/// declare `[Icons] Theme=`; ClamTheme calls this when it changes so the
+	/// file tiles follow a dark theme without restarting the shell.
+	set_icon_theme: qt_method!(
+		fn set_icon_theme(&self, theme: String) -> bool {
+			crate::kde_bridge::set_icon_theme(&theme)
+		}
+	),
+
+	/// A folder icon recoloured to the current accent, as a cached `file://`
+	/// PNG.  Breeze draws the folder body with its `ColorScheme-Accent` class,
+	/// so this is how folders follow the accent the way KDE apps do.  Returns
+	/// an empty string when the icon cannot be rendered, so the caller can keep
+	/// the plain themed icon name.
+	accent_icon: qt_method!(
+		fn accent_icon(
+			&self,
+			name: String,
+			size: i32,
+			accent_r: i32,
+			accent_g: i32,
+			accent_b: i32,
+			text_r: i32,
+			text_g: i32,
+			text_b: i32,
+		) -> String {
+			let clamp = |value: i32| value.clamp(0, 255) as u8;
+			crate::kde_bridge::accent_icon(
+				&name,
+				size.max(1) as u32,
+				(clamp(accent_r), clamp(accent_g), clamp(accent_b)),
+				(clamp(text_r), clamp(text_g), clamp(text_b)),
+			)
+			.unwrap_or_default()
+		}
+	),
+
 	get_home_directory: qt_method!(
 		pub fn get_home_directory(&self) -> String {
 			dirs::home_dir()
@@ -549,11 +882,132 @@ pub struct FileManager {
 	),
 }
 
+impl FileManager {
+	/// Give accepted drops a moment to be consumed, then tell QML about the
+	/// names the virtual folder left behind.  The wait covers the whole drop so
+	/// a multi-file drop does not pay it once per file.
+	fn report_declined_drops(&self, pending: Vec<(PathBuf, String)>) {
+		if pending.is_empty() {
+			return;
+		}
+		let deadline = Instant::now() + DROP_SETTLE;
+		let mut remaining = pending;
+		loop {
+			remaining.retain(|(dir, name)| !drop_was_kept(dir, name));
+			if remaining.is_empty() || Instant::now() >= deadline {
+				break;
+			}
+			std::thread::sleep(Duration::from_millis(50));
+		}
+		for (_, name) in remaining {
+			self.drop_declined(name);
+		}
+	}
+}
+
+/// Carry out a Cut into `dest`, one URI at a time.
+///
+/// A generated entry that names a `Destroy=` command is not moved: for it,
+/// Cut-then-Paste means *destroy* — the same thing Trash does — because moving
+/// the file would leave the NetworkManager profile (or paired device) behind and
+/// the provider would write the entry straight back (docs §6.3).  A source that
+/// cannot be destroyed degrades to a link, exactly as a drag move does
+/// (docs §5.4, §7.2), and everything else is an ordinary move.
+fn cut_into(dest: &Path, uris: &[String], pending: &mut Vec<(PathBuf, String)>) -> bool {
+	// Cut into a virtual folder is a copy for the same reason a drag is: the
+	// provider owns the listing and may ignore the write entirely.
+	let copy = is_virtual_folder(dest);
+	let mut any_ok = false;
+	for uri in uris {
+		let src = Path::new(uri);
+		if !src.exists() {
+			continue;
+		}
+		let Some(name) = src.file_name() else {
+			continue;
+		};
+		let dst = dest.join(name);
+		if src == dst {
+			continue;
+		}
+		if !crate::destroy::can_destroy(src) {
+			if link_item(src, &dst) {
+				any_ok = true;
+				if copy {
+					note_virtual_drop(pending, dest, &dst);
+				}
+			}
+			continue;
+		}
+		let dst = if copy && dst.exists() {
+			unique_path(dest, &name.to_string_lossy(), " (copy)")
+		} else {
+			dst
+		};
+		if copy {
+			if copy_for_user(src, &dst) {
+				any_ok = true;
+				note_virtual_drop(pending, dest, &dst);
+			}
+		} else if move_for_user(src, &dst) {
+			any_ok = true;
+		}
+	}
+	any_ok
+}
+
+/// Move a destroyable source.  A generated entry is destroyed through its
+/// `Destroy=` command; a symlink is only ever the link, so reading through it
+/// must not replace the move with the target's destroy command.
+fn move_for_user(src: &Path, dst: &Path) -> bool {
+	if !is_symlink(src) {
+		let entry = crate::desktop_entry::read(src);
+		if let Some(command) = entry.destroy_command() {
+			return crate::desktop_entry::run_destroy(src, &entry, command);
+		}
+	}
+	move_item(src, dst)
+}
+
+/// Symbolically link `src` at `dst`.  If the name is taken, choose a unique
+/// "… (link)" name beside it, the same way a copy does.
+#[cfg(unix)]
+fn link_item(src: &Path, dst: &Path) -> bool {
+	let dst = if dst.exists() {
+		match (dst.parent(), dst.file_name()) {
+			(Some(parent), Some(name)) => unique_path(parent, &name.to_string_lossy(), " (link)"),
+			_ => dst.to_path_buf(),
+		}
+	} else {
+		dst.to_path_buf()
+	};
+	// Point at what the source names, not at the source symlink, so a copy of a
+	// handle is independent of how long that particular handle survives.  A
+	// canonicalize failure leaves `src` as-is.
+	let target = fs::canonicalize(src).unwrap_or_else(|_| src.to_path_buf());
+	std::os::unix::fs::symlink(target, dst).is_ok()
+}
+
+#[cfg(not(unix))]
+fn link_item(_src: &Path, _dst: &Path) -> bool {
+	false
+}
+
 fn move_item(src: &Path, dst: &Path) -> bool {
 	if fs::rename(src, dst).is_ok() {
 		return true;
 	}
-	// Fallback for cross-filesystem move
+	// Fallback for cross-filesystem move.  A symlink is recreated at the
+	// destination and unlinked here; it is never expanded into its target.
+	if is_symlink(src) {
+		return match (fs::read_link(src), dst.parent()) {
+			(Ok(target), Some(parent)) if parent.is_dir() => {
+				std::os::unix::fs::symlink(target, dst).is_ok()
+					&& fs::remove_file(src).is_ok()
+			}
+			_ => false,
+		};
+	}
 	if src.is_dir() {
 		if copy_dir_recursive(src, dst) {
 			let _ = fs::remove_dir_all(src);
@@ -567,6 +1021,10 @@ fn move_item(src: &Path, dst: &Path) -> bool {
 }
 
 fn copy_dir_recursive(src: &Path, dest: &Path) -> bool {
+	// Never descend through a handle: its target may be a live mount.
+	if is_symlink(src) {
+		return link_item(src, dest);
+	}
 	if fs::create_dir_all(dest).is_err() {
 		return false;
 	}
@@ -795,4 +1253,329 @@ fn percent_decode(s: &str) -> String {
 		i += 1;
 	}
 	out
+}
+
+#[cfg(test)]
+mod tests {
+	use super::{can_rename, cut_into, rename_is_label_only, FileManager};
+	use std::fs;
+	use std::path::PathBuf;
+
+	/// A unique scratch directory for one test.
+	fn scratch(name: &str) -> PathBuf {
+		let dir = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
+		fs::remove_dir_all(&dir).ok();
+		fs::create_dir_all(&dir).unwrap();
+		dir
+	}
+
+	#[test]
+	fn only_ordinary_items_and_declared_provider_entries_can_be_renamed() {
+		let dir = scratch("hishell-rename-gate");
+		let section = dir.join("Bluetooth");
+		fs::create_dir(&section).unwrap();
+		fs::write(
+			section.join(".directory"),
+			"[Desktop Entry]\nType=Directory\nGenerated=true\nName=Bluetooth\n\
+			 Rename=/bin/true %v\n",
+		)
+		.unwrap();
+		let theme = section.join("theme-bundle");
+		fs::create_dir(&theme).unwrap();
+		fs::write(
+			theme.join(".directory"),
+			"[Desktop Entry]\nType=Directory\nGenerated=true\nName=Theme\n\
+			 Rename=/bin/true %v\n",
+		)
+		.unwrap();
+		let ordinary = dir.join("notes.txt");
+		fs::write(&ordinary, "mine\n").unwrap();
+		let wifi = section.join("wpa:abc.desktop");
+		fs::write(
+			&wifi,
+			"[Desktop Entry]\nType=Button\nGenerated=true\nName=Home\n",
+		)
+		.unwrap();
+		let paired = section.join("AA:BB:CC:DD:EE:FF.desktop");
+		fs::write(
+			&paired,
+			"[Desktop Entry]\nType=Button\nGenerated=true\nName=Old label\n\
+			 Rename=/bin/true %v\n",
+		)
+		.unwrap();
+		let handle = dir.join("Bluetooth link");
+		std::os::unix::fs::symlink(&section, &handle).unwrap();
+
+		assert!(can_rename(&ordinary));
+		assert!(!can_rename(&section), "a virtual section is not renamable");
+		assert!(
+			!can_rename(&theme),
+			"a bundle inside a virtual section is not renamable"
+		);
+		assert!(
+			!can_rename(&wifi),
+			"a generated entry without Rename= is not renamable"
+		);
+		assert!(can_rename(&paired), "a paired device may change its label");
+		assert!(rename_is_label_only(&paired));
+		assert!(can_rename(&handle), "the handle is the user's to rename");
+		assert!(
+			!rename_is_label_only(&handle),
+			"renaming the handle must not change the target's label"
+		);
+
+		let fm = FileManager::default();
+		let denied: serde_json::Value =
+			serde_json::from_str(&fm.rename_file(
+				wifi.to_string_lossy().to_string(),
+				"New name".to_string(),
+			))
+			.unwrap();
+		assert_eq!(denied["ok"], false);
+		assert!(wifi.exists());
+		assert_eq!(
+			fs::read_to_string(&wifi).unwrap(),
+			"[Desktop Entry]\nType=Button\nGenerated=true\nName=Home\n"
+		);
+
+		fs::remove_dir_all(&dir).ok();
+	}
+
+	#[test]
+	fn pasting_a_cut_generated_entry_destroys_it_instead_of_moving_it() {
+		let dir = scratch("hishell-cut-destroy");
+		let dest = dir.join("dest");
+		fs::create_dir_all(&dest).unwrap();
+		let entry = dir.join("wpa:abc.desktop");
+		// `/bin/true` stands in for `clam-connect wifi --forget …`: the command
+		// owns the deletion, so the file must still be where it was.
+		fs::write(
+			&entry,
+			"[Desktop Entry]\nType=Button\nName=Home\nExec=clam-connect wifi wpa:abc\n\
+			 Destroy=/bin/true\nGenerated=true\nProvider=wifi\n",
+		)
+		.unwrap();
+
+		assert!(cut_into(&dest, &[entry.to_string_lossy().to_string()], &mut Vec::new()));
+		assert!(entry.exists(), "a destroy is not a move");
+		assert!(!dest.join("wpa:abc.desktop").exists());
+
+		fs::remove_dir_all(&dir).ok();
+	}
+
+	#[test]
+	fn pasting_a_cut_provider_entry_links_it_instead() {
+		let dir = scratch("hishell-cut-link");
+		let dest = dir.join("dest");
+		fs::create_dir_all(&dest).unwrap();
+		let entry = dir.join("00-scan.desktop");
+		fs::write(
+			&entry,
+			"[Desktop Entry]\nType=Button\nName=Scan for networks\nExec=clam-connect wifi --scan\n\
+			 Generated=true\nProvider=wifi\n",
+		)
+		.unwrap();
+
+		assert!(cut_into(&dest, &[entry.to_string_lossy().to_string()], &mut Vec::new()));
+		assert!(entry.exists(), "an undestroyable source is never unlinked");
+		let linked = dest.join("00-scan.desktop");
+		assert!(linked.exists());
+		assert_eq!(fs::read_link(&linked).unwrap(), entry);
+
+		fs::remove_dir_all(&dir).ok();
+	}
+
+	#[test]
+	fn dragging_an_undestroyable_source_links_for_copy_and_move() {
+		let dir = scratch("hishell-drag-link");
+		let dest = dir.join("dest");
+		fs::create_dir_all(&dest).unwrap();
+		let section = dir.join("Wi-Fi");
+		fs::create_dir(&section).unwrap();
+		fs::write(
+			&section.join(".directory"),
+			"[Desktop Entry]\nType=Directory\nGenerated=true\nName=Wi-Fi\n",
+		)
+		.unwrap();
+
+		let fm = FileManager::default();
+		assert!(fm.process_uris_action(
+			dest.to_string_lossy().to_string(),
+			section.to_string_lossy().to_string(),
+			"copy".to_string()
+		));
+		let copied = dest.join("Wi-Fi");
+		assert!(fs::symlink_metadata(&copied).unwrap().file_type().is_symlink());
+		assert!(section.exists(), "copy never touches the source");
+
+		let other = dir.join("other");
+		fs::create_dir_all(&other).unwrap();
+		assert!(fm.process_uris_action(
+			other.to_string_lossy().to_string(),
+			section.to_string_lossy().to_string(),
+			"move".to_string()
+		));
+		let moved = other.join("Wi-Fi");
+		assert!(fs::symlink_metadata(&moved).unwrap().file_type().is_symlink());
+		assert!(section.exists(), "moving an undestroyable source links instead");
+
+		fs::remove_dir_all(&dir).ok();
+	}
+
+	#[test]
+	fn dropping_a_file_into_a_virtual_folder_copies_and_keeps_the_source() {
+		let dir = scratch("hishell-drop-virtual");
+		let section = dir.join("Bluetooth");
+		fs::create_dir(&section).unwrap();
+		fs::write(
+			section.join(".directory"),
+			"[Desktop Entry]\nType=Directory\nGenerated=true\nName=Bluetooth\n",
+		)
+		.unwrap();
+		let source = dir.join("notes.txt");
+		fs::write(&source, "keep me\n").unwrap();
+
+		let fm = FileManager::default();
+		assert!(fm.process_uris_action(
+			section.to_string_lossy().to_string(),
+			source.to_string_lossy().to_string(),
+			"move".to_string()
+		));
+		assert!(
+			source.exists(),
+			"a provider that ignores the drop must not eat the source"
+		);
+		assert_eq!(
+			fs::read_to_string(section.join("notes.txt")).unwrap(),
+			"keep me\n"
+		);
+
+		fs::remove_dir_all(&dir).ok();
+	}
+
+	#[test]
+	fn a_symlink_handle_is_copied_and_moved_as_a_link() {
+		let dir = scratch("hishell-drag-handle");
+		let dest = dir.join("dest");
+		fs::create_dir_all(&dest).unwrap();
+		let section = dir.join("Wi-Fi");
+		fs::create_dir(&section).unwrap();
+		fs::write(
+			&section.join(".directory"),
+			"[Desktop Entry]\nType=Directory\nGenerated=true\nName=Wi-Fi\n",
+		)
+		.unwrap();
+		let handle = dir.join("Wi-Fi link");
+		std::os::unix::fs::symlink(&section, &handle).unwrap();
+
+		let fm = FileManager::default();
+		assert!(fm.process_uris_action(
+			dest.to_string_lossy().to_string(),
+			handle.to_string_lossy().to_string(),
+			"copy".to_string()
+		));
+		let copied = dest.join("Wi-Fi link");
+		assert!(
+			fs::symlink_metadata(&copied)
+				.unwrap()
+				.file_type()
+				.is_symlink(),
+			"copying a handle must not materialise the section"
+		);
+		assert!(section.exists());
+
+		let other = dir.join("other");
+		fs::create_dir_all(&other).unwrap();
+		assert!(fm.process_uris_action(
+			other.to_string_lossy().to_string(),
+			handle.to_string_lossy().to_string(),
+			"move".to_string()
+		));
+		let moved = other.join("Wi-Fi link");
+		assert!(fs::symlink_metadata(&moved).unwrap().file_type().is_symlink());
+		assert!(!handle.exists(), "the handle itself moved");
+		assert!(section.exists(), "the section stayed where it was");
+
+		fs::remove_dir_all(&dir).ok();
+	}
+
+	#[test]
+	fn a_handle_to_a_generated_entry_moves_without_running_its_destroy() {
+		let dir = scratch("hishell-drag-entry-handle");
+		let dest = dir.join("dest");
+		fs::create_dir_all(&dest).unwrap();
+		let entry = dir.join("wpa:abc.desktop");
+		fs::write(
+			&entry,
+			"[Desktop Entry]\nType=Button\nGenerated=true\nName=Home\n\
+			 Destroy=/bin/false\n",
+		)
+		.unwrap();
+		let handle = dir.join("Home link");
+		std::os::unix::fs::symlink(&entry, &handle).unwrap();
+
+		let fm = FileManager::default();
+		assert!(
+			fm.process_uris_action(
+				dest.to_string_lossy().to_string(),
+				handle.to_string_lossy().to_string(),
+				"move".to_string()
+			),
+			"the handle moves; its target's Destroy= must not run"
+		);
+		let moved = dest.join("Home link");
+		assert!(fs::symlink_metadata(&moved).unwrap().file_type().is_symlink());
+		assert!(!handle.exists());
+		assert!(entry.exists(), "the generated entry stayed in its section");
+
+		fs::remove_dir_all(&dir).ok();
+	}
+
+	#[test]
+	fn dragging_a_visible_network_copies_as_a_link() {
+		let dir = scratch("hishell-drag-network");
+		let dest = dir.join("dest");
+		fs::create_dir_all(&dest).unwrap();
+		let entry = dir.join("wpa:abc.desktop");
+		fs::write(
+			&entry,
+			"[Desktop Entry]\nType=Button\nGenerated=true\nName=Visible\n",
+		)
+		.unwrap();
+
+		let fm = FileManager::default();
+		assert!(fm.process_uris_action(
+			dest.to_string_lossy().to_string(),
+			entry.to_string_lossy().to_string(),
+			"copy".to_string()
+		));
+		let linked = dest.join("wpa:abc.desktop");
+		assert!(fs::symlink_metadata(&linked).unwrap().file_type().is_symlink());
+		assert!(entry.exists());
+		assert_eq!(fs::read_link(&linked).unwrap(), entry);
+
+		fs::remove_dir_all(&dir).ok();
+	}
+
+	#[test]
+	fn pasting_a_cut_ordinary_file_moves_it() {
+		let dir = scratch("hishell-cut-move");
+		let dest = dir.join("dest");
+		fs::create_dir_all(&dest).unwrap();
+		let file = dir.join("holiday.txt");
+		fs::write(&file, "sun\n").unwrap();
+
+		assert!(cut_into(&dest, &[file.to_string_lossy().to_string()], &mut Vec::new()));
+		assert!(!file.exists());
+		assert_eq!(fs::read_to_string(dest.join("holiday.txt")).unwrap(), "sun\n");
+
+		fs::remove_dir_all(&dir).ok();
+	}
+
+	#[test]
+	fn a_staged_drop_that_is_never_listed_was_declined() {
+		assert!(!super::drop_kept(true, false));
+		assert!(super::drop_kept(true, true));
+		assert!(super::drop_kept(false, false));
+	}
 }

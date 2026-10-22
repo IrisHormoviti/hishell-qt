@@ -417,6 +417,9 @@ pub struct FocusManager {
 	// Items whose app is currently suspended, refreshed when the session
 	// markers change (which is exactly when the set can change).
 	active_items: Vec<String>,
+	// Whether a launched app has taken the gamepad (the input-grab marker), for
+	// change detection; the shell then drops pad input but keeps drawing.
+	input_grabbed: bool,
 
 	register_pane: qt_method!(
 		fn register_pane(&mut self) -> i32 {
@@ -707,14 +710,17 @@ pub struct FocusManager {
 			// no shell sounds leak into the game.
 			let suspended = crate::session::suspended();
 			let hidden = crate::session::hidden();
+			let grabbed = crate::session::input_grabbed();
 			let return_frame = bottom_shot_url();
 			if suspended != self.suspended
 				|| hidden != self.hidden
+				|| grabbed != self.input_grabbed
 				|| return_frame != self.return_frame_url
 			{
-				let was_paused = self.suspended || self.hidden;
+				let was_paused = self.suspended || self.hidden || self.input_grabbed;
 				self.suspended = suspended;
 				self.hidden = hidden;
+				self.input_grabbed = grabbed;
 				self.return_frame_url = return_frame;
 				// The suspended set can only change with the markers, so this is
 				// the cheap place to refresh the per-item "active" marks.
@@ -729,11 +735,11 @@ pub struct FocusManager {
 				// the panels is stale, and a button still held at the moment of
 				// the hand-back must not be treated as a fresh press. Drop it
 				// all, or the app that was just closed launches again.
-				if was_paused && !(suspended || hidden) {
+				if was_paused && !(suspended || hidden || grabbed) {
 					crate::gamepad::discard();
 				}
 			}
-			if suspended || hidden {
+			if suspended || hidden || grabbed {
 				// The app owns the buttons; do not let presses pile up for the
 				// shell to replay when it returns.
 				crate::gamepad::discard();

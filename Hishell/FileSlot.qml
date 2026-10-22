@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import ClamOS.Theme
 import Hishell
 
 Item {
@@ -25,6 +26,16 @@ Item {
 	property int gridSize: 64
 	property bool labelBesideIcon: gridSize < 32
 	property bool showLabels: true
+	// Folders (and the home icon) are recoloured to the accent by the shell
+	// (Breeze draws their bodies with its ColorScheme-Accent class); anything
+	// else keeps the icon its resolver chose, and an icon that cannot be
+	// recoloured falls back to its plain name.
+	readonly property string displayIcon: {
+		if (!fileSlot.is_dir)
+			return fileSlot.icon;
+		const recoloured = ClamTheme.accentFolderIcon(fileManager, fileSlot.icon, fileSlot.iconDisplaySize);
+		return recoloured.length > 0 ? recoloured : fileSlot.icon;
+	}
 	// With no label the icon takes over the whole slot, so the view reads as a gallery.
 	readonly property real iconDisplaySize: fileSlot.showLabels ? fileSlot.gridSize : Math.max(fileSlot.gridSize, Math.min(fileSlot.width, fileSlot.height) - Kirigami.Units.smallSpacing * 2)
 	// Whether the label shows the file name instead of the item's title.
@@ -33,7 +44,50 @@ Item {
 	property bool showIcon: icon !== ""
 	required property bool is_symlink
 	required property int index
-	property bool is_dir: false
+	// The delegate model does not hand the `is_dir` role to a same-named
+	// property, so derive it from the path. Views that know better (the path
+	// bar) can still override it.
+	property bool is_dir: fileManager ? fileManager.is_directory(String(fileSlot.path)) : false
+
+	// A `Type=Button` entry is a control, not a thing to open (docs §2 of
+	// docs/settings-as-folders.md): it acts where it stands. Drawing it like the
+	// files and folders around it made the two read the same, so it is drawn as
+	// a button instead — a filled, rounded plate behind the icon and label,
+	// which is the shape every other control on the device already has.
+	readonly property bool isButton: fileManager ? fileManager.is_button(String(fileSlot.path)) : false
+
+	// Some slots represent the same path family without being a choice in the
+	// parent folder's radio group (path-bar breadcrumbs); they opt out here.
+	property bool radioMember: true
+
+	// A child of a folder-owned `[Radio]` group (docs/theming.md): the parent
+	// folder decides whether this item is selectable and owns the selection; the
+	// child carries only display metadata.  `radio_only` narrows the group to
+	// directories or files.
+	readonly property bool isRadio: {
+		if (!fileSlot.radioMember)
+			return false;
+		const view = fileSlot.folderView;
+		if (!view || !view.directory || !view.directory.config || !view.directory.config.radio_enabled)
+			return false;
+		const only = view.directory.config.radio_only;
+		return only === 0 || (only === 1 && fileSlot.is_dir) || (only === 2 && !fileSlot.is_dir);
+	}
+	readonly property string radioValue: {
+		if (!fileSlot.isRadio || !fileSlot.folderView || !fileSlot.folderView.directory)
+			return "";
+		return String(fileSlot.folderView.directory.radio_value(fileSlot.path));
+	}
+	readonly property bool isRadioSelected: {
+		const view = fileSlot.folderView;
+		if (!fileSlot.isRadio || !view || !view.directory || !view.directory.config)
+			return false;
+		return String(view.directory.config.radio_selected) === fileSlot.radioValue;
+	}
+
+	// The selected radio choice is the folder's current item, so give it the
+	// same active treatment (bold label, selection wash) as an active item.
+	readonly property bool active: fileSlot.isActive || fileSlot.isRadioSelected
 
 	// The FolderView that owns this slot; used to detect free-placement mode,
 	// where the background DropArea owns all drops (including folder targets).
@@ -83,7 +137,11 @@ Item {
 			w.sound.play(name);
 	}
 
-	property bool isDraggingThisSlot: localDragTarget.Drag.active
+	// True while this slot's payload is the active native drag. Set by the drag
+	// handlers (the drag source itself is the window's persistent item, so this
+	// cannot be read from a Drag object here). Kept a plain property so the
+	// cleanup below cannot form a binding loop with the drag handler's state.
+	property bool isDraggingThisSlot: false
 	onIsDraggingThisSlotChanged: {
 		if (!isDraggingThisSlot && mouseArea.dragStarted) {
 			mouseArea.dragStarted = false;
@@ -93,6 +151,21 @@ Item {
 				fileSlot.dragDropHandler.tooltip_active = false;
 				fileSlot.dragDropHandler.end_drag();
 			}
+		}
+	}
+
+	// A native drag is ended by the platform, so this slot's MouseArea never
+	// sees the release. The window clears internalDragInProcess when the drag
+	// finishes; drop the dragging state here so the slot is not left dimmed.
+	Connections {
+		target: fileSlot.window
+		function onInternalDragInProcessChanged() {
+			if (!fileSlot.isDraggingThisSlot)
+				return;
+			if (target && target.internalDragInProcess)
+				return;
+			mouseArea.dragStarted = false;
+			fileSlot.isDraggingThisSlot = false;
 		}
 	}
 
@@ -214,6 +287,111 @@ Item {
 		}
 	}
 
+	// ── Button plate ──
+	// Only for `Type=Button` entries. The same footprint as the selection box:
+	// the whole slot, inset by smallSpacing, so a button, a selected item and a
+	// focused one all cover the same area. Every button being the same size
+	// comes free. The surface is a raised key: a shaded rim with a lighter face
+	// set into it, a top highlight, a bottom shade and a soft blurred drop
+	// shadow; pressing sinks the face into the shadow.
+	Item {
+		id: buttonPlate
+		visible: fileSlot.isButton
+		anchors.fill: parent
+		anchors.margins: Kirigami.Units.smallSpacing
+
+		readonly property bool down: mouseArea.pressed
+		readonly property bool hot: mouseArea.containsMouse
+		readonly property real plateRadius: Kirigami.Units.cornerRadius * 1.5
+		readonly property color body: down ? Qt.lighter(Kirigami.Theme.highlightColor, 1.25)
+			: (hot ? Qt.lighter(Kirigami.Theme.backgroundColor, 1.10) : Kirigami.Theme.backgroundColor)
+
+		// Soft drop shadow, stacked translucent rounded rectangles (renders on
+		// every backend); each layer is the rim pushed down by `d` and grown
+		// by `s`.
+		readonly property var shadowLayers: [
+			{ "s": 1.0, "d": 1.5, "o": 0.10 },
+			{ "s": 2.0, "d": 2.5, "o": 0.07 },
+			{ "s": 3.0, "d": 3.5, "o": 0.05 },
+			{ "s": 4.0, "d": 4.5, "o": 0.03 }
+		]
+		Repeater {
+			model: buttonPlate.shadowLayers
+			Rectangle {
+				required property var modelData
+				anchors.fill: buttonRim
+				anchors.leftMargin: -modelData.s
+				anchors.rightMargin: -modelData.s
+				anchors.topMargin: modelData.d - modelData.s
+				anchors.bottomMargin: -(modelData.s + modelData.d)
+				radius: buttonRim.radius + modelData.s
+				color: ClamTheme.shadowColor
+				opacity: buttonPlate.down ? modelData.o * 0.5 : modelData.o
+			}
+		}
+
+		Rectangle {
+			id: buttonRim
+			anchors.fill: parent
+			anchors.topMargin: buttonPlate.down ? 1 : 0
+			radius: buttonPlate.plateRadius
+			gradient: Gradient {
+				GradientStop { position: 0.0; color: Qt.darker(buttonPlate.body, 1.03) }
+				GradientStop { position: 0.5; color: Qt.darker(buttonPlate.body, 1.08) }
+				GradientStop { position: 1.0; color: buttonPlate.down ? Qt.darker(buttonPlate.body, 1.12) : Qt.darker(buttonPlate.body, 1.16) }
+			}
+			border.width: 1
+			border.color: buttonPlate.down || buttonPlate.hot ? Kirigami.Theme.highlightColor : Qt.alpha(Kirigami.Theme.disabledTextColor, 0.7)
+		}
+		Rectangle {
+			id: buttonFace
+			anchors.fill: buttonRim
+			anchors.margins: 2
+			radius: Math.max(2, buttonPlate.plateRadius - 2)
+			gradient: Gradient {
+				GradientStop { position: 0.0; color: buttonPlate.down ? Qt.darker(buttonPlate.body, 1.05) : Qt.lighter(buttonPlate.body, 1.08) }
+				GradientStop { position: 0.10; color: buttonPlate.body }
+				GradientStop { position: 0.72; color: buttonPlate.body }
+				GradientStop { position: 0.92; color: buttonPlate.down ? Qt.darker(buttonPlate.body, 1.06) : Qt.darker(buttonPlate.body, 1.03) }
+				GradientStop { position: 1.0; color: buttonPlate.down ? Qt.darker(buttonPlate.body, 1.10) : Qt.darker(buttonPlate.body, 1.07) }
+			}
+		}
+	}
+
+	// ── Radio plate ──
+	// A child of a folder-owned radio group is a choice, not an app: a card
+	// behind it, and an accent border plus wash when it is the selected one.
+	// The parent folder owns the group and runs the apply command.
+	Rectangle {
+		id: radioPlate
+		visible: fileSlot.isRadio
+		anchors.fill: parent
+		anchors.margins: Kirigami.Units.smallSpacing
+		radius: Kirigami.Units.cornerRadius * 1.5
+		color: mouseArea.pressed ? Qt.alpha(Kirigami.Theme.highlightColor, 0.25)
+			: (mouseArea.containsMouse ? Qt.lighter(Kirigami.Theme.backgroundColor, 1.15) : Kirigami.Theme.backgroundColor)
+		border.width: 1
+		border.color: fileSlot.isRadioSelected ? Kirigami.Theme.highlightColor : Kirigami.Theme.disabledTextColor
+		opacity: fileSlot.isRadioSelected ? 1.0 : 0.75
+
+		// The selected choice gets an accent wash, so it reads as the current
+		// item even where the plate hides the selection rectangle behind it.
+		Rectangle {
+			anchors.fill: parent
+			radius: parent.radius
+			color: Kirigami.Theme.highlightColor
+			opacity: fileSlot.isRadioSelected ? 0.12 : 0.0
+			Behavior on opacity { NumberAnimation { duration: fileSlot.animationDuration } }
+		}
+
+		Behavior on border.color {
+			ColorAnimation { duration: fileSlot.animationDuration }
+		}
+		Behavior on opacity {
+			NumberAnimation { duration: fileSlot.animationDuration; easing.type: fileSlot.animationEase }
+		}
+	}
+
 	// ── Layout ──
 
 	GridLayout {
@@ -231,13 +409,13 @@ Item {
 			Loader {
 				anchors.fill: parent
 				active: fileSlot.showIcon
-				sourceComponent: (fileSlot.icon.startsWith("file://") || fileSlot.icon.startsWith("/")) ? thumbnailComponent : iconComponent
+				sourceComponent: (fileSlot.displayIcon.startsWith("file://") || fileSlot.displayIcon.startsWith("/")) ? thumbnailComponent : iconComponent
 			}
 
 			Component {
 				id: thumbnailComponent
 				Image {
-					source: fileSlot.icon
+					source: fileSlot.displayIcon
 					asynchronous: true
 					cache: false
 					fillMode: Image.PreserveAspectFit
@@ -251,7 +429,7 @@ Item {
 			Component {
 				id: iconComponent
 				Kirigami.Icon {
-					source: fileSlot.icon
+					source: fileSlot.displayIcon
 					Layout.preferredWidth: fileSlot.gridSize
 					Layout.preferredHeight: fileSlot.gridSize
 					Layout.fillWidth: false
@@ -268,22 +446,70 @@ Item {
 			text: {
 				let t = fileSlot.labelText;
 
-				let idx = t.lastIndexOf('.');
+				let styled = t;
+				const idx = t.lastIndexOf('.');
 				if (idx > 0 && !(t.startsWith('.') && t.indexOf('.', 1) === -1)) {
-					let name = t.substring(0, idx);
-					let ext = t.substring(idx);
-					return name + '<font color="' + Kirigami.Theme.disabledTextColor + '">' + ext + '</font>';
+					const name = t.substring(0, idx);
+					const ext = t.substring(idx);
+					styled = name + '<font color="' + Kirigami.Theme.disabledTextColor + '">' + ext + '</font>';
 				}
 				return t;
 			}
 			textFormat: Text.StyledText
-			font.italic: fileSlot.is_symlink
-			font.bold: fileSlot.isActive
 			color: Kirigami.Theme.textColor
 			wrapMode: Text.Wrap
 			maximumLineCount: 2
+
+			// Pin the font metrics so the italic face used for symlinks keeps
+			// the same size as the surrounding text.  Left to inherit, asking
+			// for italic can resolve to a fallback with a different point size
+			// (the "both point size and pixel size set" warning) and the
+			// symlink label renders smaller.
+			// Qt resolves the italic face of the default font at a smaller
+			// metric than the upright one on this device (the app font has both
+			// a point and a pixel size).  Measure both at the base size and
+			// scale the italic request up so the symlink label is the same
+			// height as the regular one.
+			readonly property real labelBasePixelSize: Qt.application.font.pixelSize
+
+			FontMetrics {
+				id: baseRegularFontMetrics
+				font: Qt.font({
+					family: Qt.application.font.family,
+					pixelSize: labelItem.labelBasePixelSize,
+					italic: false
+				})
+			}
+			FontMetrics {
+				id: baseItalicFontMetrics
+				font: Qt.font({
+					family: Qt.application.font.family,
+					pixelSize: labelItem.labelBasePixelSize,
+					italic: true
+				})
+			}
+			readonly property real labelItalicScale: baseItalicFontMetrics.height > 0
+				? baseRegularFontMetrics.height / baseItalicFontMetrics.height
+				: 1.0
+
+			font: Qt.font({
+				family: Qt.application.font.family,
+				pixelSize: fileSlot.is_symlink
+					? Math.round(labelItem.labelBasePixelSize * labelItem.labelItalicScale)
+					: labelItem.labelBasePixelSize,
+				weight: Qt.application.font.weight,
+				italic: fileSlot.is_symlink,
+				bold: fileSlot.active
+			})
+
 			elide: fileSlot.labelBesideIcon ? Text.ElideMiddle : Text.ElideMiddle
-			Layout.maximumWidth: fileSlot.labelBesideIcon ? (fileSlot.fixedWidth ? fileSlot.width - fileSlot.gridSize - Kirigami.Units.gridUnit * 2 : 250) : fileSlot.gridSize + Kirigami.Units.gridUnit * 2
+			// A button's label is bounded by its plate; an ordinary item's by
+			// the grid cell it lives in.
+			Layout.maximumWidth: fileSlot.isButton
+				? buttonPlate.width - Kirigami.Units.largeSpacing * 2
+				: (fileSlot.isRadio
+					? radioPlate.width - Kirigami.Units.largeSpacing * 2
+					: (fileSlot.labelBesideIcon ? (fileSlot.fixedWidth ? fileSlot.width - fileSlot.gridSize - Kirigami.Units.gridUnit * 2 : 250) : fileSlot.gridSize + Kirigami.Units.gridUnit * 2))
 			horizontalAlignment: fileSlot.labelBesideIcon ? Text.AlignLeft : Text.AlignHCenter
 		}
 	}
@@ -325,7 +551,7 @@ Item {
 		anchors.margins: isSelected ? Kirigami.Units.smallSpacing : 0
 		radius: Kirigami.Units.cornerRadius
 		color: Kirigami.Theme.highlightColor
-		opacity: (fileSlot.isSelected ? 0.25 : 0.0) || (fileSlot.isActive ? 0.5 : 0.0)
+		opacity: (fileSlot.isSelected ? 0.25 : 0.0) || (fileSlot.active ? 0.5 : 0.0)
 		Behavior on opacity {
 			NumberAnimation {
 				duration: fileSlot.animationDuration
@@ -463,7 +689,17 @@ Item {
 		}
 
 		onPositionChanged: drag => {
-			checkValid(drag);
+			// Keep the spring-load timer alive while the folder stays hovered;
+			// `onEntered` may not have fired if the drag started already inside.
+			if (checkValid(drag) && !hoverNavTimer.running)
+				hoverNavTimer.restart();
+			// Track the cursor here too: the background drop area does not get
+			// the moves while the drag is over an item, and the drag ghost and
+			// tooltip follow this position.
+			if (typeof dragDropHandler !== 'undefined' && dragDropHandler) {
+				const pt = slotDropArea.mapToItem(null, drag.x, drag.y);
+				dragDropHandler.update_cursor(pt.x, pt.y);
+			}
 		}
 
 		onExited: {
@@ -491,13 +727,17 @@ Item {
 			}
 
 			if (uris.length > 0 && typeof fileManager !== 'undefined' && fileManager) {
-				const action = (typeof dragDropHandler !== 'undefined' && dragDropHandler.drag_action) ? dragDropHandler.drag_action : "copy";
+				const action = (typeof dragDropHandler !== 'undefined' && dragDropHandler.drag_action) ? dragDropHandler.drag_action : "move";
 				if (fileManager.process_uris_action(fileSlot.path, uris, action)) {
 					fileSlot.playSound("drag-accept");
 					let p = fileSlot.parent;
 					while (p) {
 						if (p.directory) {
-							p.directory.reload();
+							const win = fileSlot.window;
+							if (win && typeof win.requestDirectoryReload === 'function')
+								win.requestDirectoryReload(p.directory);
+							else
+								p.directory.reload();
 							break;
 						}
 						p = p.parent;
@@ -512,7 +752,7 @@ Item {
 
 	Timer {
 		id: hoverNavTimer
-		interval: 800
+		interval: 600
 		repeat: false
 		onTriggered: {
 			if (slotDropArea.isHovered && fileSlot.is_dir) {
@@ -520,8 +760,16 @@ Item {
 				if (typeof fileSlot.dragDropHandler !== 'undefined')
 					fileSlot.dragDropHandler.tooltip_active = false;
 				Qt.callLater(function () {
-					if (fileSlot.actionManager && fileSlot.actionManager.openAction)
+					// Open it in the view that owns this slot, rather than
+					// whichever pane happens to hold the cursor.
+					const fView = fileSlot.folderView;
+					const dir = fView ? fView.directory : null;
+					if (dir) {
+						fileSlot.playSound("window-new");
+						dir.open_path(targetPath);
+					} else if (fileSlot.actionManager && fileSlot.actionManager.openAction) {
 						fileSlot.actionManager.openAction.execute(targetPath, fileSlot, false);
+					}
 				});
 			}
 		}
@@ -529,20 +777,19 @@ Item {
 
 	// ── Mouse & Drag Handling ───
 
+	// The MouseArea's drag target. The payload is carried by the window's
+	// persistent nativeDragSource (see ShellWindow), so this item never owns the
+	// QDrag and can be destroyed when the view reloads.
 	Item {
 		id: localDragTarget
 		width: fileSlot.width > 0 ? fileSlot.width : fileSlot.implicitWidth
 		height: fileSlot.height > 0 ? fileSlot.height : fileSlot.implicitHeight
-		Drag.keys: ["text/uri-list", "text/plain"]
-		property DragDropHandler dragDropHandler: fileSlot.dragDropHandler ? fileSlot.dragDropHandler : null
-		Drag.mimeData: {
-			"text/uri-list": dragDropHandler ? dragDropHandler.drag_uris.join("\n") : ""
-		}
-		Drag.supportedActions: Qt.CopyAction | Qt.MoveAction
-		Drag.proposedAction: Qt.MoveAction
-		Drag.dragType: Drag.Automatic
-		Drag.active: false
-		Drag.hotSpot: Qt.point(Math.round(width / 2), Math.round(height / 2))
+	}
+
+	// Hand the in-window free-placement drag to the window's OS drag source.
+	// Wrapper so FolderView can call it on the slot (see MouseArea).
+	function handOffRepositionDrag(sceneX, sceneY) {
+		mouseArea.handOffRepositionDrag(sceneX, sceneY);
 	}
 
 	// What a plain left click on this item does. With OpenOnClick off, a click
@@ -554,7 +801,9 @@ Item {
 		if (fileSlot.openOnClick || fileSlot.isFocused) {
 			fileSlot.actionManager.activatePath(fileSlot.path, fileSlot);
 		} else if (fileSlot.folderView && typeof fileSlot.folderView.focusSlot === 'function') {
-			fileSlot.folderView.focusSlot(fileSlot.path);
+			// Do not reveal the item: scrolling it into view would move the grid
+			// before a quick second tap on the same spot lands.
+			fileSlot.folderView.focusSlot(fileSlot.path, false);
 		}
 	}
 
@@ -577,13 +826,41 @@ Item {
 		property DragDropHandler dragDropHandler: fileSlot.dragDropHandler ? fileSlot.dragDropHandler : null
 		property bool dragStarted: false
 		property bool isPressAndHoldActive: false
+		// True between press and release. The native-drag image grab is
+		// asynchronous: if the finger is lifted before it finishes, starting the
+		// drag then would leave a drag with no button held ("starts and
+		// instantly stops"), so the callback checks this first.
+		property bool pointerDown: false
+		// Drag ghost grabbed while the finger is held, so a drag that starts on
+		// the next move does not wait for an asynchronous render on the slow
+		// software renderer (which can outlast the whole gesture).
+		property string cachedDragImage: ""
+		// The grab result behind cachedDragImage. The URL only stays valid while
+		// the result object is alive, and a spring-load handoff can start the OS
+		// drag a long time after the grab.
+		property var cachedGrabResult: null
 
 		property int startX: 0
 		property int startY: 0
+		// Finger position in scene coordinates and the view position at press,
+		// so a canceled press can tell a tap from a scroll that moved the view.
+		property real startSceneX: 0
+		property real startSceneY: 0
+		property real pressContentY: 0
+		// The last pointer position seen while the button is down, in scene
+		// coordinates. The release point of a touch is wrong on this device
+		// (offset by the window width under QT_SCALE_FACTOR > 1, the same bug
+		// ViewSlider works around), so release must reuse the last move point
+		// instead of the release event's coordinates.
+		property real lastSceneX: 0
+		property real lastSceneY: 0
+		property real lastLocalX: 0
+		property real lastLocalY: 0
 		property bool dragInitiated: false
 		property bool repositionDrag: false
 
 		Component.onDestruction: {
+			mouseArea.pointerDown = false;
 			if (typeof dragDropHandler !== 'undefined' && mouseArea.repositionDrag) {
 				const fView = fileSlot.folderView;
 				if (fView)
@@ -598,27 +875,64 @@ Item {
 			}
 		}
 
+		function startNativeDrag(url, width, height, wx, wy) {
+			if (typeof dragDropHandler !== 'undefined' && dragDropHandler) {
+				dragDropHandler.track_mouse_shake(wx, wy);
+				dragDropHandler.begin_drag(String(url), width, height);
+			}
+
+			const win = fileSlot.window;
+			if (win && typeof win.startNativeDrag === 'function') {
+				win.internalDragInProcess = true;
+				win.startNativeDrag(String(url), width, height);
+			}
+
+			mouseArea.dragStarted = true;
+			fileSlot.isDraggingThisSlot = true;
+		}
+
 		function grabAndStartNativeDrag(wx, wy) {
 			const targetToGrab = contentLayout;
 
+			// A drag ghost grabbed at press-and-hold is ready to use at once, so
+			// the drag keeps up with the finger instead of waiting on a render.
+			if (mouseArea.cachedDragImage !== "" && mouseArea.pointerDown && mouseArea.dragAllowed) {
+				mouseArea.startNativeDrag(mouseArea.cachedDragImage, targetToGrab.width, targetToGrab.height, wx, wy);
+				return;
+			}
+
 			targetToGrab.grabToImage(function (result) {
-				if (!mouseArea.dragAllowed) {
-					if (typeof dragDropHandler !== 'undefined' && dragDropHandler)
+				// The grab is asynchronous; the finger may be up by now, in which
+				// case starting the drag would leave it running with no button
+				// held. Drop it instead.
+				if (!mouseArea.pointerDown || !mouseArea.dragAllowed) {
+					if (typeof dragDropHandler !== 'undefined' && dragDropHandler) {
 						dragDropHandler.active_dragged_paths = [];
+						dragDropHandler.tooltip_active = false;
+						dragDropHandler.reposition_active = false;
+					}
+					localDragTarget.Drag.active = false;
+					mouseArea.dragStarted = false;
 					return;
 				}
 
-				localDragTarget.Drag.imageSource = result.url;
-				localDragTarget.Drag.hotSpot = Qt.point(Math.round(targetToGrab.width / 2), Math.round(targetToGrab.height / 2));
-
-				if (typeof dragDropHandler !== 'undefined' && dragDropHandler) {
-					dragDropHandler.track_mouse_shake(wx, wy);
-					dragDropHandler.begin_drag(result.url.toString(), targetToGrab.width, targetToGrab.height);
-				}
-
-				mouseArea.dragStarted = true;
-				localDragTarget.Drag.active = true;
+				mouseArea.startNativeDrag(result.url, targetToGrab.width, targetToGrab.height, wx, wy);
 			});
+		}
+
+		// Turn the in-window free-placement drag into an OS drag, without
+		// waiting for a release. Spring-load navigation destroys this slot, so
+		// the payload has to move to the window's persistent drag source first.
+		function handOffRepositionDrag(sceneX, sceneY) {
+			if (!mouseArea.repositionDrag)
+				return;
+			mouseArea.repositionDrag = false;
+			const fView = fileSlot.folderView;
+			if (fView && typeof fView.cancelRepositionDrag === 'function')
+				fView.cancelRepositionDrag();
+			if (typeof dragDropHandler !== 'undefined' && dragDropHandler)
+				dragDropHandler.reposition_active = false;
+			mouseArea.grabAndStartNativeDrag(sceneX, sceneY);
 		}
 
 		function initiateDragPayload(mouse) {
@@ -689,6 +1003,14 @@ Item {
 		}
 
 		onPositionChanged: mouse => {
+			// Record where the finger actually is before anything else: this is
+			// the position a release or cancel has to trust.
+			const scene = mouseArea.mapToItem(null, mouse.x, mouse.y);
+			mouseArea.lastSceneX = scene.x;
+			mouseArea.lastSceneY = scene.y;
+			mouseArea.lastLocalX = mouse.x;
+			mouseArea.lastLocalY = mouse.y;
+
 			if (typeof dragDropHandler === 'undefined')
 				return;
 
@@ -727,6 +1049,8 @@ Item {
 
 		onPressed: mouse => {
 			mouseArea.touchInput = mouse.source !== Qt.MouseEventNotSynthesized;
+			if (mouse.button === Qt.LeftButton)
+				mouseArea.pointerDown = true;
 
 			if (mouse.button === Qt.LeftButton && fileSlot.pressHandler)
 				fileSlot.pressHandler(mouse);
@@ -738,15 +1062,27 @@ Item {
 
 				mouseArea.startX = mouse.x;
 				mouseArea.startY = mouse.y;
+
+				const startScene = mouseArea.mapToItem(null, mouse.x, mouse.y);
+				mouseArea.startSceneX = startScene.x;
+				mouseArea.startSceneY = startScene.y;
+				mouseArea.lastSceneX = startScene.x;
+				mouseArea.lastSceneY = startScene.y;
+				mouseArea.lastLocalX = mouse.x;
+				mouseArea.lastLocalY = mouse.y;
+				mouseArea.pressContentY = fileSlot.folderView ? fileSlot.folderView.viewContentY : 0;
 			}
 		}
 
 		onReleased: mouse => {
 			mouseArea.isPressAndHoldActive = false;
 			mouseArea.dragInitiated = false;
+			mouseArea.pointerDown = false;
 
 			if (mouseArea.repositionDrag) {
-				const pt = mouseArea.mapToItem(null, mouse.x, mouse.y);
+				// Trust the last move point, not the release event: the touch
+				// release coordinate is offset on this device.
+				const pt = Qt.point(mouseArea.lastSceneX, mouseArea.lastSceneY);
 				const fView = fileSlot.folderView;
 				if (fView)
 					fView.endRepositionDrag(pt.x, pt.y);
@@ -756,8 +1092,8 @@ Item {
 					dragDropHandler.tooltip_active = false;
 					dragDropHandler.reposition_active = false;
 				}
-				localDragTarget.Drag.active = false;
 				mouseArea.dragStarted = false;
+				fileSlot.isDraggingThisSlot = false;
 				return;
 			}
 
@@ -775,11 +1111,59 @@ Item {
 			localDragTarget.Drag.active = false;
 			localDragTarget.Drag.imageSource = "";
 			mouseArea.dragStarted = false;
+			fileSlot.isDraggingThisSlot = false;
+		}
+
+		onCanceled: {
+			mouseArea.pointerDown = false;
+			// A canceled gesture must not leave a reposition drag running: the
+			// preview ghost and the drop highlight would stay on screen.
+			if (mouseArea.repositionDrag) {
+				const fView = fileSlot.folderView;
+				if (fView)
+					fView.cancelRepositionDrag();
+				mouseArea.repositionDrag = false;
+				if (typeof dragDropHandler !== 'undefined' && dragDropHandler) {
+					dragDropHandler.active_dragged_paths = [];
+					dragDropHandler.tooltip_active = false;
+					dragDropHandler.reposition_active = false;
+				}
+				localDragTarget.Drag.active = false;
+				mouseArea.dragStarted = false;
+				fileSlot.isDraggingThisSlot = false;
+				return;
+			}
+
+			// Qt cancels the press of a rapid second tap even when the view is
+			// not scrolling. Treat that as the tap it was; a real scroll either
+			// moves the view or moves the finger past the tap distance.
+			if (fileSlot.selectionActive || fileSlot.clickHandler)
+				return;
+			if (fileSlot.folderView) {
+				if (fileSlot.folderView.viewMoving
+					|| Math.abs(fileSlot.folderView.viewContentY - mouseArea.pressContentY) > 1)
+					return;
+			}
+			// The release event's coordinates are wrong on this device, so use
+			// the last move point (or the press point for a tap).
+			if (Math.abs(mouseArea.lastSceneX - mouseArea.startSceneX) > 12
+				|| Math.abs(mouseArea.lastSceneY - mouseArea.startSceneY) > 12)
+				return;
+			fileSlot.activateOrFocus();
 		}
 
 		onPressAndHold: {
 			mouseArea.isPressAndHoldActive = true;
 			fileSlot.pressHeld(fileSlot.path, fileSlot.index);
+			// Grab the drag ghost now, while the finger is held, so a drag
+			// starting on the next move begins immediately.
+			contentLayout.grabToImage(function (result) {
+				mouseArea.cachedGrabResult = result;
+				mouseArea.cachedDragImage = result.url.toString();
+				const win = fileSlot.window;
+				if (win && typeof win.preloadDragImage === 'function')
+					win.preloadDragImage(mouseArea.cachedDragImage);
+			});
 		}
 
 		onClicked: mouse => {
@@ -803,8 +1187,34 @@ Item {
 			} else if (fileSlot.clickHandler) {
 				fileSlot.clickHandler(mouse);
 			} else {
+				if (fileSlot.openOnClick || fileSlot.isFocused) {
+					fileSlot.lastActivatedPath = fileSlot.path;
+					fileSlot.lastActivatedTime = Date.now();
+				}
 				fileSlot.activateOrFocus();
 			}
+		}
+
+		// Qt turns a quick second press into a double click and skips its
+		// `clicked`, so with OpenOnClick off the second tap has to be handled
+		// here: on the same item it opens, on another item it moves the cursor.
+		onDoubleClicked: mouse => {
+			if (mouse.button !== Qt.LeftButton || fileSlot.selectionActive
+				|| (mouse.modifiers & Qt.ControlModifier))
+				return;
+			if (fileSlot.clickHandler) {
+				fileSlot.clickHandler(mouse);
+				return;
+			}
+			// A mouse double click has already activated on its first click.
+			if (fileSlot.lastActivatedPath === fileSlot.path
+				&& Date.now() - fileSlot.lastActivatedTime < 400)
+				return;
+			if (fileSlot.openOnClick || fileSlot.isFocused) {
+				fileSlot.lastActivatedPath = fileSlot.path;
+				fileSlot.lastActivatedTime = Date.now();
+			}
+			fileSlot.activateOrFocus();
 		}
 	}
 

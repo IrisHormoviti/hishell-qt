@@ -16,6 +16,23 @@ pub struct DesktopEntry {
 	pub comment: Option<String>,
 	#[allow(dead_code)]
 	pub no_display: bool,
+	/// `Generated=true`: written by a provider daemon into a folder it owns,
+	/// rather than a file the user made (docs `settings-as-folders.md` §4.4).
+	pub generated: bool,
+	/// `Destroy=<command line>`: what destroying this entry means. Only a
+	/// provider-written entry the user actually owns carries one; without it a
+	/// generated entry must not be trashed or cut, because deleting the file
+	/// would just make the daemon write it back (§6.3).
+	pub destroy: Option<String>,
+	/// `Reset=<command line>` on a section's `.directory`: what "reset this
+	/// section" means (docs `clam-configd.md` §5.2).  It is deliberately separate
+	/// from `Destroy=`, because a reset keeps the section's handle.
+	pub reset: Option<String>,
+	/// `Rename=<command line>`: how the provider lets this entry's display
+	/// label change.  A generated entry has no file to rename, so its only
+	/// honest rename is the provider's own action; `%v` is the new name.  The
+	/// key is omitted for everything that must not be renamed at all.
+	pub rename: Option<String>,
 }
 
 impl DesktopEntry {
@@ -27,13 +44,49 @@ impl DesktopEntry {
 		self.entry_type.as_deref() == Some("Link")
 	}
 
+	/// A `Type=Button` entry (a ClamOS extension) is a control, not an app: it is
+	/// selectable and launchable, but runs its `Exec` without the execution
+	/// wrapper (see [`launch`]).
+	pub fn is_button(&self) -> bool {
+		self.entry_type.as_deref() == Some("Button")
+	}
+
 	#[allow(dead_code)]
 	pub fn is_directory(&self) -> bool {
 		self.entry_type.as_deref() == Some("Directory")
 	}
 
 	pub fn is_action_entry(&self) -> bool {
-		self.is_application() || self.is_link()
+		self.is_application() || self.is_link() || self.is_button()
+	}
+
+	/// The command that destroys this entry, when the provider that wrote it
+	/// lets the folder do that at all (docs §6.3).
+	pub fn destroy_command(&self) -> Option<&str> {
+		self.destroy.as_deref()
+	}
+
+	/// The command that resets a section whose `.directory` this entry describes
+	/// (docs `clam-configd.md` §5.2).
+	pub fn reset_command(&self) -> Option<&str> {
+		self.reset.as_deref()
+	}
+
+	/// The command that changes this entry's display label, when the provider
+	/// allows it (docs `clam-configd.md` §5.7).
+	pub fn rename_command(&self) -> Option<&str> {
+		self.rename.as_deref()
+	}
+
+	/// Whether this item is the user's to destroy.
+	///
+	/// A generated entry belongs to the daemon that wrote it: trashing the file
+	/// would only make the provider put it straight back, so it can be destroyed
+	/// only through its own `Destroy=` command. Everything else is an ordinary
+	/// file.  This also decides the copy/move downgrade; Cut itself is always
+	/// offered and says the same thing as Trash once the paste happens.
+	pub fn is_destroyable(&self) -> bool {
+		self.destroy_command().is_some() || !self.generated
 	}
 }
 
@@ -79,6 +132,23 @@ fn from_values(values: &HashMap<String, ConfigValue>) -> DesktopEntry {
 				_ => None,
 			})
 			.unwrap_or(false),
+		generated: entry_boolean(values, "Generated"),
+		destroy: crate::config::entry_string(&values, "Destroy")
+			.filter(|command| !command.trim().is_empty()),
+		reset: crate::config::entry_string(&values, "Reset")
+			.filter(|command| !command.trim().is_empty()),
+		rename: crate::config::entry_string(&values, "Rename")
+			.filter(|command| !command.trim().is_empty()),
+	}
+}
+
+/// Reads a boolean desktop-entry key, tolerating both the parsed boolean and the
+/// plain string a provider may have written.
+fn entry_boolean(values: &HashMap<String, ConfigValue>, key: &str) -> bool {
+	match values.get(key) {
+		Some(ConfigValue::Boolean(value)) => *value,
+		Some(ConfigValue::String(value)) => value.eq_ignore_ascii_case("true"),
+		_ => false,
 	}
 }
 
@@ -88,6 +158,7 @@ pub fn launch(path: &Path) -> String {
 	let entry = read(path);
 	match entry.entry_type.as_deref() {
 		Some("Application") => launch_application(path, &entry),
+		Some("Button") => launch_button(path, &entry),
 		Some("Link") => {
 			launch_link(path, &entry);
 			String::new()
@@ -163,6 +234,202 @@ fn launch_application(path: &Path, entry: &DesktopEntry) -> String {
 	))
 }
 
+/// A `Button` is a control, not an app, so it is run directly: no execution
+/// wrapper, and therefore no preflight and no guest-app lifecycle.
+fn launch_button(path: &Path, entry: &DesktopEntry) -> String {
+	let exec = match entry.exec.as_deref() {
+		Some(exec) if !exec.trim().is_empty() => exec,
+		_ => {
+			eprintln!("{} has no Exec value", path.display());
+			return String::new();
+		}
+	};
+	let args = match parse_exec(exec, entry, path, None) {
+		Ok(args) if !args.is_empty() => args,
+		Ok(_) => {
+			eprintln!("{} has an empty Exec command", path.display());
+			return String::new();
+		}
+		Err(error) => {
+			eprintln!("{}: {error}", path.display());
+			return String::new();
+		}
+	};
+
+	let entry_path = path.to_string_lossy();
+	let name = entry.name.clone().unwrap_or_default();
+	let current_dir = crate::config::base_dir(path);
+	if let Err(error) =
+		crate::launch::spawn_direct(&args[0], &args[1..], &entry_path, &name, Some(current_dir))
+	{
+		eprintln!("could not launch: {error}");
+	}
+	String::new()
+}
+
+/// Run an entry's `Destroy=` command: that, rather than moving the file, is how a
+/// generated entry the provider lets the user own is destroyed (docs §6.3).
+/// Returns whether it started.
+pub fn run_destroy(path: &Path, entry: &DesktopEntry, command: &str) -> bool {
+	let args = match parse_exec(command, entry, path, None) {
+		Ok(args) if !args.is_empty() => args,
+		Ok(_) => {
+			eprintln!("{} has an empty Destroy command", path.display());
+			return false;
+		}
+		Err(error) => {
+			eprintln!("{}: {error}", path.display());
+			return false;
+		}
+	};
+
+	let entry_path = path.to_string_lossy();
+	let name = entry.name.clone().unwrap_or_default();
+	let current_dir = crate::config::base_dir(path);
+	// Direct spawn, like a `Type=Button`: destroying a control is not a guest
+	// app launch, and the entry path still travels as `HISHELL_APP_ITEM`.
+	match crate::launch::spawn_direct(&args[0], &args[1..], &entry_path, &name, Some(current_dir)) {
+		Ok(_) => true,
+		Err(error) => {
+			eprintln!("could not destroy {}: {error}", path.display());
+			false
+		}
+	}
+}
+
+/// Run a folder's own `Refresh=<command line>` (a ClamOS extension, docs §4.7):
+/// how a folder asks its provider for fresh contents when the user refreshes
+/// it. A control rather than an app launch, so it is spawned directly — no
+/// execution wrapper, and therefore no guest-app lifecycle.
+pub fn run_refresh(directory: &Path, command: &str) -> bool {
+	let entry_path = directory.join(".directory");
+	let entry = read(&entry_path);
+	let args = match parse_exec(command, &entry, &entry_path, None) {
+		Ok(args) if !args.is_empty() => args,
+		Ok(_) => {
+			eprintln!("{} has an empty Refresh command", entry_path.display());
+			return false;
+		}
+		Err(error) => {
+			eprintln!("{}: {error}", entry_path.display());
+			return false;
+		}
+	};
+
+	let name = entry.name.clone().unwrap_or_default();
+	match crate::launch::spawn_direct(
+		&args[0],
+		&args[1..],
+		&entry_path.to_string_lossy(),
+		&name,
+		Some(directory),
+	) {
+		Ok(_) => true,
+		Err(error) => {
+			eprintln!("could not refresh {}: {error}", directory.display());
+			false
+		}
+	}
+}
+
+/// Run a section's `Reset=<command line>`: clear its provider state while
+/// keeping its handle (docs `clam-configd.md` §5.2).  Like `Refresh=` and
+/// `Destroy=`, this is a control action, not a guest app launch.
+pub fn run_reset(directory: &Path, command: &str) -> bool {
+	let entry_path = directory.join(".directory");
+	let entry = read(&entry_path);
+	let args = match parse_exec(command, &entry, &entry_path, None) {
+		Ok(args) if !args.is_empty() => args,
+		Ok(_) => {
+			eprintln!("{} has an empty Reset command", entry_path.display());
+			return false;
+		}
+		Err(error) => {
+			eprintln!("{}: {error}", entry_path.display());
+			return false;
+		}
+	};
+	let name = entry.name.clone().unwrap_or_default();
+	match crate::launch::spawn_direct(
+		&args[0],
+		&args[1..],
+		&entry_path.to_string_lossy(),
+		&name,
+		Some(directory),
+	) {
+		Ok(_) => true,
+		Err(error) => {
+			eprintln!("could not reset {}: {error}", directory.display());
+			false
+		}
+	}
+}
+
+/// Run an entry's `Rename=<command line>`: how a provider changes a generated
+/// entry's display label (docs `clam-configd.md` §5.7).  Unlike the other
+/// hooks this one is waited on, so a provider that refuses ("only a paired
+/// device", "no longer in range") can put its answer in the rename dialog.
+pub fn run_rename(
+	path: &Path,
+	entry: &DesktopEntry,
+	command: &str,
+	new_name: &str,
+) -> Result<(), String> {
+	let args = rename_args(command, entry, path, new_name)?;
+	if args.is_empty() {
+		return Err("The Rename command is empty.".to_string());
+	}
+	let output = Command::new(&args[0])
+		.args(&args[1..])
+		.current_dir(crate::config::base_dir(path))
+		.env(crate::launch::ITEM_ENV, path)
+		.env(
+			crate::launch::NAME_ENV,
+			entry.name.as_deref().unwrap_or_default(),
+		)
+		.output()
+		.map_err(|error| format!("Could not run Rename: {error}"))?;
+	if output.status.success() {
+		return Ok(());
+	}
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	let message = stderr.trim();
+	if message.is_empty() {
+		Err("Rename failed.".to_string())
+	} else {
+		Err(message.to_string())
+	}
+}
+
+/// Run a command line supplied by a directory descriptor (`Unmount=`), with
+/// the described path as the action's item.  Descriptors already describe
+/// directories whose metadata lives outside them; the same mechanism gives the
+/// shell the only honest action for a mounted device (docs §5.5).
+pub fn run_hook(command: &str, item: &Path, name: &str) -> bool {
+	let entry = DesktopEntry::default();
+	let args = match parse_exec(command, &entry, item, None) {
+		Ok(args) if !args.is_empty() => args,
+		Ok(_) => return false,
+		Err(error) => {
+			eprintln!("{}: {error}", item.display());
+			return false;
+		}
+	};
+	match crate::launch::spawn_direct(
+		&args[0],
+		&args[1..],
+		&item.to_string_lossy(),
+		name,
+		item.parent(),
+	) {
+		Ok(_) => true,
+		Err(error) => {
+			eprintln!("could not run hook for {}: {error}", item.display());
+			false
+		}
+	}
+}
+
 fn launch_link(path: &Path, entry: &DesktopEntry) -> Option<Result<(), String>> {
 	let url = match entry.url.as_deref() {
 		Some(url) if !url.trim().is_empty() => url,
@@ -236,6 +503,10 @@ pub fn is_link(path: &Path) -> bool {
 	read(path).is_link()
 }
 
+pub fn is_button(path: &Path) -> bool {
+	read(path).is_button()
+}
+
 #[allow(dead_code)]
 pub fn is_application(path: &Path) -> bool {
 	read(path).is_application()
@@ -263,6 +534,43 @@ fn unescape_value(value: &str) -> String {
 		}
 	}
 	result
+}
+
+/// Expand a `Rename=` command: `%v` is the new label, `%n` the old display
+/// name, `%p` the entry path.  Tokenising happens before substitution, so a
+/// label with spaces still arrives as one argument.
+fn rename_args(
+	command: &str,
+	entry: &DesktopEntry,
+	path: &Path,
+	new_name: &str,
+) -> Result<Vec<String>, String> {
+	let tokens = tokenize_exec(command)?;
+	let mut args = Vec::new();
+	for token in tokens {
+		let mut expanded = String::new();
+		let mut chars = token.chars();
+		while let Some(ch) = chars.next() {
+			if ch != '%' {
+				expanded.push(ch);
+				continue;
+			}
+			match chars.next() {
+				Some('%') => expanded.push('%'),
+				Some('v') => expanded.push_str(new_name),
+				Some('n') => expanded.push_str(entry.name.as_deref().unwrap_or_default()),
+				Some('p') => expanded.push_str(&path.to_string_lossy()),
+				Some(other) => {
+					return Err(format!("unsupported field code %{other} in Rename"));
+				}
+				None => return Err("Rename ends with an incomplete field code".to_string()),
+			}
+		}
+		if !expanded.is_empty() {
+			args.push(expanded);
+		}
+	}
+	Ok(args)
 }
 
 fn parse_exec(
@@ -366,9 +674,14 @@ fn tokenize_exec(exec: &str) -> Result<Vec<String>, String> {
 
 #[cfg(test)]
 mod tests {
-	use super::{DesktopEntry, parse_exec, read, tokenize_exec};
+	use super::{DesktopEntry, parse_exec, read, rename_args, tokenize_exec};
 	use std::fs;
-	use std::path::Path;
+	use std::path::{Path, PathBuf};
+
+	/// A unique scratch file for one test.
+	fn scratch(name: &str) -> PathBuf {
+		std::env::temp_dir().join(format!("{name}-{}.desktop", std::process::id()))
+	}
 
 	#[test]
 	fn parses_desktop_entry_metadata() {
@@ -398,6 +711,122 @@ mod tests {
 			.unwrap(),
 			["example --open"]
 		);
+	}
+
+	#[test]
+	fn recognizes_button_entries() {
+		let path = std::env::temp_dir().join(format!(
+			"hishell-button-test-{}.desktop",
+			std::process::id()
+		));
+		// A provider-written entry: Type=Button, framework keys, and a
+		// section-specific group Hishell must ignore.
+		fs::write(
+			&path,
+			"[Desktop Entry]\nType=Button\nName=Wi-Fi\nComment=On\nIcon=network-wireless\n\
+			 Exec=clam-connect wifi --radio off\nGenerated=true\nProvider=wifi\n\n\
+			 [Connection]\nAction=radio\nEnabled=true\n",
+		)
+		.unwrap();
+		let entry = read(&path);
+		fs::remove_file(path).unwrap();
+
+		assert!(entry.is_button());
+		assert!(entry.is_action_entry(), "Buttons are selectable/launchable");
+		assert_eq!(entry.name.as_deref(), Some("Wi-Fi"));
+		assert_eq!(entry.exec.as_deref(), Some("clam-connect wifi --radio off"));
+		assert!(entry.generated);
+		assert_eq!(entry.destroy_command(), None);
+		assert_eq!(entry.rename_command(), None);
+		assert!(
+			!entry.is_destroyable(),
+			"a provider's control row is not the user's to trash"
+		);
+	}
+
+	#[test]
+	fn expands_a_rename_command_without_splitting_the_label() {
+		let path = scratch("hishell-rename-test");
+		fs::write(
+			&path,
+			"[Desktop Entry]\nType=Button\nName=Old label\nGenerated=true\n\
+			 Rename=clam-connect bt --rename AA:BB:CC:DD:EE:FF %v\n",
+		)
+		.unwrap();
+		let entry = read(&path);
+		fs::remove_file(path).unwrap();
+
+		assert_eq!(
+			entry.rename_command(),
+			Some("clam-connect bt --rename AA:BB:CC:DD:EE:FF %v")
+		);
+		assert_eq!(
+			rename_args(
+				entry.rename_command().unwrap(),
+				&entry,
+				Path::new("/sections/Bluetooth/AA:BB.desktop"),
+				"New label"
+			)
+			.unwrap(),
+			[
+				"clam-connect",
+				"bt",
+				"--rename",
+				"AA:BB:CC:DD:EE:FF",
+				"New label"
+			]
+		);
+	}
+
+	#[test]
+	fn a_generated_entry_that_names_its_destroy_command_can_be_destroyed() {
+		let path = scratch("hishell-destroy-test");
+		fs::write(
+			&path,
+			"[Desktop Entry]\nType=Button\nName=Home\nComment=Saved · WPA2\n\
+			 Icon=network-wireless-60-locked\nExec=clam-connect wifi wpa:abc\n\
+			 Destroy=clam-connect wifi --forget wpa:abc\nGenerated=true\nProvider=wifi\n\n\
+			 [Connection]\nId=wpa:abc\nSecurity=WPA-PSK\nSaved=true\n",
+		)
+		.unwrap();
+		let entry = read(&path);
+		fs::remove_file(path).unwrap();
+
+		assert!(entry.is_button());
+		assert_eq!(entry.destroy_command(), Some("clam-connect wifi --forget wpa:abc"));
+		assert!(entry.is_destroyable());
+	}
+
+	#[test]
+	fn a_visible_network_cannot_be_destroyed() {
+		let path = scratch("hishell-visible-test");
+		fs::write(
+			&path,
+			"[Desktop Entry]\nType=Button\nName=Neighbour\nExec=clam-connect wifi b3f1c0a2e4\n\
+			 Generated=true\nProvider=wifi\n\n\
+			 [Connection]\nId=b3f1c0a2e4\nSecurity=WPA-PSK\nSaved=false\n",
+		)
+		.unwrap();
+		let entry = read(&path);
+		fs::remove_file(path).unwrap();
+
+		assert_eq!(entry.destroy_command(), None);
+		assert!(
+			!entry.is_destroyable(),
+			"a merely detected network cannot be trashed or cut"
+		);
+	}
+
+	#[test]
+	fn ordinary_files_are_still_destroyable() {
+		let path = scratch("hishell-plain-test");
+		fs::write(&path, "just some notes\n").unwrap();
+		let entry = read(&path);
+		fs::remove_file(path).unwrap();
+
+		assert!(!entry.generated);
+		assert_eq!(entry.destroy_command(), None);
+		assert!(entry.is_destroyable());
 	}
 
 	#[test]

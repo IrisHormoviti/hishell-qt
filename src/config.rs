@@ -80,6 +80,32 @@ pub fn load_entry_checked(path: &Path) -> ParseOutput {
 	load_path_checked(path)
 }
 
+/// System-wide config files, lowest priority first.
+///
+/// `XDG_CONFIG_DIRS` lists directories with the leftmost having the highest
+/// priority, but `ConfigParser` lets later files override earlier ones, so the
+/// list is reversed. The spec's default is `/etc/xdg`. This gives a host a place
+/// for device policy (ClamOS sets its `ExecutionWrapper` here) while the bundled
+/// `config/default.cfg` stays generic and the user's
+/// `$XDG_CONFIG_HOME/hishell/folder.cfg` can still override both.
+fn system_config_paths() -> Vec<PathBuf> {
+	let dirs = std::env::var("XDG_CONFIG_DIRS")
+		.ok()
+		.filter(|value| !value.is_empty())
+		.unwrap_or_else(|| String::from("/etc/xdg"));
+	system_config_paths_from(&dirs)
+}
+
+fn system_config_paths_from(dirs: &str) -> Vec<PathBuf> {
+	let mut paths: Vec<PathBuf> = dirs
+		.split(':')
+		.filter(|dir| !dir.is_empty())
+		.map(|dir| Path::new(dir).join("hishell").join("folder.cfg"))
+		.collect();
+	paths.reverse();
+	paths
+}
+
 fn load_with_override(override_path: &Path) -> ParseOutput {
 	let default_cfg = Path::new("config/default.cfg");
 	let global_cfg = dirs::config_dir()
@@ -89,7 +115,12 @@ fn load_with_override(override_path: &Path) -> ParseOutput {
 			p
 		})
 		.unwrap_or_else(|| std::path::PathBuf::from("config/default.cfg"));
-	let paths: Vec<&Path> = vec![default_cfg, global_cfg.as_path(), override_path];
+	let system_cfg = system_config_paths();
+	let mut paths: Vec<&Path> = Vec::with_capacity(3 + system_cfg.len());
+	paths.push(default_cfg);
+	paths.extend(system_cfg.iter().map(PathBuf::as_path));
+	paths.push(global_cfg.as_path());
+	paths.push(override_path);
 	ConfigParser::parse_files(&paths)
 }
 
@@ -185,6 +216,7 @@ const EXPECTED_KEYS: &[(&str, &str, ExpectedKind)] = &[
 	("Layout", "Header", ExpectedKind::Array),
 	("Layout", "NativeMenuBar", ExpectedKind::Bool),
 	("Layout", "NativeTitleBar", ExpectedKind::Bool),
+	("Layout", "NativeDrag", ExpectedKind::Bool),
 	("Layout", "ShowShortcuts", ExpectedKind::Bool),
 	("Layout", "ExecutionWrapper", ExpectedKind::Str),
 	("Layout", "Screen", ExpectedKind::Str),
@@ -236,6 +268,17 @@ const EXPECTED_KEYS: &[(&str, &str, ExpectedKind)] = &[
 	("Folder Navigation", "SmoothScrolling", ExpectedKind::Bool),
 	("Folder Navigation", "OpenOnClick", ExpectedKind::Bool),
 	("Folder Navigation", "FocusEmptySlots", ExpectedKind::Bool),
+	// A folder-owned single-selection group.  The children carry only display
+	// metadata; the parent owns the group, its selection, and the command that
+	// runs when the selection changes (ClamOS extension).
+	("Radio", "Enabled", ExpectedKind::Bool),
+	(
+		"Radio",
+		"Only",
+		ExpectedKind::StrEnum(&["ALL", "DIRECTORIES", "FILES"]),
+	),
+	("Radio", "Selected", ExpectedKind::Str),
+	("Radio", "Exec", ExpectedKind::Str),
 ];
 
 /// Flags configured keys whose value does not match the expected kind.
@@ -396,6 +439,10 @@ pub struct Config {
 	// when reopened.
 	pub native_menus: qt_property!(bool; NOTIFY config_changed),
 	pub native_titlebar: qt_property!(bool; NOTIFY config_changed),
+	// Use the compositor's own drag icon instead of the shell's ghost of the
+	// dragged item. Off by default: the compositor's drag icon does not render
+	// on some targets (the RG DS Plus), so the shell draws its own.
+	pub native_drag: qt_property!(bool; NOTIFY config_changed),
 	// Show and register the keyboard shortcuts next to menu items. Off on the
 	// RG DS Plus, which has no keyboard.
 	pub show_shortcuts: qt_property!(bool; NOTIFY config_changed),
@@ -435,6 +482,14 @@ pub struct Config {
 	pub stash_shown: qt_property!(bool; NOTIFY config_changed),
 	pub stash_dotfiles: qt_property!(bool; NOTIFY config_changed),
 	pub free_placement_positions: qt_property!(String; NOTIFY config_changed),
+
+	// Parent-owned radio group ([Radio] in this folder's .directory).  Children
+	// are selected by name and the parent `Exec` runs on a change.
+	pub radio_enabled: qt_property!(bool; NOTIFY config_changed),
+	// 0 = all children, 1 = directories only, 2 = files only.
+	pub radio_only: qt_property!(u8; NOTIFY config_changed),
+	pub radio_selected: qt_property!(String; NOTIFY config_changed),
+	pub radio_exec: qt_property!(String; NOTIFY config_changed),
 
 	pub error: qt_property!(String; NOTIFY config_changed),
 	pub error_file: qt_property!(String; NOTIFY config_changed),
@@ -594,6 +649,9 @@ impl Config {
 		if changed!("Layout", "NativeTitleBar") {
 			self.native_titlebar = bool_value(get("Layout", "NativeTitleBar"), true);
 		}
+		if changed!("Layout", "NativeDrag") {
+			self.native_drag = bool_value(get("Layout", "NativeDrag"), false);
+		}
 		if changed!("Layout", "ShowShortcuts") {
 			self.show_shortcuts = bool_value(get("Layout", "ShowShortcuts"), false);
 		}
@@ -611,6 +669,8 @@ impl Config {
 				_ => String::new(),
 			}
 			.into();
+			// Launched programs open on the same output as the shell (docs §5.6).
+			crate::launch::set_screen(&self.screen_name.to_string());
 		}
 
 		if changed!("Folder View", "GridSize") {
@@ -710,6 +770,31 @@ impl Config {
 				json_value(get("Folder View", "FreePlacementPositions"), "{}").into();
 		}
 
+		if changed!("Radio", "Enabled") {
+			self.radio_enabled = bool_value(get("Radio", "Enabled"), false);
+		}
+		if changed!("Radio", "Only") {
+			self.radio_only = match enum_value(get("Radio", "Only"), "ALL").as_str() {
+				"DIRECTORIES" => 1,
+				"FILES" => 2,
+				_ => 0,
+			};
+		}
+		if changed!("Radio", "Selected") {
+			self.radio_selected = match get("Radio", "Selected") {
+				Some(ConfigValue::String(v)) => v.clone(),
+				_ => String::new(),
+			}
+			.into();
+		}
+		if changed!("Radio", "Exec") {
+			self.radio_exec = match get("Radio", "Exec") {
+				Some(ConfigValue::String(v)) => v.clone(),
+				_ => String::new(),
+			}
+			.into();
+		}
+
 		self.config_changed();
 	}
 
@@ -744,6 +829,25 @@ impl Config {
 	pub fn set_free_position(&mut self, path: &Path, name: &str, col: i32, row: i32) {
 		let mut positions = self.parse_free_positions();
 		positions.insert(name.to_string(), (col, row));
+		self.write_free_positions(path, &positions);
+	}
+
+	/// Record several manually placed coordinates at once. The entries being
+	/// placed win their cells: a saved position for any other item in the same
+	/// cell is dropped, including a stashed dotfile that is not on screen. That
+	/// keeps a drop where the user put it instead of letting an older saved
+	/// position (or an off-screen entry) push it aside.
+	pub fn set_free_positions(&mut self, path: &Path, entries: &[(String, i32, i32)]) {
+		let mut positions = self.parse_free_positions();
+		for (name, col, row) in entries {
+			positions.retain(|existing, value| {
+				let (c, r) = *value;
+				existing == name || c != *col || r != *row
+			});
+		}
+		for (name, col, row) in entries {
+			positions.insert(name.clone(), (*col, *row));
+		}
 		self.write_free_positions(path, &positions);
 	}
 
@@ -791,5 +895,32 @@ impl Config {
 		}
 		let json = serde_json::Value::Object(obj).to_string();
 		self._set(path, "Folder View", "FreePlacementPositions", &json, true);
+	}
+}
+
+#[cfg(test)]
+mod system_config_tests {
+	use super::system_config_paths_from;
+	use std::path::PathBuf;
+
+	#[test]
+	fn earlier_xdg_dirs_take_priority() {
+		// XDG_CONFIG_DIRS is highest-priority-first; the parser wants the
+		// lowest-priority file first, so the list is reversed.
+		assert_eq!(
+			system_config_paths_from("/etc/xdg:/usr/local/etc/xdg"),
+			vec![
+				PathBuf::from("/usr/local/etc/xdg/hishell/folder.cfg"),
+				PathBuf::from("/etc/xdg/hishell/folder.cfg"),
+			]
+		);
+	}
+
+	#[test]
+	fn empty_entries_are_skipped() {
+		assert_eq!(
+			system_config_paths_from(":/etc/xdg:"),
+			vec![PathBuf::from("/etc/xdg/hishell/folder.cfg")]
+		);
 	}
 }

@@ -26,10 +26,21 @@ pub const ITEM_ENV: &str = "HISHELL_APP_ITEM";
 /// the wrapper can name it in messages.
 pub const NAME_ENV: &str = "HISHELL_APP_NAME";
 
+/// Environment variable carrying the name of the output the shell is on, so a
+/// program it launches can open its window on the same panel. The shell's own
+/// output is the `[Layout] Screen` setting; without it the window would land on
+/// the platform default, which on a two-panel device is the other panel
+/// (docs §5.6).
+pub const SCREEN_ENV: &str = "HISHELL_SCREEN";
+
 /// The configured wrapper. Kept here so every launch site can reach it without
 /// threading the owning `Config` through each call; it is a host setting, so
 /// every `Config` carries the same value and the last one loaded is fine.
 static WRAPPER: Lazy<Mutex<String>> = Lazy::new(|| Mutex::new(String::new()));
+
+/// The output the shell is on, from `[Layout] Screen`. Empty means the platform
+/// default, and then no `HISHELL_SCREEN` is exported at all.
+static SCREEN: Lazy<Mutex<String>> = Lazy::new(|| Mutex::new(String::new()));
 
 /// A launch held back for confirmation.
 struct Pending {
@@ -44,6 +55,25 @@ static PENDING: Lazy<Mutex<Option<Pending>>> = Lazy::new(|| Mutex::new(None));
 
 pub fn set_wrapper(wrapper: &str) {
 	*WRAPPER.lock().unwrap() = wrapper.to_string();
+}
+
+pub fn set_screen(screen: &str) {
+	*SCREEN.lock().unwrap() = screen.to_string();
+}
+
+/// Export the environment every launch carries: the item's path, the
+/// application's display name, and the shell's output when it has one.
+fn apply_launch_env(command: &mut Command, item: &str, name: &str) {
+	if !item.is_empty() {
+		command.env(ITEM_ENV, item);
+	}
+	if !name.is_empty() {
+		command.env(NAME_ENV, name);
+	}
+	let screen = SCREEN.lock().unwrap().clone();
+	if !screen.is_empty() {
+		command.env(SCREEN_ENV, screen);
+	}
 }
 
 /// The outcome of asking to launch something.
@@ -203,12 +233,7 @@ fn preflight(wrapper: &str, program: &str, args: &[String], item: &str, name: &s
 	command.arg("--preflight");
 	command.arg(program);
 	command.args(args);
-	if !item.is_empty() {
-		command.env(ITEM_ENV, item);
-	}
-	if !name.is_empty() {
-		command.env(NAME_ENV, name);
-	}
+	apply_launch_env(&mut command, item, name);
 	let output = command.output().ok()?;
 	let message = String::from_utf8_lossy(&output.stdout).trim().to_string();
 	(!message.is_empty()).then_some(message)
@@ -227,6 +252,27 @@ fn command_exists(command: &str) -> bool {
 	std::env::var_os("PATH")
 		.map(|paths| std::env::split_paths(&paths).any(|dir| dir.join(program).exists()))
 		.unwrap_or(false)
+}
+
+/// Spawn `program` with `args` **directly**, bypassing the execution wrapper.
+///
+/// For entries that are controls rather than apps (`Type=Button`): a settings
+/// action must not go through the guest-app preflight/lifecycle. The item and
+/// name env vars are still exported, so the program can identify itself.
+pub fn spawn_direct(
+	program: &str,
+	args: &[String],
+	item: &str,
+	name: &str,
+	cwd: Option<&Path>,
+) -> io::Result<Child> {
+	let mut command = Command::new(program);
+	command.args(args);
+	apply_launch_env(&mut command, item, name);
+	if let Some(cwd) = cwd {
+		command.current_dir(cwd);
+	}
+	command.spawn()
 }
 
 /// Spawn `program` with `args`, through the configured wrapper, in `cwd` when
@@ -256,12 +302,7 @@ pub fn spawn(
 			command
 		}
 	};
-	if !item.is_empty() {
-		command.env(ITEM_ENV, item);
-	}
-	if !name.is_empty() {
-		command.env(NAME_ENV, name);
-	}
+	apply_launch_env(&mut command, item, name);
 	if let Some(cwd) = cwd {
 		command.current_dir(cwd);
 	}

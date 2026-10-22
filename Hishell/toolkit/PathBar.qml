@@ -119,8 +119,28 @@ RowLayout {
 			editField.forceActiveFocus();
 			return;
 		}
+		// `editing` only becomes true once the field is visible *and* focused,
+		// which is what starts the text input on the protocol — and Qt reports
+		// the field's text as the surrounding text at the same moment, from
+		// text that has not changed yet. The protocol has no request to correct
+		// that afterwards (a client can only be told what it already said), so
+		// the on-screen keyboard would draw an empty line under its "Type a
+		// path" placeholder until the first key. Setting the text in the same
+		// turn as the focus cannot help either: the field is not focused yet,
+		// so no input exists to send anything on.
+		//
+		// So the set goes first, a turn early: the field is visible and filled
+		// before it is focused, and the text input that starts with the focus
+		// reports the path as surrounding text with the caret at its end.
 		pathBar.editing = true;
 		editField.text = (initialText && initialText.length > 0) ? initialText : pathBar.currentPath;
+		Qt.callLater(() => pathBar.focusEditField());
+	}
+
+	/// Focus the path field, once it has been laid out with its text.
+	function focusEditField() {
+		if (!pathBar.editing)
+			return;
 		editField.forceActiveFocus();
 		editField.cursorPosition = editField.text.length;
 		pathBar.completionIndex = -1;
@@ -363,7 +383,9 @@ RowLayout {
 		id: breadcrumbList
 		visible: !pathBar.editing
 		Layout.fillWidth: true
-		Layout.preferredHeight: Kirigami.Units.gridUnit * 2
+		// Fill the header bar so the breadcrumbs are as tall as the bar the
+		// theme declares, instead of a fixed two-line strip centred in it.
+		Layout.fillHeight: true
 
 		orientation: ListView.Horizontal
 		interactive: true
@@ -408,16 +430,20 @@ RowLayout {
 				}
 				icon: pathBar.window.fileManager ? pathBar.window.fileManager.get_icon(crumbSlot.path) : ""
 				showIcon: delegateRoot.isCurrent
-				implicitHeight: Kirigami.Units.iconSizes.medium
 
 				dragDropHandler: pathBar.window.dragDropHandler
 				fileManager: pathBar.window.fileManager
 				actionManager: pathBar.window.actionManager
 
 				is_dir: true
+				// A breadcrumb navigates; it is never a selection in the
+				// current folder's radio group.
+				radioMember: false
 				is_symlink: false
 				index: delegateRoot.index
-				gridSize: Kirigami.Units.iconSizes.smallMedium
+				// The breadcrumb icon scales with the taller header; match the
+				// size the header's own view button uses.
+				gridSize: Kirigami.Units.iconSizes.medium
 				labelBesideIcon: true
 				isActive: delegateRoot.isCurrent
 				fixedWidth: false
@@ -426,8 +452,7 @@ RowLayout {
 				clickHandler: delegateRoot.isCurrent ? (mouse => pathBar.crumbClicked(crumbSlot)) : null
 
 				Layout.preferredWidth: implicitWidth
-				Layout.preferredHeight: implicitHeight
-				Layout.alignment: Qt.AlignVCenter
+				Layout.fillHeight: true
 			}
 		}
 	}
@@ -436,7 +461,7 @@ RowLayout {
 		id: editField
 		visible: pathBar.editing
 		Layout.fillWidth: true
-		Layout.preferredHeight: Kirigami.Units.gridUnit * 2
+		Layout.fillHeight: true
 		placeholderText: String(pathBar.directory.path)
 		selectByMouse: true
 		// The frame turns red while the typed location is rejected.

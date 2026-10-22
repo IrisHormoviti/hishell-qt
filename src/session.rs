@@ -24,14 +24,24 @@ use serde::{Deserialize, Serialize};
 ///   the app, then unmaps so the app's window is revealed.
 /// * `RETURN_FRAME` — image the shell shows for a moment on the way back.
 /// * `FOCUS` — file the shell publishes the focused item to.
+/// * `INPUT_GRAB` — set while a launched app has taken the gamepad for itself
+///   (the connection dialog): the shell keeps drawing and keeps the touch
+///   panel, but must not act on the pad.
 const ENV_SUSPEND: &str = "HISHELL_SESSION_SUSPEND";
 const ENV_HIDE: &str = "HISHELL_SESSION_HIDE";
 const ENV_RETURN_FRAME: &str = "HISHELL_SESSION_RETURN_FRAME";
 const ENV_FOCUS: &str = "HISHELL_SESSION_FOCUS";
+const ENV_INPUT_GRAB: &str = "HISHELL_SESSION_INPUT_GRAB";
 
 /// Ignore window for a stale marker: if the host died before it could remove
 /// its files, the shell must not stay hidden forever.
 const MARKER_MAX_AGE: Duration = Duration::from_secs(3600);
+
+/// Ignore window for the input grab, which is much shorter: the grabber
+/// re-writes its marker several times a second while it runs, so a marker that
+/// stops moving means the grabber is gone and the shell should take the pad
+/// back on its own — a crash there must not leave the buttons dead.
+const GRAB_MAX_AGE: Duration = Duration::from_secs(15);
 
 fn env_path(name: &str) -> String {
 	std::env::var(name).unwrap_or_default()
@@ -129,6 +139,14 @@ pub fn hidden() -> bool {
 	marker_fresh(&env_path(ENV_HIDE))
 }
 
+/// Whether a launched app has taken the gamepad for itself. The shell stays
+/// visible and keeps its touch panel, but drops every pad input while this is
+/// up: the pad is read from evdev directly, so it is the only way to hand the
+/// buttons over (docs §5.6).
+pub fn input_grabbed() -> bool {
+	marker_fresh_within(&env_path(ENV_INPUT_GRAB), GRAB_MAX_AGE)
+}
+
 /// Image the shell shows for a moment on the way back from an app, or empty.
 pub fn return_frame_path() -> String {
 	env_path(ENV_RETURN_FRAME)
@@ -141,6 +159,10 @@ pub fn focus_file() -> String {
 }
 
 fn marker_fresh(path: &str) -> bool {
+	marker_fresh_within(path, MARKER_MAX_AGE)
+}
+
+fn marker_fresh_within(path: &str, max_age: Duration) -> bool {
 	let Ok(metadata) = fs::metadata(path) else {
 		return false;
 	};
@@ -148,7 +170,7 @@ fn marker_fresh(path: &str) -> bool {
 		return false;
 	};
 	match modified.elapsed() {
-		Ok(age) => age < MARKER_MAX_AGE,
+		Ok(age) => age < max_age,
 		// A modification time in the future is a recent write under clock skew.
 		Err(_) => true,
 	}
