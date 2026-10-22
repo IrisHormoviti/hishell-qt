@@ -43,8 +43,13 @@ fn focus_border_svg() -> String {
 /// art can be filled or stroked and freely transformed; only the colour is
 /// substituted. The constant [`CORNER_PATHS`] is used when the asset has no
 /// usable outlines, so the border never disappears.
+///
+/// An asset may paint a whole group and leave the paths themselves bare. The
+/// group is not part of the per-corner document, so that paint is moved onto
+/// the path; without it the corner would come out unpainted.
 fn corner_elements(source: &str) -> Vec<String> {
 	let body = strip_defs(source);
+	let group = group_paint(&body);
 	let mut elements = Vec::new();
 	let mut rest = body.as_str();
 	while let Some(start) = rest.find("<path") {
@@ -54,7 +59,7 @@ fn corner_elements(source: &str) -> Vec<String> {
 		};
 		let element = &after[..end + 1];
 		if element.contains("d=\"") {
-			elements.push(element.to_string());
+			elements.push(inherit_paint(element, group.as_deref()));
 		}
 		rest = &after[end + 1..];
 		if elements.len() == 4 {
@@ -64,8 +69,51 @@ fn corner_elements(source: &str) -> Vec<String> {
 	if elements.len() == 4 {
 		elements
 	} else {
+		eprintln!(
+			"hishell: the focus border asset has {} usable corners, drawing the default ones",
+			elements.len()
+		);
 		CORNER_PATHS.iter().map(|s| s.to_string()).collect()
 	}
+}
+
+/// The paint the first `<g>` of the document gives its paths, if it carries
+/// one: the value of its `fill` or, failing that, its `stroke`.
+fn group_paint(source: &str) -> Option<String> {
+	let start = source.find("<g")?;
+	let end = source[start..].find('>')? + start;
+	let tag = &source[start..end];
+	["fill", "stroke"]
+		.into_iter()
+		.find_map(|name| attribute(tag, name))
+		.map(|value| value.to_string())
+}
+
+/// Give a path the paint of the group it was drawn in, when it carries none of
+/// its own. The group is not part of the corner document, so the paint has to
+/// travel with the path.
+fn inherit_paint(element: &str, group: Option<&str>) -> String {
+	let Some(group) = group else {
+		return element.to_string();
+	};
+	if element.contains("fill=\"") || element.contains("stroke=\"") {
+		return element.to_string();
+	}
+	element.replacen("<path", &format!("<path fill=\"{group}\""), 1)
+}
+
+/// The value of the named attribute in an element's opening tag.
+fn attribute<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
+	let needle = format!(" {name}=\"");
+	let start = tag.find(&needle)? + needle.len();
+	let end = tag[start..].find('"')? + start;
+	Some(&tag[start..end])
+}
+
+/// Whether the element already carries the named attribute. The name has to
+/// match whole: `stroke-width` is not `stroke`.
+fn has_attribute(element: &str, name: &str) -> bool {
+	element.contains(&format!(" {name}=\""))
 }
 
 /// Drop the `<defs>...</defs>` section, where an editor keeps its named
@@ -90,25 +138,65 @@ fn strip_defs(source: &str) -> String {
 /// `<path>` carrying only `d`, with the colour on a parent group) is stroked in
 /// the colour instead, so both filled and stroked art follow the highlight.
 fn paint(element: &str, color: &str) -> String {
-	let mut text = element.to_string();
-	for from in ["#ffffff", "#fff", "#000000", "#000", "white", "black"] {
-		text = text.replace(from, color);
-	}
+	let text = recolour(element, color);
 	let painted = text.contains("fill=\"")
 		|| text.contains("stroke=\"")
 		|| text.contains("fill:")
 		|| text.contains("stroke:");
-	if !painted {
-		text = text.replacen(
-			"<path",
-			&format!(
-				"<path fill=\"none\" stroke=\"{color}\" stroke-width=\"7.5\" \
-				 stroke-linecap=\"butt\" stroke-linejoin=\"bevel\""
-			),
-			1,
-		);
+	if painted {
+		return text;
 	}
-	text
+	// The outline carries no paint: stroke it in the colour instead. Only the
+	// attributes the element does not already carry are added — a second
+	// `stroke-width` would make the document invalid XML, Qt would refuse to
+	// render it, and the border would disappear altogether.
+	let mut extra = String::new();
+	for (name, value) in [
+		("fill", "none"),
+		("stroke", color),
+		("stroke-width", "7.5"),
+		("stroke-linecap", "butt"),
+		("stroke-linejoin", "bevel"),
+	] {
+		if !has_attribute(&text, name) {
+			extra.push_str(&format!(" {name}=\"{value}\""));
+		}
+	}
+	if extra.is_empty() {
+		return text;
+	}
+	text.replacen("<path", &format!("<path{extra}"), 1)
+}
+
+/// The colour words an asset may paint with, longest first: `#ffffff` has to
+/// be matched before `#fff`, or a white fill would be matched twice.
+const COLOUR_WORDS: [&str; 6] = ["#ffffff", "#fff", "#000000", "#000", "white", "black"];
+
+/// Replace every colour word in `text` with `color`.
+///
+/// The replacement is never looked at again, so a colour that is itself a
+/// colour word — a white highlight — comes out as it went in, and not as the
+/// nine-digit `#fffffffff` a second replacement would leave behind.
+fn recolour(text: &str, color: &str) -> String {
+	let mut out = String::with_capacity(text.len());
+	let mut rest = text;
+	loop {
+		let mut hit: Option<(usize, usize)> = None;
+		for word in COLOUR_WORDS {
+			if let Some(start) = rest.find(word)
+				&& hit.is_none_or(|(earliest, _)| start < earliest)
+			{
+				hit = Some((start, word.len()));
+			}
+		}
+		let Some((start, len)) = hit else {
+			out.push_str(rest);
+			return out;
+		};
+		out.push_str(&rest[..start]);
+		out.push_str(color);
+		rest = &rest[start + len..];
+	}
 }
 
 fn write_border_asset(color: &str) -> Option<String> {
@@ -1275,6 +1363,66 @@ fn qt_key(input: Input) -> Option<i32> {
 		Input::Cancel => Some(KEY_ESCAPE),
 		Input::Select => Some(KEY_SPACE),
 		Input::Menu | Input::Directory => None,
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::{CORNER_PATHS, corner_elements, paint, recolour};
+
+	/// A corner element as an asset that paints a group and leaves the paths
+	/// bare, and that carries a stroke width of its own.
+	const GROUP_PAINTED: &str = "<path d=\"m0 27.381v-9.7788z\" stroke-width=\"2.0252\"/>";
+
+	fn count(text: &str, needle: &str) -> usize {
+		text.matches(needle).count()
+	}
+
+	#[test]
+	fn a_stroked_outline_never_gets_a_second_stroke_width() {
+		// A second stroke-width makes the document invalid XML, and Qt then
+		// refuses to render it: the border disappears altogether.
+		let element = paint(GROUP_PAINTED, "#28b478");
+		assert_eq!(count(&element, "stroke-width="), 1, "{element}");
+	}
+
+	#[test]
+	fn a_painted_path_keeps_its_own_paint() {
+		let element = paint("<path fill=\"#fff\" d=\"m0 0z\"/>", "#28b478");
+		assert!(element.contains("fill=\"#28b478\""), "{element}");
+		assert!(!element.contains("stroke="), "{element}");
+	}
+
+	#[test]
+	fn a_white_highlight_stays_one_colour() {
+		// "#fff" is a prefix of "#ffffff": replacing both in turn left the
+		// nine-digit "#fffffffff", which is not a colour.
+		let element = paint("<path fill=\"#ffffff\" d=\"m0 0z\"/>", "#ffffff");
+		assert!(element.contains("fill=\"#ffffff\""), "{element}");
+		assert!(!element.contains("ffffffff"), "{element}");
+	}
+
+	#[test]
+	fn a_group_that_paints_its_paths_paints_them_still() {
+		let source = "<g fill=\"#fff\"><path d=\"m0 0z\"/><path d=\"m1 1z\"/>\
+			<path d=\"m2 2z\"/><path d=\"m3 3z\"/></g>";
+		let elements = corner_elements(source);
+		assert_eq!(elements.len(), 4);
+		for element in elements {
+			assert!(element.contains("fill=\"#fff\""), "{element}");
+		}
+	}
+
+	#[test]
+	fn an_asset_without_four_corners_falls_back_to_the_default_ones() {
+		let elements = corner_elements("<path d=\"m0 0z\"/>");
+		assert_eq!(elements, CORNER_PATHS);
+	}
+
+	#[test]
+	fn recolouring_leaves_everything_else_alone() {
+		assert_eq!(recolour("d=\"m0 0z\"", "#28b478"), "d=\"m0 0z\"");
+		assert_eq!(recolour("fill=\"black\"", "#28b478"), "fill=\"#28b478\"");
 	}
 }
 
