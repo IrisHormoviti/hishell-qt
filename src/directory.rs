@@ -163,7 +163,15 @@ fn run_radio_exec(exec: &str, value: &str, name: &str, path: &str) {
 				.replace("%p", path),
 		);
 	}
-	if let Err(error) = Command::new(command).args(final_args).spawn() {
+	// The selected entry's path still has to travel with the command.  It is
+	// how a provider action finds the live file, including through a user-moved
+	// symlink; without it `clam-connect` has only the bare MAC/UUID and would
+	// fall back to guessing a folder (docs `clam-configd.md` §5.3).
+	let item = Path::new(path);
+	let cwd = crate::config::base_dir(item);
+	if let Err(error) =
+		crate::launch::spawn_direct(command, &final_args, path, name, Some(cwd))
+	{
 		eprintln!("failed to run radio command {command:?}: {error}");
 	}
 }
@@ -1393,4 +1401,51 @@ pub fn is_executable(path: &str) -> bool {
 		return false;
 	}
 	buffer == [0x7f, b'E', b'L', b'F'] || &buffer[..2] == b"#!"
+}
+
+#[cfg(test)]
+mod tests {
+	use super::run_radio_exec;
+	use std::os::unix::fs::PermissionsExt;
+	use std::time::{Duration, Instant};
+
+	#[test]
+	fn radio_exec_exports_the_selected_item() {
+		let root = std::env::temp_dir().join(format!(
+			"hishell-radio-exec-{}",
+			std::process::id()
+		));
+		std::fs::create_dir_all(&root).unwrap();
+		let script = root.join("capture.sh");
+		let output = root.join("item");
+		std::fs::write(
+			&script,
+			format!(
+				"#!/bin/sh\nprintf '%s' \"$HISHELL_APP_ITEM\" > '{}'\n",
+				output.display()
+			),
+		)
+		.unwrap();
+		std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+		let selected = root.join("Bluetooth/AA:BB:CC:DD:EE:FF.desktop");
+		std::fs::create_dir_all(selected.parent().unwrap()).unwrap();
+		run_radio_exec(
+			script.to_str().unwrap(),
+			"AA:BB:CC:DD:EE:FF",
+			"Controller",
+			selected.to_str().unwrap(),
+		);
+
+		let deadline = Instant::now() + Duration::from_secs(5);
+		let item = loop {
+			if let Ok(text) = std::fs::read_to_string(&output) {
+				break text;
+			}
+			assert!(Instant::now() < deadline, "radio command did not run");
+			std::thread::sleep(Duration::from_millis(20));
+		};
+		assert_eq!(item, selected.to_str().unwrap());
+		std::fs::remove_dir_all(&root).ok();
+	}
 }
