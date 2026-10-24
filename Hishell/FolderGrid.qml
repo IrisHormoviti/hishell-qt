@@ -50,6 +50,16 @@ Item {
 	// The viewport moved (a touch scroll, a fling, a scrollbar jump). The view
 	// uses it to keep the cursor on a fully visible item.
 	signal viewportScrolled()
+	// A touch drag or its fling finished. The view re-settles the cursor at
+	// once, before the border is shown again.
+	signal scrollEnded()
+
+	// True while a touch drag or its fling moves the viewport. The focus border
+	// hides for the gesture: the cursor follows the viewport, and a border
+	// sliding from item to item while the content moves reads as jitter.
+	// Keyboard navigation scrolls through the focus animation instead, which
+	// never sets this, so the border keeps following the cursor there.
+	property bool userScrolling: false
 
 	function playSound(name) {
 		if (grid.window && grid.window.sound)
@@ -450,12 +460,18 @@ Item {
 		onWidthChanged: grid.scheduleThumbnails()
 		onContentYChanged: grid.onViewportMoved()
 		onContentXChanged: grid.onViewportMoved()
-		onMovementStarted: grid.onMovementStarted()
+		onMovementStarted: {
+			grid.userScrolling = true;
+			grid.onMovementStarted();
+		}
 		onMovementEnded: {
+			grid.userScrolling = false;
 			grid.updateScrollEdges();
 			// The fling's last position may have clipped the cursor after the
-			// throttled follow last ran; settle it once the view has stopped.
+			// throttled follow last ran; settle it once the view has stopped,
+			// before the border comes back.
 			grid.viewportScrolled();
+			grid.scrollEnded();
 		}
 
 		ScrollBar.vertical: ScrollBar {
@@ -525,12 +541,18 @@ Item {
 		onWidthChanged: grid.scheduleThumbnails()
 		onContentYChanged: grid.onViewportMoved()
 		onContentXChanged: grid.onViewportMoved()
-		onMovementStarted: grid.onMovementStarted()
+		onMovementStarted: {
+			grid.userScrolling = true;
+			grid.onMovementStarted();
+		}
 		onMovementEnded: {
+			grid.userScrolling = false;
 			grid.updateScrollEdges();
 			// The fling's last position may have clipped the cursor after the
-			// throttled follow last ran; settle it once the view has stopped.
+			// throttled follow last ran; settle it once the view has stopped,
+			// before the border comes back.
 			grid.viewportScrolled();
+			grid.scrollEnded();
 		}
 
 		ScrollBar.vertical: ScrollBar {
@@ -636,7 +658,7 @@ Item {
 		// it to place the border on the slot's real position.
 		readonly property real originX: grid.freeGrid ? 0 : focusBorderHost.metrics.offsetX
 		readonly property real originY: grid.freeGrid ? 0 : focusBorderHost.metrics.offsetY
-		visible: onEmpty || onItem
+		visible: (onEmpty || onItem) && !grid.userScrolling
 		width: focusBorderHost.metrics.itemWidth
 		height: focusBorderHost.metrics.itemHeight
 		// Animate only while the border is already on screen, so the first

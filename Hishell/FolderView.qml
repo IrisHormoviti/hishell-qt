@@ -1715,6 +1715,12 @@ Item {
 		// follows the viewport, moving to the nearest item that is fully in
 		// view. Throttled, so a fling does not walk the cursor for every pixel.
 		onViewportScrolled: folderView.scheduleFocusFollow()
+		// The gesture is over: settle the cursor now, so the border reappears
+		// on a fully visible item instead of flashing on a clipped one.
+		onScrollEnded: {
+			focusFollowTimer.stop();
+			folderView.keepFocusInView();
+		}
 	}
 
 	// ── Filter Bar ───
