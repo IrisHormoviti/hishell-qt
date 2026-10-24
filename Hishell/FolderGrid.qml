@@ -436,7 +436,11 @@ Item {
 		cellWidth: grid.gridMetrics.itemWidth + grid.gridMetrics.gap
 		cellHeight: grid.gridMetrics.itemHeight + grid.gridMetrics.gap
 		flow: grid.horizontalScroll ? GridView.TopToBottom : GridView.LeftToRight
-		cacheBuffer: Math.max(grid.gridMetrics.itemHeight, grid.gridMetrics.itemWidth) * 2
+		// A fast touch fling outruns a 2-row cache and makes the view build
+		// delegates while the finger is still moving, which shows up as small
+		// stutters when the fling reverses. Four rows costs a few megabytes and
+		// keeps the incoming row ready.
+		cacheBuffer: Math.max(grid.gridMetrics.itemHeight, grid.gridMetrics.itemWidth) * 4
 
 		onHeightChanged: grid.scheduleThumbnails()
 		onWidthChanged: grid.scheduleThumbnails()
