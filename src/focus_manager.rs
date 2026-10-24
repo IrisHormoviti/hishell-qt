@@ -837,7 +837,6 @@ pub struct FocusManager {
 			let Some(input) = crate::gamepad::poll() else {
 				return;
 			};
-
 			if !self.view_focused {
 				if let Some(key) = qt_key(input) {
 					crate::kde_bridge::send_key(key);

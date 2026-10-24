@@ -73,7 +73,6 @@ pub fn play_sound(event_id: &str) -> bool {
 	let Ok(id) = CString::new(event_id) else {
 		return false;
 	};
-	println!("SOUNDDIAG {event_id}");
 	unsafe { hishell_play_sound(id.as_ptr()) }
 }
 

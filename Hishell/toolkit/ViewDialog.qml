@@ -21,236 +21,46 @@ Kirigami.OverlaySheet {
 	function playSound(name) {
 		viewDialog.viewActions.playSound(name);
 	}
-	onClosed: playSound("return")
+	// The sheet owns the keyboard while it is up. Without this the folder view
+	// keeps it, so the controller's cancel is handled by the view behind the
+	// sheet (B could not close it) and accept is never sent to the sheet.
+	focus: true
+	onOpened: {
+		const w = viewDialog.viewActions.window;
+		if (w)
+			w.sheetOpen = true;
+	}
+	onClosed: {
+		playSound("return");
+		// Qt leaves the focus on the control that was tapped inside the sheet,
+		// which is hidden now. Hand the keyboard back once the popup has
+		// settled: A/B pressed right after closing must reach the file list,
+		// not the hidden control.
+		const w = viewDialog.viewActions.window;
+		if (w)
+			w.sheetOpen = false;
+		Qt.callLater(function () {
+			const view = w ? (w.focusedFolderView || w.primaryFolderView) : null;
+			if (view)
+				view.forceActiveFocus();
+		});
+	}
+
+	// Some popup paths deliver cancel as the FocusManager signal rather than as
+	// a key (the folder view still considers itself the keyboard owner), so the
+	// sheet closes on either path.
+	Connections {
+		target: viewDialog.viewActions.window ? viewDialog.viewActions.window.focusManager : null
+		function onCancel_requested() {
+			if (viewDialog.visible)
+				viewDialog.close();
+		}
+	}
 
 	implicitWidth: Kirigami.Units.gridUnit * 20
 	// OverlaySheet caps its height at the window and scrolls the content; the
 	// explicit maximum keeps the last groups reachable on the short touch panel.
 	closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-
-	// A row of connected buttons for a mutually exclusive choice: one segmented
-	// control instead of separate radio buttons, so the selected value reads at a
-	// glance and the tap targets are thicker.
-	//
-	// The buttons are created imperatively from `options` rather than through a
-	// Repeater: on this Qt (6.8.2) the Repeater model roles never reached the
-	// delegate — `index` and `modelData` were undefined at runtime, so every
-	// segment drew with empty text and unrounded edges. Creating each button and
-	// assigning its entry directly avoids delegate context entirely.
-	// Each option is { text, icon, value }; `currentValue` marks the selected one
-	// and `activated(value)` reports a choice.
-	component Segmented: Item {
-		id: segmented
-		property var options: []
-		property var currentValue: null
-		signal activated(var value)
-		Layout.fillWidth: true
-		Layout.margins: Kirigami.Units.largeSpacing
-		implicitHeight: segmentRow.implicitHeight
-
-		readonly property real groupRadius: Kirigami.Units.cornerRadius + 2
-
-		// A soft stacked shadow under the whole group, so the control reads as
-		// one raised key rather than a row of separate buttons.
-		Rectangle {
-			anchors.fill: groupRim
-			anchors.topMargin: 5
-			anchors.bottomMargin: -7
-			radius: groupRim.radius + 5
-			color: ClamTheme.shadowColor
-			opacity: 0.05
-		}
-		Rectangle {
-			anchors.fill: groupRim
-			anchors.topMargin: 2
-			anchors.bottomMargin: -3
-			radius: groupRim.radius + 1
-			color: ClamTheme.shadowColor
-			opacity: 0.08
-		}
-
-		// One shaded frame the segments sit inside, so the shared edges between
-		// segments stay clean and the group has a single outer bevel.
-		Rectangle {
-			id: groupRim
-			anchors.fill: parent
-			radius: segmented.groupRadius
-			gradient: Gradient {
-				GradientStop { position: 0.0; color: Qt.darker(ClamTheme.surfaceColor, 1.03) }
-				GradientStop { position: 1.0; color: Qt.darker(ClamTheme.surfaceColor, 1.16) }
-			}
-			border.width: 1
-			border.color: Qt.alpha(ClamTheme.borderDarkColor, 0.7)
-		}
-
-		RowLayout {
-			id: segmentRow
-			anchors.fill: groupRim
-			anchors.margins: 2
-			spacing: 0
-		}
-
-		Component {
-			id: segmentComponent
-
-			Button {
-				id: segButton
-
-				// Set at creation by rebuild(); never read from a model role.
-				property var entry: null
-				property int segIndex: 0
-				property int segCount: 1
-				property bool segCurrent: false
-
-				readonly property bool isSelected: segButton.segCurrent
-				readonly property bool isFirst: segButton.segIndex === 0
-				readonly property bool isLast: segButton.segIndex === segButton.segCount - 1
-				// A light accent tint for the recessed cell, kept readable: on a
-				// light fill the label goes dark, otherwise it stays white.
-				readonly property color sunkBody: Qt.lighter(ClamTheme.accentColor, 1.15)
-				readonly property color sunkText: ClamTheme.luminance(segButton.sunkBody) > 0.6 ? "#24222a" : "#ffffff"
-
-				Layout.fillWidth: true
-				Layout.minimumHeight: Kirigami.Units.gridUnit * 2
-
-				highlighted: segButton.isSelected
-				text: segButton.entry ? segButton.entry.text : ""
-				icon.name: (segButton.entry && segButton.entry.icon !== undefined) ? segButton.entry.icon : ""
-				display: icon.name.length > 0 ? AbstractButton.TextBesideIcon : AbstractButton.TextOnly
-				onPressed: viewDialog.playSound("button-pressed")
-				onReleased: viewDialog.playSound("button-released")
-				onClicked: segmented.activated(segButton.entry.value)
-
-				// The style's Button would paint a whole raised key; a segment is
-				// one cell of a group, so draw the label here and a flat cell
-				// below, keeping the group's shared edges straight.
-				contentItem: Label {
-					text: segButton.text
-					font: segButton.font
-					horizontalAlignment: Text.AlignHCenter
-					verticalAlignment: Text.AlignVCenter
-					elide: Text.ElideRight
-					visible: segButton.display !== AbstractButton.IconOnly
-					color: segButton.isSelected ? segButton.sunkText : ClamTheme.textColor
-				}
-
-				// One cell of the group. Only the outer corners are rounded, so
-				// the row reads as a single control. Unselected cells are raised
-				// (light top, shaded bottom); the selected cell is pressed into
-				// the frame instead (dark top shadow, bright bottom lip) so it
-				// reads as the recessed current choice. A divider separates
-				// neighbours.
-				background: Item {
-					id: segCell
-					readonly property real r: segmented.groupRadius - 2
-					readonly property bool sunk: segButton.isSelected
-
-					Rectangle {
-						id: segFace
-						anchors.fill: parent
-						topLeftRadius: segButton.isFirst ? segCell.r : 0
-						bottomLeftRadius: segButton.isFirst ? segCell.r : 0
-						topRightRadius: segButton.isLast ? segCell.r : 0
-						bottomRightRadius: segButton.isLast ? segCell.r : 0
-						gradient: Gradient {
-							GradientStop { position: 0.0; color: segCell.sunk ? Qt.darker(segButton.sunkBody, 1.10) : Qt.lighter(ClamTheme.surfaceColor, 1.06) }
-							GradientStop { position: 0.14; color: segCell.sunk ? segButton.sunkBody : ClamTheme.surfaceColor }
-							GradientStop { position: 0.78; color: segCell.sunk ? segButton.sunkBody : ClamTheme.surfaceColor }
-							GradientStop { position: 1.0; color: segCell.sunk ? Qt.lighter(segButton.sunkBody, 1.08) : Qt.darker(ClamTheme.surfaceColor, 1.08) }
-						}
-					}
-
-					// The frame's shadow falls into the recessed cell.
-					Rectangle {
-						visible: segCell.sunk
-						anchors.top: segFace.top
-						anchors.left: segFace.left
-						anchors.right: segFace.right
-						height: Math.round(segFace.height * 0.45)
-						topLeftRadius: segFace.topLeftRadius
-						topRightRadius: segFace.topRightRadius
-						gradient: Gradient {
-							GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 0.22) }
-							GradientStop { position: 1.0; color: "transparent" }
-						}
-					}
-					// ...and the recessed lip catches a bright line at the bottom.
-					Rectangle {
-						visible: segCell.sunk
-						anchors.left: segFace.left
-						anchors.right: segFace.right
-						anchors.bottom: segFace.bottom
-						height: 1
-						color: Qt.rgba(1, 1, 1, 0.4)
-					}
-
-					// Press and hover feedback, painted over the cell.
-					Rectangle {
-						anchors.fill: segFace
-						topLeftRadius: segFace.topLeftRadius
-						bottomLeftRadius: segFace.bottomLeftRadius
-						topRightRadius: segFace.topRightRadius
-						bottomRightRadius: segFace.bottomRightRadius
-						color: ClamTheme.shadowColor
-						opacity: segButton.down ? 0.14 : 0.0
-						Behavior on opacity { NumberAnimation { duration: 120 } }
-					}
-					Rectangle {
-						anchors.fill: segFace
-						topLeftRadius: segFace.topLeftRadius
-						bottomLeftRadius: segFace.bottomLeftRadius
-						topRightRadius: segFace.topRightRadius
-						bottomRightRadius: segFace.bottomRightRadius
-						color: ClamTheme.accentColor
-						opacity: (segButton.hovered && !segButton.down && !segCell.sunk) ? 0.06 : 0.0
-						Behavior on opacity { NumberAnimation { duration: 120 } }
-					}
-
-					// Divider between neighbours.
-					Rectangle {
-						visible: !segButton.isFirst
-						anchors.left: parent.left
-						anchors.top: parent.top
-						anchors.bottom: parent.bottom
-						width: 1
-						color: Qt.alpha(ClamTheme.borderDarkColor, 0.7)
-					}
-				}
-			}
-		}
-
-		property var _buttons: []
-
-		Component.onCompleted: segmented.rebuild()
-		onOptionsChanged: segmented.rebuild()
-		onCurrentValueChanged: segmented.updateSelection()
-
-		function rebuild() {
-			for (let i = 0; i < segmented._buttons.length; i++)
-				segmented._buttons[i].destroy();
-			segmented._buttons = [];
-
-			const list = segmented.options || [];
-			for (let i = 0; i < list.length; i++) {
-				const button = segmentComponent.createObject(segmentRow, {
-					entry: list[i],
-					segIndex: i,
-					segCount: list.length,
-					segCurrent: segmented.currentValue === list[i].value
-				});
-				if (button)
-					segmented._buttons.push(button);
-			}
-		}
-
-		function updateSelection() {
-			const list = segmented.options || [];
-			for (let i = 0; i < segmented._buttons.length; i++) {
-				segmented._buttons[i].segCurrent = i < list.length
-					&& segmented.currentValue === list[i].value;
-			}
-		}
-	}
 
 	// A labelled switch that spans the row, with the knob on the trailing edge
 	// so it lines up with the rest of the full-width controls.
@@ -302,7 +112,7 @@ Kirigami.OverlaySheet {
 		SectionHeading {
 			text: qsTr("Apply To")
 		}
-		Segmented {
+		SegmentedButtons {
 			options: [
 				{ text: qsTr("General"), value: false },
 				{ text: qsTr("This Folder"), value: true }
@@ -315,7 +125,7 @@ Kirigami.OverlaySheet {
 		SectionHeading {
 			text: qsTr("Display")
 		}
-		Segmented {
+		SegmentedButtons {
 			options: [
 				{ text: qsTr("Grid"), icon: "view-grid", value: "GRID" },
 				{ text: qsTr("List"), icon: "view-list-details", value: "LIST" }
@@ -366,7 +176,7 @@ Kirigami.OverlaySheet {
 			checked: viewDialog.viewActions.labelsBesideIcons
 			onToggled: checked => viewDialog.viewActions.setConfig("GridLabelsBesidesIcons", String(checked))
 		}
-		Segmented {
+		SegmentedButtons {
 			enabled: viewDialog.viewActions.showLabels
 			options: [
 				{ text: qsTr("Titles"), value: "TITLE" },
@@ -380,7 +190,7 @@ Kirigami.OverlaySheet {
 		SectionHeading {
 			text: qsTr("Sort By")
 		}
-		Segmented {
+		SegmentedButtons {
 			options: {
 				const list = [
 					{ text: qsTr("Newest"), value: "NEWEST" },
@@ -403,7 +213,7 @@ Kirigami.OverlaySheet {
 			Label {
 				text: qsTr("By date")
 			}
-			Segmented {
+			SegmentedButtons {
 				options: [
 					{ text: qsTr("Modified"), value: "MODIFIED" },
 					{ text: qsTr("Created"), value: "CREATED" },
@@ -421,7 +231,7 @@ Kirigami.OverlaySheet {
 			Label {
 				text: qsTr("By name")
 			}
-			Segmented {
+			SegmentedButtons {
 				options: [
 					{ text: qsTr("Titles"), value: "TITLES" },
 					{ text: qsTr("File Names"), value: "FILENAMES" }
@@ -477,7 +287,7 @@ Kirigami.OverlaySheet {
 			Label {
 				text: qsTr("Scroll")
 			}
-			Segmented {
+			SegmentedButtons {
 				options: [
 					{ text: qsTr("Vertical"), value: "VERTICAL" },
 					{ text: qsTr("Horizontal"), value: "HORIZONTAL" }
@@ -492,7 +302,7 @@ Kirigami.OverlaySheet {
 			Label {
 				text: qsTr("Align X")
 			}
-			Segmented {
+			SegmentedButtons {
 				options: [
 					{ text: qsTr("Fill"), value: "FILL" },
 					{ text: qsTr("Left"), value: "LEFT" },
@@ -509,7 +319,7 @@ Kirigami.OverlaySheet {
 			Label {
 				text: qsTr("Align Y")
 			}
-			Segmented {
+			SegmentedButtons {
 				options: [
 					{ text: qsTr("Fill"), value: "FILL" },
 					{ text: qsTr("Top"), value: "TOP" },

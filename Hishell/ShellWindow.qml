@@ -29,6 +29,10 @@ Kirigami.ApplicationWindow {
 	// copied and so on like a selected one.
 	property Item focusedFolderView: null
 	property Item selectionFolderView: null
+	// The View options sheet is modal for the controller: while it is up it owns
+	// the keyboard, and the file view must not answer accept/cancel or take the
+	// focus back.
+	property bool sheetOpen: false
 	property alias focusManager: focusManager
 	property alias dragDropHandler: dragDropHandler
 	property alias dropValidator: dropValidator
@@ -528,6 +532,11 @@ Kirigami.ApplicationWindow {
 		directory.path = initialPath;
 		root.refreshWindowIcon();
 
+		// The style's controls (a segmented button, for one) ask the theme for
+		// their generic feedback sounds; this window owns the player, so the
+		// style itself needs no sound backend.
+		Theme.soundPlayer = sound;
+
 		// Pick up the active theme's icon theme on first start; later changes
 		// arrive through the ClamTheme Connections above.
 		if (ClamTheme.iconTheme !== "" && root.fileManager)
@@ -567,7 +576,7 @@ Kirigami.ApplicationWindow {
 	}
 
 	function ensureFolderViewFocus() {
-		if (!root.active || !root.primaryFolderView)
+		if (!root.active || !root.primaryFolderView || root.sheetOpen)
 			return;
 		// The page itself holds focus when nothing else does; a file view or
 		// anything the user focused deliberately is left alone.

@@ -5,10 +5,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
+// How long a direction must be held before it repeats at all. Without this
+// pause a normal-length press outlasts the repeat interval and steps twice.
+const REPEAT_DELAY: Duration = Duration::from_millis(400);
 // Slightly longer than the focus scroll animation in FolderView.qml, so a
 // held direction arrives as a sequence of finished steps rather than a stream
 // of animations that each cancel the one before.
-const REPEAT: Duration = Duration::from_millis(120);
+const REPEAT_INTERVAL: Duration = Duration::from_millis(120);
 const STICK_THRESHOLD: f32 = 0.35;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -52,8 +55,22 @@ struct State {
 
 static STATE: Lazy<Mutex<State>> = Lazy::new(|| Mutex::new(State::default()));
 static QUEUE: Lazy<Mutex<Vec<Input>>> = Lazy::new(|| Mutex::new(Vec::new()));
-static REPEAT_STATE: Lazy<Mutex<(Option<Input>, Instant)>> =
-	Lazy::new(|| Mutex::new((None, Instant::now())));
+/// The direction being held, when it was last dispatched, and how many
+/// repeats it has produced. `count` stays zero until the initial delay has
+/// passed, which separates "first repeat" from the cadence after it.
+struct Repeat {
+	input: Option<Input>,
+	when: Instant,
+	count: u32,
+}
+
+static REPEAT_STATE: Lazy<Mutex<Repeat>> = Lazy::new(|| {
+	Mutex::new(Repeat {
+		input: None,
+		when: Instant::now(),
+		count: 0,
+	})
+});
 static STARTED: AtomicBool = AtomicBool::new(false);
 
 /// Queues an input that came from somewhere other than the gamepad, such as
@@ -78,7 +95,11 @@ pub fn discard() {
 		*state = State::default();
 	}
 	if let Ok(mut repeat) = REPEAT_STATE.lock() {
-		repeat.0 = None;
+		*repeat = Repeat {
+			input: None,
+			when: Instant::now(),
+			count: 0,
+		};
 	}
 }
 
@@ -136,14 +157,26 @@ pub fn poll() -> Option<Input> {
 	let now = Instant::now();
 	match direction {
 		Some(input) => {
-			if repeat.0 == Some(input) && now.duration_since(repeat.1) < REPEAT {
-				return None;
+			if repeat.input == Some(input) {
+				let wait = if repeat.count == 0 {
+					REPEAT_DELAY
+				} else {
+					REPEAT_INTERVAL
+				};
+				if now.duration_since(repeat.when) < wait {
+					return None;
+				}
+				repeat.count = repeat.count.saturating_add(1);
+			} else {
+				repeat.count = 0;
 			}
-			*repeat = (Some(input), now);
+			repeat.input = Some(input);
+			repeat.when = now;
 			Some(input)
 		}
 		None => {
-			repeat.0 = None;
+			repeat.input = None;
+			repeat.count = 0;
 			None
 		}
 	}

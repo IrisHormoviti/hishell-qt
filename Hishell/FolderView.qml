@@ -23,6 +23,10 @@ Item {
 	// The path the focus sound last played for, so moving the cursor within one
 	// item does not retrigger it.
 	property string lastFocusSoundPath: ""
+	// Set while a selection gesture moves the cursor. The gesture owns its
+	// item-selected sound; the focus sound underneath it would make one tap
+	// sound twice.
+	property bool suppressFocusSound: false
 
 	property Directory directory
 	property Config config: directory ? directory.config : null
@@ -453,6 +457,15 @@ Item {
 			Qt.callLater(() => folderView.ensureFocusVisible());
 	}
 
+	// Move the cursor as part of a selection gesture. The gesture plays its own
+	// item-selected sound, so the focus change it causes must not add the focus
+	// sound on top.
+	function focusSlotForSelection(path) {
+		folderView.suppressFocusSound = true;
+		folderView.focusSlot(path, false);
+		folderView.suppressFocusSound = false;
+	}
+
 	// Context menu for the focused item, shared by the gamepad menu button and
 	// the Menu key.
 	function openFocusedMenu() {
@@ -610,7 +623,8 @@ Item {
 			// scroll-follow cursor move should stay quiet.
 			if (fm && fm.current_pane === folderView.paneId) {
 				const path = String(fm.focused_path);
-				if (path !== "" && path !== folderView.lastFocusSoundPath && !folderView.suppressFocusScroll) {
+				if (path !== "" && path !== folderView.lastFocusSoundPath && !folderView.suppressFocusScroll
+					&& !folderView.suppressFocusSound) {
 					folderView.lastFocusSoundPath = path;
 					folderView.playSound("item-focus");
 				}
@@ -638,6 +652,8 @@ Item {
 			}
 		}
 		function onAccept_requested() {
+			if (folderView.rootWindow && folderView.rootWindow.sheetOpen)
+				return;
 			if (folderView.focusOwned && folderView.focusManager.current_pane === folderView.paneId)
 				folderView.activateFocused();
 		}
@@ -659,6 +675,8 @@ Item {
 				folderView.openDirectoryMenu();
 		}
 		function onCancel_requested() {
+			if (folderView.rootWindow && folderView.rootWindow.sheetOpen)
+				return;
 			if (!folderView.focusOwned || folderView.focusManager.current_pane !== folderView.paneId)
 				return;
 
@@ -1555,7 +1573,11 @@ Item {
 		case Qt.Key_Up:
 		case Qt.Key_Down: {
 			const direction = event.key === Qt.Key_Left ? "left" : event.key === Qt.Key_Right ? "right" : event.key === Qt.Key_Up ? "up" : "down";
+			// Shift extends the selection with the item the cursor lands on;
+			// that gesture owns its sound, so the focus move stays quiet.
+			folderView.suppressFocusSound = shift;
 			fm.move_focus(direction);
+			folderView.suppressFocusSound = false;
 			if (shift && fm.focus_active && String(fm.focused_path) !== "") {
 				folderView.playSound("item-selected");
 				mgr.toggle_selection(String(fm.focused_path), fm.focused_index);
@@ -1663,7 +1685,7 @@ Item {
 			folderView.forceActiveFocus();
 			// The cursor follows the selection: the item the user just selected
 			// is the one the keyboard then acts on.
-			folderView.focusSlot(p, false);
+			folderView.focusSlotForSelection(p);
 			folderView.playSound("item-selected");
 			if (folderView.selectionManager)
 				folderView.selectionManager.toggle_selection(p, idx);
@@ -1673,7 +1695,7 @@ Item {
 			folderView.forceActiveFocus();
 			const item = grid.slotAt(idx);
 			if (item && item.path)
-				folderView.focusSlot(String(item.path), false);
+				folderView.focusSlotForSelection(String(item.path));
 			folderView.playSound("item-selected");
 			const mgr = folderView.selectionManager;
 			if (mgr) {
@@ -1688,7 +1710,7 @@ Item {
 			folderView.forceActiveFocus();
 			// A long press selects the item under the finger; the cursor has to
 			// move with it, or the next keyboard action would apply elsewhere.
-			folderView.focusSlot(p, false);
+			folderView.focusSlotForSelection(p);
 			folderView.playSound("item-selected");
 			if (folderView.selectionManager)
 				folderView.selectionManager.toggle_selection(p, idx);
