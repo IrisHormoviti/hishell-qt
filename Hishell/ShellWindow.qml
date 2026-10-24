@@ -273,8 +273,11 @@ Kirigami.ApplicationWindow {
 		enabled: true
 	}
 
+	// Poll the pad at frame rate. At 90 ms the wait before a press was handled
+	// was itself visible as lag, on top of the scroll animation; the poll is a
+	// few cached reads and one mutex, and the shell is drawing at 60 Hz anyway.
 	Timer {
-		interval: 90
+		interval: 16
 		running: true
 		repeat: true
 		onTriggered: focusManager.poll_gamepad()

@@ -1612,11 +1612,14 @@ Item {
 
 	// ── Grid ───
 
+	// Short enough that a press feels like a move, not like an animation the
+	// user is waiting for. It ends before the pad's next repeat, so a held
+	// direction scrolls in complete steps.
 	NumberAnimation {
 		id: focusScrollY
 		target: flickable
 		property: "contentY"
-		duration: 180
+		duration: 110
 		easing.type: Easing.OutCubic
 		onRunningChanged: {
 			if (!running && !focusScrollX.running)
@@ -1628,7 +1631,7 @@ Item {
 		id: focusScrollX
 		target: flickable
 		property: "contentX"
-		duration: 180
+		duration: 110
 		easing.type: Easing.OutCubic
 		onRunningChanged: {
 			if (!running && !focusScrollY.running)

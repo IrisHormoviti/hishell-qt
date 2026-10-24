@@ -5,7 +5,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-const REPEAT: Duration = Duration::from_millis(160);
+// Slightly longer than the focus scroll animation in FolderView.qml, so a
+// held direction arrives as a sequence of finished steps rather than a stream
+// of animations that each cancel the one before.
+const REPEAT: Duration = Duration::from_millis(120);
 const STICK_THRESHOLD: f32 = 0.35;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
