@@ -47,6 +47,9 @@ Item {
 	signal itemPressHeld(string path, int index)
 	signal itemContextMenuRequested(string path, int index)
 	signal backgroundClicked()
+	// The viewport moved (a touch scroll, a fling, a scrollbar jump). The view
+	// uses it to keep the cursor on a fully visible item.
+	signal viewportScrolled()
 
 	function playSound(name) {
 		if (grid.window && grid.window.sound)
@@ -412,6 +415,7 @@ Item {
 		grid.scheduleThumbnails();
 		grid.tickAxis("y");
 		grid.tickAxis("x");
+		grid.viewportScrolled();
 	}
 
 	// ── Normal grid (lazy) ──
@@ -447,7 +451,12 @@ Item {
 		onContentYChanged: grid.onViewportMoved()
 		onContentXChanged: grid.onViewportMoved()
 		onMovementStarted: grid.onMovementStarted()
-		onMovementEnded: grid.updateScrollEdges()
+		onMovementEnded: {
+			grid.updateScrollEdges();
+			// The fling's last position may have clipped the cursor after the
+			// throttled follow last ran; settle it once the view has stopped.
+			grid.viewportScrolled();
+		}
 
 		ScrollBar.vertical: ScrollBar {
 			id: verticalScrollBar
@@ -517,7 +526,12 @@ Item {
 		onContentYChanged: grid.onViewportMoved()
 		onContentXChanged: grid.onViewportMoved()
 		onMovementStarted: grid.onMovementStarted()
-		onMovementEnded: grid.updateScrollEdges()
+		onMovementEnded: {
+			grid.updateScrollEdges();
+			// The fling's last position may have clipped the cursor after the
+			// throttled follow last ran; settle it once the view has stopped.
+			grid.viewportScrolled();
+		}
 
 		ScrollBar.vertical: ScrollBar {
 			id: freeVerticalScrollBar

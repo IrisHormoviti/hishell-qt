@@ -127,6 +127,13 @@ Item {
 	// slot; only `isFocused` is needed here, for the click-to-open rule below.
 	property bool isFocused: false
 
+	// The last item this slot opened and when. One gesture produces several
+	// activation signals - a quick second tap is a double click to Qt, which
+	// sends both `canceled` and `doubleClicked`, and a mouse double click sends
+	// `doubleClicked` and then `clicked` - so they must collapse into one open.
+	property string lastActivatedPath: ""
+	property double lastActivatedTime: 0
+
 	property int currentDragCount: 1
 
 	// Event sounds (ClamOS XDG sound theme). Played through the window's sound
@@ -793,12 +800,20 @@ Item {
 	}
 
 	// What a plain left click on this item does. With OpenOnClick off, a click
-	// on an unfocused item only moves the cursor to it; the next click (while it
-	// is focused) opens it.
+	// on an unfocused item only moves the cursor to it; a click on the (now
+	// focused) item opens it.
 	function activateOrFocus() {
 		if (!fileSlot.actionManager)
 			return;
 		if (fileSlot.openOnClick || fileSlot.isFocused) {
+			// Collapse the several activation signals one gesture produces into
+			// a single open. The same item opened again a moment later is a new
+			// gesture and is not affected.
+			if (fileSlot.lastActivatedPath === fileSlot.path
+				&& Date.now() - fileSlot.lastActivatedTime < 400)
+				return;
+			fileSlot.lastActivatedPath = fileSlot.path;
+			fileSlot.lastActivatedTime = Date.now();
 			fileSlot.actionManager.activatePath(fileSlot.path, fileSlot);
 		} else if (fileSlot.folderView && typeof fileSlot.folderView.focusSlot === 'function') {
 			// Do not reveal the item: scrolling it into view would move the grid
@@ -1187,10 +1202,6 @@ Item {
 			} else if (fileSlot.clickHandler) {
 				fileSlot.clickHandler(mouse);
 			} else {
-				if (fileSlot.openOnClick || fileSlot.isFocused) {
-					fileSlot.lastActivatedPath = fileSlot.path;
-					fileSlot.lastActivatedTime = Date.now();
-				}
 				fileSlot.activateOrFocus();
 			}
 		}
@@ -1206,14 +1217,9 @@ Item {
 				fileSlot.clickHandler(mouse);
 				return;
 			}
-			// A mouse double click has already activated on its first click.
-			if (fileSlot.lastActivatedPath === fileSlot.path
-				&& Date.now() - fileSlot.lastActivatedTime < 400)
-				return;
-			if (fileSlot.openOnClick || fileSlot.isFocused) {
-				fileSlot.lastActivatedPath = fileSlot.path;
-				fileSlot.lastActivatedTime = Date.now();
-			}
+			// With OpenOnClick off the first tap of the gesture only moved the
+			// cursor, so this second one opens; with it on the item already
+			// opened on the first click and activateOrFocus ignores the repeat.
 			fileSlot.activateOrFocus();
 		}
 	}

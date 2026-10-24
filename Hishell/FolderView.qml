@@ -320,11 +320,10 @@ Item {
 			focusFollowTimer.start();
 	}
 
-	// Keeps the cursor on screen when the user scrolls it out of view, without
-	// scrolling back: the cursor moves to the item at the leading edge of the
-	// viewport, the one nearest the old cursor on the other axis. Scrolling back
-	// toward the start snaps to the trailing edge instead, so the cursor follows
-	// the direction the content moved.
+	// Keeps the cursor on a fully visible item while the user scrolls, without
+	// scrolling back: when the focused item is clipped by an edge, the cursor
+	// moves to the visible item nearest the one it is leaving. The viewport is
+	// the user's; the cursor follows it rather than fighting the gesture.
 	function keepFocusInView() {
 		const fm = folderView.focusManager;
 		if (!fm || !fm.focus_active || fm.current_pane !== folderView.paneId || !folderView.focusOwned)
@@ -334,6 +333,14 @@ Item {
 			return;
 
 		const metrics = folderView.gridMetrics;
+		const flick = flickable;
+		// The visible area, not the whole Flickable: the scrollbar hides a strip
+		// of it, and an item under the bar is not usable.
+		const viewWidth = flick.width - metrics.insetX;
+		const viewHeight = flick.height - metrics.insetY;
+		if (viewWidth <= 0 || viewHeight <= 0)
+			return;
+
 		// Geometry from the layout, not the delegate: with a lazy grid the
 		// focused item may not be instantiated.
 		let focusX, focusY, focusWidth, focusHeight;
@@ -351,57 +358,38 @@ Item {
 			return;
 		}
 
-		const left = flickable.contentX;
-		const top = flickable.contentY;
-		const right = left + flickable.width;
-		const bottom = top + flickable.height;
+		const left = flick.contentX;
+		const top = flick.contentY;
+		const right = left + viewWidth;
+		const bottom = top + viewHeight;
 
-		const offLeft = focusX + focusWidth <= left;
-		const offRight = focusX >= right;
-		const offTop = focusY + focusHeight <= top;
-		const offBottom = focusY >= bottom;
-		// Still at least partly on screen: leave the cursor alone.
-		if (!offLeft && !offRight && !offTop && !offBottom)
+		// A partly clipped item is as unusable as one entirely out of view, so
+		// crossing an edge is what moves the cursor.
+		if (focusX >= left && focusX + focusWidth <= right
+			&& focusY >= top && focusY + focusHeight <= bottom)
 			return;
 
-		const offX = offLeft || offRight;
-		const offY = offTop || offBottom;
-		let byColumn;
-		if (offX && !offY) {
-			byColumn = true;
-		} else if (offY && !offX) {
-			byColumn = false;
-		} else {
-			const dx = offLeft ? (left - (focusX + focusWidth)) : (focusX - right);
-			const dy = offTop ? (top - (focusY + focusHeight)) : (focusY - bottom);
-			byColumn = dx >= dy;
-		}
+		const focusCentreX = focusX + focusWidth / 2;
+		const focusCentreY = focusY + focusHeight / 2;
 
-		// The side the cursor left from decides which edge to snap to.
-		const wantMax = byColumn ? offRight : offBottom;
-		const oldCentre = byColumn ? (focusY + focusHeight / 2) : (focusX + focusWidth / 2);
-
+		// The nearest fully visible item, by centre distance. Laid out items only:
+		// an index is an item, and only the visible ones have delegates.
 		let best = -1;
-		let bestLead = 0;
-		let bestAside = Infinity;
+		let bestDistance = Infinity;
 		const count = grid.count;
 		for (let i = 0; i < count; i++) {
-			const item = grid.slotAt(i);
-			if (!item)
+			const x = grid.gridSlotX(i);
+			const y = grid.gridSlotY(i);
+			if (x < left || x + metrics.itemWidth > right)
 				continue;
-			if (item.x + item.width <= left || item.x >= right)
+			if (y < top || y + metrics.itemHeight > bottom)
 				continue;
-			if (item.y + item.height <= top || item.y >= bottom)
-				continue;
-			const lead = byColumn ? item.x : item.y;
-			const aside = byColumn ? (item.y + item.height / 2) : (item.x + item.width / 2);
-			const better = best < 0
-				|| (wantMax ? lead > bestLead + 1 : lead < bestLead - 1)
-				|| (Math.abs(lead - bestLead) <= 1 && Math.abs(aside - oldCentre) < bestAside);
-			if (better) {
+			const dx = x + metrics.itemWidth / 2 - focusCentreX;
+			const dy = y + metrics.itemHeight / 2 - focusCentreY;
+			const distance = dx * dx + dy * dy;
+			if (distance < bestDistance) {
+				bestDistance = distance;
 				best = i;
-				bestLead = lead;
-				bestAside = Math.abs(aside - oldCentre);
 			}
 		}
 
@@ -411,6 +399,8 @@ Item {
 		if (!item || !item.path)
 			return;
 
+		// The new item is fully visible already, so the focus-driven reveal must
+		// not scroll the viewport back.
 		folderView.suppressFocusScroll = true;
 		fm.set_pane_focus_path(folderView.paneId, item.path);
 		folderView.suppressFocusScroll = false;
@@ -1671,6 +1661,9 @@ Item {
 
 		onItemSelectionToggled: (p, idx) => {
 			folderView.forceActiveFocus();
+			// The cursor follows the selection: the item the user just selected
+			// is the one the keyboard then acts on.
+			folderView.focusSlot(p, false);
 			folderView.playSound("item-selected");
 			if (folderView.selectionManager)
 				folderView.selectionManager.toggle_selection(p, idx);
@@ -1678,6 +1671,9 @@ Item {
 
 		onItemShiftSelected: idx => {
 			folderView.forceActiveFocus();
+			const item = grid.slotAt(idx);
+			if (item && item.path)
+				folderView.focusSlot(String(item.path), false);
 			folderView.playSound("item-selected");
 			const mgr = folderView.selectionManager;
 			if (mgr) {
@@ -1690,6 +1686,9 @@ Item {
 
 		onItemPressHeld: (p, idx) => {
 			folderView.forceActiveFocus();
+			// A long press selects the item under the finger; the cursor has to
+			// move with it, or the next keyboard action would apply elsewhere.
+			folderView.focusSlot(p, false);
 			folderView.playSound("item-selected");
 			if (folderView.selectionManager)
 				folderView.selectionManager.toggle_selection(p, idx);
@@ -1697,6 +1696,7 @@ Item {
 
 		onItemContextMenuRequested: (p, idx) => {
 			folderView.forceActiveFocus();
+			folderView.focusSlot(p, false);
 			const mgr = folderView.selectionManager;
 			if (mgr && !mgr.is_selected(p)) {
 				mgr.clear();
@@ -1710,6 +1710,11 @@ Item {
 			if (folderView.focusManager)
 				folderView.focusManager.clear_pane(folderView.paneId);
 		}
+
+		// Scrolling must not leave the cursor on a clipped item: the focus
+		// follows the viewport, moving to the nearest item that is fully in
+		// view. Throttled, so a fling does not walk the cursor for every pixel.
+		onViewportScrolled: folderView.scheduleFocusFollow()
 	}
 
 	// ── Filter Bar ───
