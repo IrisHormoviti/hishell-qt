@@ -66,6 +66,14 @@ Item {
 			grid.window.sound.play(name);
 	}
 
+	// A scroll tick is only feedback while the content is moving: give it a
+	// short deadline in the sound queue, so the end of a fling is silent
+	// instead of playing back the ticks it outran.
+	function playScrollSound(name) {
+		if (grid.window && grid.window.sound)
+			grid.window.sound.play_transient(name);
+	}
+
 	readonly property bool freeGrid: grid.config ? (grid.config.sort === 3 && grid.config.view_mode === 0) : false
 
 	// The item cell size: icon plus room for the label, or a wide row when the
@@ -356,6 +364,11 @@ Item {
 	property real lastScrollY: 0
 	property bool atScrollStart: true
 	property bool atScrollEnd: true
+	// The tick rate is capped, not the item rate: a fast fling crosses many
+	// items per frame, and a sound per crossing is both unintelligible and
+	// enough to fill the sound queue.
+	readonly property int scrollSoundInterval: 90
+	property double lastScrollSoundTime: 0
 
 	function updateScrollEdges() {
 		const view = grid.flickable;
@@ -402,8 +415,13 @@ Item {
 		if (Math.abs(remainder) >= step) {
 			// One sound per axis, not per direction: scrolling sideways is one kind
 			// of movement (however it is oriented), and scrolling up or down is
-			// another. Two sounds total.
-			grid.playSound(axis === "x" ? "scroll-left" : "scroll-up");
+			// another. Two sounds total. Cap the rate: a fling crosses several
+			// items per frame, and each would otherwise be another queued tick.
+			const now = Date.now();
+			if (now - grid.lastScrollSoundTime >= grid.scrollSoundInterval) {
+				grid.lastScrollSoundTime = now;
+				grid.playScrollSound(axis === "x" ? "scroll-left" : "scroll-up");
+			}
 			remainder = 0;
 		}
 		if (axis === "x")
@@ -416,6 +434,9 @@ Item {
 	function onMovementStarted() {
 		grid.scrollRemainderX = 0;
 		grid.scrollRemainderY = 0;
+		// A new gesture earns its first tick even if the last one was a
+		// moment ago.
+		grid.lastScrollSoundTime = 0;
 		grid.lastScrollX = grid.flickable.contentX;
 		grid.lastScrollY = grid.flickable.contentY;
 		grid.updateScrollEdges();

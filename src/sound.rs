@@ -15,10 +15,17 @@
 //! blocks for hundreds of milliseconds. On this device that was a visible
 //! stutter on every cursor move, because the call came from the GUI thread.
 //! The queue is bounded: sounds are feedback, and it is better to drop one
-//! than to play a backlog long after the action.
+//! than to play a backlog long after the action. Playback itself is slow to
+//! start on this device (each `ca_context_play` opens the PCM), so a fast
+//! scroll could fill the queue and keep ticking after the finger stopped.
+//! Commands therefore carry their enqueue time: by the time the worker reaches
+//! one that has waited too long, its moment has passed and it is dropped.
+//! Transient sounds (scroll ticks) have a much shorter deadline than UI
+//! feedback, because a scroll sound is only useful while the content moves.
 
 use std::sync::Mutex;
 use std::sync::mpsc::{SyncSender, TrySendError, sync_channel};
+use std::time::{Duration, Instant};
 
 use once_cell::sync::Lazy;
 use qmetaobject::prelude::*;
@@ -29,8 +36,14 @@ use crate::kde_bridge;
 /// several per second; eight keeps the feedback current without a burst.
 const QUEUE: usize = 8;
 
+/// A queued sound older than this is no longer feedback; it is stale.
+const MAX_AGE: Duration = Duration::from_millis(250);
+
+/// Scroll ticks are only meaningful while the view is still moving.
+const TRANSIENT_MAX_AGE: Duration = Duration::from_millis(120);
+
 enum Command {
-	Play(String),
+	Play(String, Instant, Duration),
 	Volume(f64),
 }
 
@@ -48,8 +61,13 @@ fn sender() -> Option<SyncSender<Command>> {
 				// from another thread: it is not thread-safe.
 				for command in rx {
 					match command {
-						Command::Play(event_id) => {
-							kde_bridge::play_sound(&event_id);
+						Command::Play(event_id, queued, max_age) => {
+							// `ca_context_play` blocks while it opens the device,
+							// so the queue can hold a sound that was already
+							// superseded by the gesture that queued it.
+							if queued.elapsed() <= max_age {
+								kde_bridge::play_sound(&event_id);
+							}
 						}
 						Command::Volume(factor) => {
 							kde_bridge::set_sound_volume(factor);
@@ -91,7 +109,23 @@ pub struct Sound {
 			if !self.enabled {
 				return false;
 			}
-			submit(Command::Play(event_id))
+			submit(Command::Play(event_id, Instant::now(), MAX_AGE))
+		}
+	),
+
+	/// Queue a sound that is only useful right now (a scroll tick). It is
+	/// dropped once it has waited longer than a scroll sound can stay
+	/// meaningful, so the end of a gesture is silent instead of a backlog.
+	play_transient: qt_method!(
+		fn play_transient(&self, event_id: String) -> bool {
+			if !self.enabled {
+				return false;
+			}
+			submit(Command::Play(
+				event_id,
+				Instant::now(),
+				TRANSIENT_MAX_AGE,
+			))
 		}
 	),
 

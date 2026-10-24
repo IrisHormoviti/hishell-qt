@@ -139,6 +139,11 @@ Module {
 			Parameter { name: "event_id"; type: "string" }
 		}
 		Method {
+			name: "play_transient"
+			type: "bool"
+			Parameter { name: "event_id"; type: "string" }
+		}
+		Method {
 			name: "set_volume"
 			type: "void"
 			Parameter { name: "factor"; type: "double" }
