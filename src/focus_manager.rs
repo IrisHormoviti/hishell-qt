@@ -1,6 +1,6 @@
 use crate::gamepad::Input;
 use once_cell::sync::Lazy;
-use qmetaobject::{QVariantList, QUrl, prelude::*};
+use qmetaobject::{QUrl, QVariantList, prelude::*};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -508,6 +508,11 @@ pub struct FocusManager {
 	// Whether a launched app has taken the gamepad (the input-grab marker), for
 	// change detection; the shell then drops pad input but keeps drawing.
 	input_grabbed: bool,
+	// Last active-set revision read from the host, and whether it has ever been
+	// read. The first poll must query even when the host starts with an empty
+	// set, so persisted suspended entries are marked at boot.
+	active_marker: String,
+	active_loaded: bool,
 
 	register_pane: qt_method!(
 		fn register_pane(&mut self) -> i32 {
@@ -810,13 +815,6 @@ pub struct FocusManager {
 				self.hidden = hidden;
 				self.input_grabbed = grabbed;
 				self.return_frame_url = return_frame;
-				// The suspended set can only change with the markers, so this is
-				// the cheap place to refresh the per-item "active" marks.
-				let active = crate::launch::active_items();
-				if active != self.active_items {
-					self.active_items = active;
-					self.active_revision += 1;
-				}
 				self.suspended_changed();
 
 				// Coming back from a guest: everything pressed while it owned
@@ -825,6 +823,21 @@ pub struct FocusManager {
 				// all, or the app that was just closed launches again.
 				if was_paused && !(suspended || hidden || grabbed) {
 					crate::gamepad::discard();
+				}
+			}
+			// The host bumps this whenever its suspended set changes (and the
+			// compositor touches it at boot when it restores entries). The
+			// first poll always runs so a shell that starts after a reboot
+			// marks the persisted entries without waiting for a marker change.
+			let active_marker = crate::session::active_revision();
+			if !self.active_loaded || active_marker != self.active_marker {
+				self.active_loaded = true;
+				self.active_marker = active_marker;
+				let active = crate::launch::active_items();
+				if active != self.active_items {
+					self.active_items = active;
+					self.active_revision += 1;
+					self.suspended_changed();
 				}
 			}
 			if suspended || hidden || grabbed {
@@ -923,7 +936,8 @@ impl FocusManager {
 		let current = self.current;
 		let keyboard = self.panes.iter().any(|(_, pane)| pane.keyboard);
 
-		let (active, index, path, count, columns, column, row, on_empty) = match self.pane(current) {
+		let (active, index, path, count, columns, column, row, on_empty) = match self.pane(current)
+		{
 			Some(pane) => {
 				let on_empty = pane.on_empty_slot();
 				let (column, row) = if on_empty {
@@ -984,7 +998,8 @@ impl FocusManager {
 			let icon = thumbnail.unwrap_or_else(|| crate::directory::get_icon(&path));
 			(crate::directory::get_item_title(Path::new(&path)), icon)
 		};
-		let document = serde_json::json!({ "title": title, "icon": icon, "path": path }).to_string();
+		let document =
+			serde_json::json!({ "title": title, "icon": icon, "path": path }).to_string();
 		// Persist the cursor so returning from a guest — or any restart —
 		// lands on the same item. Empty focus keeps the previous one.
 		crate::session::save_focus(&path);
@@ -1424,4 +1439,3 @@ mod tests {
 		assert_eq!(recolour("fill=\"black\"", "#28b478"), "fill=\"#28b478\"");
 	}
 }
-

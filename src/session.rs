@@ -24,6 +24,8 @@ use serde::{Deserialize, Serialize};
 ///   the app, then unmaps so the app's window is revealed.
 /// * `RETURN_FRAME` — image the shell shows for a moment on the way back.
 /// * `FOCUS` — file the shell publishes the focused item to.
+/// * `ACTIVE` — file whose contents change whenever the set of suspended
+///   items changes, so the shell refreshes the per-item "active" marks.
 /// * `INPUT_GRAB` — set while a launched app has taken the gamepad for itself
 ///   (the connection dialog): the shell keeps drawing and keeps the touch
 ///   panel, but must not act on the pad.
@@ -31,6 +33,7 @@ const ENV_SUSPEND: &str = "HISHELL_SESSION_SUSPEND";
 const ENV_HIDE: &str = "HISHELL_SESSION_HIDE";
 const ENV_RETURN_FRAME: &str = "HISHELL_SESSION_RETURN_FRAME";
 const ENV_FOCUS: &str = "HISHELL_SESSION_FOCUS";
+const ENV_ACTIVE: &str = "HISHELL_SESSION_ACTIVE";
 const ENV_INPUT_GRAB: &str = "HISHELL_SESSION_INPUT_GRAB";
 
 /// Ignore window for a stale marker: if the host died before it could remove
@@ -156,6 +159,19 @@ pub fn return_frame_path() -> String {
 /// not asked for one.
 pub fn focus_file() -> String {
 	env_path(ENV_FOCUS)
+}
+
+/// Revision of the host's suspended-item set. A host that can suspend more
+/// than one item writes a new value whenever the set changes; the file view
+/// then re-queries `--active-items`. Empty when the host has no such file.
+pub fn active_revision() -> String {
+	let path = env_path(ENV_ACTIVE);
+	if path.is_empty() {
+		return String::new();
+	}
+	fs::read_to_string(path)
+		.map(|text| text.trim().to_string())
+		.unwrap_or_default()
 }
 
 fn marker_fresh(path: &str) -> bool {
