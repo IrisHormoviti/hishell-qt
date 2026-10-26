@@ -33,6 +33,44 @@ Menu {
 	visible: false
 	height: contentHeight
 
+	// Qt keeps an invisible MenuItem in the menu layout, and a submenu's
+	// visibility is the popup's own state, not its row. Collapse the row
+	// instead: a zero-height row disappears, and restoring implicitHeight
+	// re-expands it. Submenus are hidden through the MenuItem wrapper Qt
+	// creates for them (`itemAt(i).subMenu`).
+	function setMenuRowVisible(item, shown) {
+		if (!item)
+			return;
+		item.visible = shown;
+		item.height = shown ? item.implicitHeight : 0;
+	}
+
+	function applyModeVisibility() {
+		const list = viewActions.isListView;
+		for (let i = 0; i < viewMenu.count; i++) {
+			const item = viewMenu.itemAt(i);
+			if (!item)
+				continue;
+			if (item.subMenu === listColumnsMenu)
+				viewMenu.setMenuRowVisible(item, list);
+			else if (item.subMenu === labelsMenu)
+				viewMenu.setMenuRowVisible(item, !list);
+			else if (item.subMenu === arrangeMenu)
+				viewMenu.setMenuRowVisible(item, !list);
+			else if (item.action === increaseSizeAction || item.action === decreaseSizeAction)
+				viewMenu.setMenuRowVisible(item, !list);
+		}
+	}
+
+	onOpened: viewMenu.applyModeVisibility()
+
+	Connections {
+		target: viewActions
+		function onIsListViewChanged() {
+			viewMenu.applyModeVisibility();
+		}
+	}
+
 	title: qsTr("&View")
 	popupType: viewMenu.menuPopupType
 
@@ -193,7 +231,9 @@ Menu {
 	MenuSeparator {}
 
 	MenuItem {
+		id: iconSizeItem
 		visible: !viewActions.isListView
+		height: visible ? implicitHeight : 0
 		contentItem: RowLayout {
 			Label {
 				text: qsTr("Icon Size")
@@ -217,6 +257,7 @@ Menu {
 	Action {
 		id: increaseSizeAction
 		text: qsTr("Zoom In")
+		enabled: !viewActions.isListView
 		shortcut: viewMenu.showShortcuts ? "Ctrl+=" : ""
 		onTriggered: viewMenu.setConfig("GridSize", String(Math.min(gridSizeSlider.value + 12, gridSizeSlider.to)))
 	}
@@ -224,11 +265,16 @@ Menu {
 	Action {
 		id: decreaseSizeAction
 		text: qsTr("Zoom Out")
+		enabled: !viewActions.isListView
 		shortcut: viewMenu.showShortcuts ? "Ctrl+-" : ""
 		onTriggered: viewMenu.setConfig("GridSize", String(Math.max(gridSizeSlider.value - 12, gridSizeSlider.from)))
 	}
 
-	MenuSeparator {}
+	MenuSeparator {
+		id: separatorAfterIconSize
+		visible: !viewActions.isListView
+		height: visible ? implicitHeight : 0
+	}
 
 	MenuItem {
 		contentItem: RowLayout {
@@ -265,9 +311,9 @@ Menu {
 	}
 
 	Menu {
+		id: listColumnsMenu
 		title: qsTr("List Columns")
 		icon.name: "view-list-details"
-		visible: viewActions.isListView
 		popupType: viewMenu.menuPopupType
 		onOpened: viewActions.playSound("menu-open")
 		onClosed: viewActions.playSound("menu-close")
@@ -395,11 +441,16 @@ Menu {
 				onTriggered: viewMenu.setConfig("SortAlphaMode", "FILENAMES")
 			}
 		}
-		MenuSeparator {}
+		MenuSeparator {
+			id: separatorBeforeFree
+			visible: !viewActions.isListView
+			height: visible ? implicitHeight : 0
+		}
 		MenuItem {
 			text: qsTr("Free Placement")
 			checkable: true
 			visible: !viewActions.isListView
+			height: visible ? implicitHeight : 0
 			ButtonGroup.group: sortGroup
 			checked: viewMenu.config ? viewMenu.config.sort === 3 : false
 			enabled: viewMenu.isLocal
@@ -410,15 +461,16 @@ Menu {
 			text: qsTr("Reset Manual Placement")
 			icon.name: "edit-reset"
 			visible: !viewActions.isListView
+			height: visible ? implicitHeight : 0
 			enabled: viewMenu.hasFreePlacementPositions
 			onTriggered: viewMenu.resetFreePlacement()
 		}
 	}
 
 	Menu {
+		id: labelsMenu
 		title: qsTr("Labels")
 		icon.name: "label"
-		visible: !viewActions.isListView
 		popupType: viewMenu.menuPopupType
 		onOpened: viewActions.playSound("menu-open")
 		onClosed: viewActions.playSound("menu-close")
@@ -457,9 +509,9 @@ Menu {
 	}
 
 	Menu {
+		id: arrangeMenu
 		title: qsTr("Arrange")
 		icon.name: "format-justify-fill"
-		visible: !viewActions.isListView
 		popupType: viewMenu.menuPopupType
 		onOpened: viewActions.playSound("menu-open")
 		onClosed: viewActions.playSound("menu-close")
