@@ -13,6 +13,14 @@ const REPEAT_DELAY: Duration = Duration::from_millis(400);
 // of animations that each cancel the one before.
 const REPEAT_INTERVAL: Duration = Duration::from_millis(120);
 const STICK_THRESHOLD: f32 = 0.35;
+/// After the shell was frozen (a guest owned the panels), ignore the pad for a
+/// moment. Reopening the devices already throws away the events the kernel
+/// queued while the process was stopped; the grace period also skips the
+/// synthetic press of a button that is still physically held.
+const RESUME_GRACE: Duration = Duration::from_millis(400);
+/// A pause this much longer than the 200 ms poll is not a slow scheduler: the
+/// process was stopped.
+const STOPPED_GAP: Duration = Duration::from_secs(1);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Input {
@@ -72,6 +80,8 @@ static REPEAT_STATE: Lazy<Mutex<Repeat>> = Lazy::new(|| {
 	})
 });
 static STARTED: AtomicBool = AtomicBool::new(false);
+/// When the shell last came back from being frozen.
+static RESUMED: Lazy<Mutex<Option<Instant>>> = Lazy::new(|| Mutex::new(None));
 
 /// Queues an input that came from somewhere other than the gamepad, such as
 /// the keyboard menu key. It is dispatched through the same routing as the
@@ -128,7 +138,28 @@ pub fn init() {
 		snapshot(&gilrs);
 
 		loop {
-			if let Some(event) = gilrs.next_event_blocking(Some(Duration::from_millis(200)))
+			let before = Instant::now();
+			let event = gilrs.next_event_blocking(Some(Duration::from_millis(200)));
+			// The compositor freezes the shell with SIGSTOP while a guest owns
+			// the panels. The kernel keeps queueing that device's events for
+			// the stopped process, so on resume gilrs would hand the file view
+			// every button pressed during the game. Reopen the devices instead:
+			// the old file descriptions (and their backlog) go away.
+			if before.elapsed() > STOPPED_GAP {
+				discard();
+				if let Ok(mut resumed) = RESUMED.lock() {
+					*resumed = Some(Instant::now());
+				}
+				match Gilrs::new() {
+					Ok(fresh) => {
+						gilrs = fresh;
+						snapshot(&gilrs);
+					}
+					Err(error) => println!("gamepad: reopen after resume failed ({error})"),
+				}
+				continue;
+			}
+			if let Some(event) = event
 				&& let EventType::ButtonPressed(button, _) = event.event
 				&& let Some(input) = button_input(button)
 				&& let Ok(mut queue) = QUEUE.lock()
@@ -143,6 +174,14 @@ pub fn init() {
 /// Non-blocking read of the next navigation input. Held directions repeat
 /// after a short delay; buttons are edge-triggered.
 pub fn poll() -> Option<Input> {
+	// Nothing pressed during the guest session or while the shell was stopped
+	// may reach the file view on the way back.
+	if let Ok(resumed) = RESUMED.lock()
+		&& let Some(at) = *resumed
+		&& at.elapsed() < RESUME_GRACE
+	{
+		return None;
+	}
 	if let Ok(mut queue) = QUEUE.lock()
 		&& !queue.is_empty()
 	{
