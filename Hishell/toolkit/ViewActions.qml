@@ -95,6 +95,23 @@ QtObject {
 		return normalizeListColumns(Array.isArray(parsed) ? parsed : []);
 	}
 
+	// The order the List Columns menu shows: the configured columns first, in
+	// their real left-to-right order, then the columns that are currently
+	// hidden so they remain available to switch back on. Reordering or toggling
+	// a column therefore moves its menu row too.
+	readonly property var listColumnMenuOrder: {
+		const shown = viewActions.listColumns.slice();
+		const seen = {};
+		for (const key of shown)
+			seen[key] = true;
+		const hidden = [];
+		for (const column of viewActions.availableListColumns) {
+			if (!seen[column.key])
+				hidden.push(column.key);
+		}
+		return shown.concat(hidden);
+	}
+
 	function listColumnLabel(key) {
 		for (const column of viewActions.availableListColumns) {
 			if (column.key === key)

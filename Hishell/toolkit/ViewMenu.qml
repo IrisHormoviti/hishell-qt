@@ -326,33 +326,17 @@ Menu {
 		}
 		MenuSeparator {}
 
-		ListColumnItem {
-			columnKey: "TITLE"
-			text: viewActions.listColumnLabel("TITLE")
-		}
-		ListColumnItem {
-			columnKey: "FILENAME"
-			text: viewActions.listColumnLabel("FILENAME")
-		}
-		ListColumnItem {
-			columnKey: "SIZE"
-			text: viewActions.listColumnLabel("SIZE")
-		}
-		ListColumnItem {
-			columnKey: "MODIFIED"
-			text: viewActions.listColumnLabel("MODIFIED")
-		}
-		ListColumnItem {
-			columnKey: "CREATED"
-			text: viewActions.listColumnLabel("CREATED")
-		}
-		ListColumnItem {
-			columnKey: "ACCESSED"
-			text: viewActions.listColumnLabel("ACCESSED")
-		}
-		ListColumnItem {
-			columnKey: "TYPE"
-			text: viewActions.listColumnLabel("TYPE")
+		// One row per column, in the order the columns are actually laid out:
+		// shown columns first, hidden ones after them. Rebuilding this model is
+		// what makes reordering a column move its menu row as well.
+		Repeater {
+			model: viewActions.listColumnMenuOrder
+
+			delegate: ListColumnItem {
+				required property string modelData
+				columnKey: modelData
+				text: viewActions.listColumnLabel(modelData)
+			}
 		}
 	}
 

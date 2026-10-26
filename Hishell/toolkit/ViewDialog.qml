@@ -242,35 +242,17 @@ Kirigami.OverlaySheet {
 			checked: viewDialog.viewActions.showListHeader
 			onToggled: checked => viewDialog.viewActions.setListHeaderVisible(checked)
 		}
-		ListColumnRow {
-			visible: viewDialog.viewActions.isListView
-			columnKey: "TITLE"
-		}
-		ListColumnRow {
-			visible: viewDialog.viewActions.isListView
-			columnKey: "FILENAME"
-		}
-		ListColumnRow {
-			visible: viewDialog.viewActions.isListView
-			columnKey: "SIZE"
-		}
-		ListColumnRow {
-			visible: viewDialog.viewActions.isListView
-			columnKey: "MODIFIED"
-		}
-		ListColumnRow {
-			visible: viewDialog.viewActions.isListView
-			columnKey: "CREATED"
-		}
-		ListColumnRow {
-			visible: viewDialog.viewActions.isListView
-			columnKey: "ACCESSED"
-		}
-		ListColumnRow {
-			visible: viewDialog.viewActions.isListView
-			columnKey: "TYPE"
-		}
+		// One row per column, in the same order as the List Columns menu and
+		// the actual list columns.
+		Repeater {
+			model: viewDialog.viewActions.listColumnMenuOrder
 
+			delegate: ListColumnRow {
+				required property string modelData
+				visible: viewDialog.viewActions.isListView
+				columnKey: modelData
+			}
+		}
 		// ── Sorting ──────────────────────────────────────────────────────
 		SectionHeading {
 			text: qsTr("Sort By")
