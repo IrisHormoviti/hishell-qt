@@ -250,7 +250,12 @@ Item {
 		: [openAction, openWithAction, openWindowAction]
 
 	function activatePath(path: string, sourceItem: Item) {
-		if (directory && directory.is_execute_target(path))
+		// The profile's user-name row is a generated button with a Rename=
+		// command and no command of its own. Activating it opens the rename
+		// dialog, which is how it reaches the system keyboard.
+		if (actionManager.fileManager && actionManager.fileManager.is_rename_only(path))
+			actionManager.openRenameDialog(path);
+		else if (directory && directory.is_execute_target(path))
 			executeAction.execute(path, sourceItem);
 		else
 			openAction.execute(path, sourceItem, false);
@@ -305,6 +310,12 @@ Item {
 			const paths = targetPath !== "" ? [targetPath] : actionManager.targetPathList;
 			for (let i = 0; i < paths.length; i++) {
 				const path = paths[i];
+				// A label-only control has no command: Execute means the same
+				// as activating it, which opens the rename dialog.
+				if (actionManager.fileManager && actionManager.fileManager.is_rename_only(path)) {
+					actionManager.openRenameDialog(path);
+					continue;
+				}
 				const isRadio = actionManager.targetDirectory.is_radio_member(path);
 				if (!isRadio && !actionManager.targetDirectory.is_execute_target(path))
 					continue;

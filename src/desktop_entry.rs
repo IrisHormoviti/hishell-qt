@@ -63,6 +63,20 @@ impl DesktopEntry {
 		self.is_application() || self.is_link() || self.is_button()
 	}
 
+	/// A generated control whose only action is to change its own label.
+	///
+	/// The settings profile's user-name row is one: it is a `Type=Button`
+	/// with a `Rename=` command and no `Exec=`, so activating it should open
+	/// the rename dialog instead of running an empty command. Bluetooth
+	/// devices also carry `Rename=`, but they have an `Exec=` (connect), so
+	/// they keep launching.
+	pub fn is_rename_only(&self) -> bool {
+		self.generated
+			&& self.is_button()
+			&& self.rename_command().is_some()
+			&& self.exec.as_deref().is_none_or(|exec| exec.trim().is_empty())
+	}
+
 	/// The command that destroys this entry, when the provider that wrote it
 	/// lets the folder do that at all (docs §6.3).
 	pub fn destroy_command(&self) -> Option<&str> {
@@ -514,6 +528,10 @@ pub fn is_button(path: &Path) -> bool {
 	read(path).is_button()
 }
 
+pub fn is_rename_only(path: &Path) -> bool {
+	read(path).is_rename_only()
+}
+
 #[allow(dead_code)]
 pub fn is_application(path: &Path) -> bool {
 	read(path).is_application()
@@ -783,6 +801,37 @@ mod tests {
 				"New label"
 			]
 		);
+	}
+
+	#[test]
+	fn a_label_only_control_renames_when_activated() {
+		let path = scratch("hishell-rename-only-test");
+		fs::write(
+			&path,
+			"[Desktop Entry]\nType=Button\nName=Player\nGenerated=true\nExec=\n\
+			 Rename=clam-configd profile set-name %v\n",
+		)
+		.unwrap();
+		let entry = read(&path);
+		fs::remove_file(path).unwrap();
+
+		assert!(entry.is_rename_only());
+	}
+
+	#[test]
+	fn a_renameable_entry_with_a_command_still_launches() {
+		let path = scratch("hishell-rename-exec-test");
+		fs::write(
+			&path,
+			"[Desktop Entry]\nType=Button\nName=Headphones\nGenerated=true\n\
+			 Exec=clam-connect bt AA:BB:CC:DD:EE:FF\n\
+			 Rename=clam-connect bt --rename AA:BB:CC:DD:EE:FF %v\n",
+		)
+		.unwrap();
+		let entry = read(&path);
+		fs::remove_file(path).unwrap();
+
+		assert!(!entry.is_rename_only());
 	}
 
 	#[test]

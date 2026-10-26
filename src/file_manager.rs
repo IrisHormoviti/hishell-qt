@@ -402,6 +402,16 @@ pub struct FileManager {
 		}
 	),
 
+	/// Whether activating this entry should open the rename dialog: a
+	/// provider's label-only control with no command of its own (the user
+	/// name in the profile folder).
+	is_rename_only: qt_method!(
+		fn is_rename_only(&self, path: String) -> bool {
+			let p = clean_path(&path.to_string());
+			crate::desktop_entry::is_rename_only(Path::new(&p))
+		}
+	),
+
 	/// The text the rename dialog starts with: the file name for ordinary
 	/// items, or the entry's current display label where `Rename=` applies.
 	rename_display_name: qt_method!(
