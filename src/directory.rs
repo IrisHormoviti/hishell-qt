@@ -267,7 +267,7 @@ pub struct Directory {
 			let path_buf = Path::new(&path);
 			let parent = path_buf.parent();
 			let name = crate::launch::app_name(&path);
-			crate::launch::result(crate::launch::request(&path, &[], &path, &name, parent))
+			crate::launch::result(crate::launch::request(&path, &[], &path, &name, "", parent))
 		}
 	),
 

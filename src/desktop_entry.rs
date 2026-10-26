@@ -10,6 +10,9 @@ pub struct DesktopEntry {
 	pub entry_type: Option<String>,
 	pub exec: Option<String>,
 	pub url: Option<String>,
+	/// `LaunchAnimation=white|black`: the wash the compositor plays while this
+	/// app starts. Absent means no animation (the app just appears).
+	pub launch_animation: Option<String>,
 	#[allow(dead_code)]
 	pub terminal: bool,
 	#[allow(dead_code)]
@@ -117,6 +120,8 @@ fn from_values(values: &HashMap<String, ConfigValue>) -> DesktopEntry {
 		entry_type: crate::config::entry_string(&values, "Type"),
 		exec: crate::config::entry_string(&values, "Exec"),
 		url,
+		launch_animation: crate::config::entry_string(&values, "LaunchAnimation")
+			.filter(|value| !value.trim().is_empty()),
 		terminal: values
 			.get("Terminal")
 			.and_then(|v| match v {
@@ -198,6 +203,7 @@ pub fn launch_command(exec: &str, entry_path: &str, file: Option<&str>) -> Strin
 		&args[1..],
 		item,
 		&name,
+		entry.launch_animation.as_deref().unwrap_or_default(),
 		current_dir,
 	))
 }
@@ -230,6 +236,7 @@ fn launch_application(path: &Path, entry: &DesktopEntry) -> String {
 		&args[1..],
 		&entry_path,
 		&name,
+		entry.launch_animation.as_deref().unwrap_or_default(),
 		Some(current_dir),
 	))
 }

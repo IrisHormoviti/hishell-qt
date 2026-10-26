@@ -48,6 +48,7 @@ struct Pending {
 	args: Vec<String>,
 	item: String,
 	name: String,
+	animation: String,
 	cwd: Option<PathBuf>,
 }
 
@@ -96,11 +97,12 @@ pub fn request(
 	args: &[String],
 	item: &str,
 	name: &str,
+	animation: &str,
 	cwd: Option<&Path>,
 ) -> Launch {
 	let wrapper = WRAPPER.lock().unwrap().clone();
 	if wrapper.trim().is_empty() || !command_exists(&wrapper) {
-		return spawn_now(program, args, item, name, cwd);
+		return spawn_now(program, args, item, name, animation, cwd);
 	}
 	match preflight(&wrapper, program, args, item, name) {
 		Some(message) => {
@@ -109,11 +111,12 @@ pub fn request(
 				args: args.to_vec(),
 				item: item.to_string(),
 				name: name.to_string(),
+				animation: animation.to_string(),
 				cwd: cwd.map(Path::to_path_buf),
 			});
 			Launch::NeedsConfirm(message)
 		}
-		None => spawn_now(program, args, item, name, cwd),
+		None => spawn_now(program, args, item, name, animation, cwd),
 	}
 }
 
@@ -129,6 +132,7 @@ pub fn confirm() -> bool {
 			&pending.args,
 			&pending.item,
 			&pending.name,
+			&pending.animation,
 			pending.cwd.as_deref(),
 		),
 		Launch::Started
@@ -216,16 +220,69 @@ fn spawn_now(
 	args: &[String],
 	item: &str,
 	name: &str,
+	animation: &str,
 	cwd: Option<&Path>,
 ) -> Launch {
-	match spawn(program, args, item, name, cwd) {
+	match spawn(program, args, item, name, animation, cwd) {
 		Ok(_) => Launch::Started,
-		Err(error) => Launch::Failed(error.to_string()),
+		Err(error) => {
+			withdraw_launch();
+			Launch::Failed(error.to_string())
+		}
 	}
 }
 
+/// Where the compositor watches for launch animations. The host owns the
+/// directory; the fallback matches its default.
+fn launch_marker() -> PathBuf {
+	if let Ok(path) = std::env::var("CLAM_LAUNCH_MARKER")
+		&& !path.is_empty()
+	{
+		return PathBuf::from(path);
+	}
+	let dir = std::env::var("CLAM_APP_MANAGER_DIR")
+		.unwrap_or_else(|_| String::from("/tmp/clam-app-manager"));
+	PathBuf::from(dir).join("launch")
+}
+
+/// Tell the compositor to wash the screens for this launch. `animation` is
+/// `white` or `black`, from the desktop entry's `LaunchAnimation` key; empty
+/// means the entry did not ask for one. The item lets the compositor leave a
+/// resume to the card animation instead.
+fn announce_launch(animation: &str, item: &str) {
+	let animation = animation.trim();
+	if animation != "white" && animation != "black" {
+		return;
+	}
+	let path = launch_marker();
+	if let Some(parent) = path.parent() {
+		let _ = std::fs::create_dir_all(parent);
+	}
+	let nonce = std::time::SystemTime::now()
+		.duration_since(std::time::UNIX_EPOCH)
+		.map(|elapsed| elapsed.as_nanos())
+		.unwrap_or(0);
+	let text = format!("{animation}\n{nonce}\n{item}\n");
+	let temporary = path.with_extension("tmp");
+	if std::fs::write(&temporary, text).is_ok() {
+		let _ = std::fs::rename(&temporary, path);
+	}
+}
+
+/// The launch did not start after all: let the compositor fade the wash out
+/// instead of holding it until its timeout.
+fn withdraw_launch() {
+	let _ = std::fs::remove_file(launch_marker());
+}
+
 /// Run the wrapper in `--preflight` mode and return its message, if any.
-fn preflight(wrapper: &str, program: &str, args: &[String], item: &str, name: &str) -> Option<String> {
+fn preflight(
+	wrapper: &str,
+	program: &str,
+	args: &[String],
+	item: &str,
+	name: &str,
+) -> Option<String> {
 	let parts: Vec<String> = wrapper.split_whitespace().map(String::from).collect();
 	let (head, rest) = parts.split_first()?;
 	let mut command = Command::new(head);
@@ -282,6 +339,7 @@ pub fn spawn(
 	args: &[String],
 	item: &str,
 	name: &str,
+	animation: &str,
 	cwd: Option<&Path>,
 ) -> io::Result<Child> {
 	let wrapper = WRAPPER.lock().unwrap().clone();
@@ -306,5 +364,6 @@ pub fn spawn(
 	if let Some(cwd) = cwd {
 		command.current_dir(cwd);
 	}
+	announce_launch(animation, item);
 	command.spawn()
 }
