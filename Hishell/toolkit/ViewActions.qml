@@ -40,6 +40,105 @@ QtObject {
 	readonly property string viewModeIcon: viewActions.isListView ? "view-list-details" : "view-grid"
 	readonly property string viewModeLabel: viewActions.isListView ? qsTr("List") : qsTr("Grid")
 
+	// Optional columns the list view can show, in the order the menu offers
+	// them. "Name" is not here: it is always the leading column. The configured
+	// order lives in `ListColumns` and controls left-to-right display order.
+	readonly property var availableListColumns: [
+		{ key: "SIZE", label: qsTr("Size") },
+		{ key: "MODIFIED", label: qsTr("Date Modified") },
+		{ key: "CREATED", label: qsTr("Date Created") },
+		{ key: "ACCESSED", label: qsTr("Date Accessed") },
+		{ key: "TYPE", label: qsTr("Type") }
+	]
+
+	readonly property var listColumns: {
+		const cfg = viewActions.config;
+		if (!cfg)
+			return [];
+		let parsed = [];
+		try {
+			parsed = JSON.parse(String(cfg.list_columns));
+		} catch (e) {
+			return [];
+		}
+		if (!Array.isArray(parsed))
+			return [];
+		const known = {};
+		for (const column of viewActions.availableListColumns)
+			known[column.key] = true;
+		const seen = {};
+		const result = [];
+		for (const value of parsed) {
+			const key = String(value).toUpperCase();
+			if (!known[key] || seen[key])
+				continue;
+			seen[key] = true;
+			result.push(key);
+		}
+		return result;
+	}
+
+	function listColumnLabel(key) {
+		for (const column of viewActions.availableListColumns) {
+			if (column.key === key)
+				return column.label;
+		}
+		return key;
+	}
+
+	function hasListColumn(key) {
+		return viewActions.listColumns.indexOf(key) !== -1;
+	}
+
+	// Write the entire ordered column list. The menu adds/removes one key at a
+	// time but the config stores one array, so every edit goes through here.
+	function setListColumns(columns) {
+		const known = {};
+		for (const column of viewActions.availableListColumns)
+			known[column.key] = true;
+		const seen = {};
+		const result = [];
+		for (const value of columns) {
+			const key = String(value).toUpperCase();
+			if (!known[key] || seen[key])
+				continue;
+			seen[key] = true;
+			result.push(key);
+		}
+		viewActions.setConfig("ListColumns", JSON.stringify(result));
+	}
+
+	function setListColumnVisible(key, visible) {
+		const columns = viewActions.listColumns.slice();
+		const index = columns.indexOf(key);
+		if (visible && index === -1)
+			columns.push(key);
+		else if (!visible && index !== -1)
+			columns.splice(index, 1);
+		else
+			return;
+		viewActions.setListColumns(columns);
+	}
+
+	// Move a shown column one place left (-1) or right (+1).
+	function moveListColumn(key, delta) {
+		const columns = viewActions.listColumns.slice();
+		const index = columns.indexOf(key);
+		const target = index + delta;
+		if (index === -1 || target < 0 || target >= columns.length)
+			return;
+		const [column] = columns.splice(index, 1);
+		columns.splice(target, 0, column);
+		viewActions.setListColumns(columns);
+	}
+
+	function canMoveListColumn(key, delta) {
+		const columns = viewActions.listColumns;
+		const index = columns.indexOf(key);
+		const target = index + delta;
+		return index !== -1 && target >= 0 && target < columns.length;
+	}
+
 	readonly property bool showLabels: viewActions.config ? viewActions.config.show_labels : true
 	readonly property bool labelsBesideIcons: viewActions.config ? viewActions.config.grid_labels_beside_icons : false
 	readonly property int labelText: viewActions.config ? viewActions.config.label_text : 0

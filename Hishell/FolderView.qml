@@ -120,7 +120,7 @@ Item {
 	// and the view margins; -1 lets the pane take a fill share of the layout instead.
 	readonly property real preferredGridWidth: {
 		const cfg = folderView.config;
-		if (!cfg || folderView.paneCount <= 1 || cfg.scroll_horizontal || cfg.grid_lines <= 0 || cfg.grid_horizontal_align === 0)
+		if (!cfg || folderView.paneCount <= 1 || cfg.scroll_horizontal || cfg.view_mode === 1 || cfg.grid_lines <= 0 || cfg.grid_horizontal_align === 0)
 			return -1;
 
 		const size = folderView.gridItemSize;

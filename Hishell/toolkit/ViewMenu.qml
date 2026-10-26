@@ -1,7 +1,10 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
+import org.kde.kirigami as Kirigami
 
 
 Menu {
@@ -112,6 +115,50 @@ Menu {
 		id: verticalAlignGroup
 	}
 
+	// One row in the List Columns menu: the column's name toggles it, and the
+	// two arrow buttons move it one place left or right. Uses a custom content
+	// item rather than MenuItem.checkable so the reorder buttons can live on
+	// the same row as the toggle.
+	component ListColumnItem: MenuItem {
+		id: listColumnItem
+		property string columnKey
+		readonly property bool shown: viewActions.hasListColumn(listColumnItem.columnKey)
+
+		onTriggered: viewActions.setListColumnVisible(listColumnItem.columnKey, !listColumnItem.shown)
+
+		contentItem: RowLayout {
+			spacing: Kirigami.Units.smallSpacing
+
+			Label {
+				Layout.preferredWidth: Kirigami.Units.gridUnit
+				horizontalAlignment: Text.AlignHCenter
+				text: listColumnItem.shown ? "\u2713" : ""
+				color: Kirigami.Theme.highlightColor
+				font.bold: true
+			}
+			Label {
+				Layout.fillWidth: true
+				text: listColumnItem.text
+			}
+			ToolButton {
+				icon.name: "go-up"
+				display: AbstractButton.IconOnly
+				enabled: viewActions.canMoveListColumn(listColumnItem.columnKey, -1)
+				ToolTip.text: qsTr("Move left")
+				ToolTip.visible: hovered
+				onClicked: viewActions.moveListColumn(listColumnItem.columnKey, -1)
+			}
+			ToolButton {
+				icon.name: "go-down"
+				display: AbstractButton.IconOnly
+				enabled: viewActions.canMoveListColumn(listColumnItem.columnKey, 1)
+				ToolTip.text: qsTr("Move right")
+				ToolTip.visible: hovered
+				onClicked: viewActions.moveListColumn(listColumnItem.columnKey, 1)
+			}
+		}
+	}
+
 	FileDialog {
 		id: wallpaperDialog
 		title: qsTr("Choose Wallpaper")
@@ -208,6 +255,35 @@ Menu {
 				onReleased: viewActions.playSound("button-released")
 				onClicked: viewMenu.setViewMode("LIST")
 			}
+		}
+	}
+
+	Menu {
+		title: qsTr("List Columns")
+		icon.name: "view-list-details"
+		popupType: viewMenu.menuPopupType
+		onOpened: viewActions.playSound("menu-open")
+		onClosed: viewActions.playSound("menu-close")
+
+		ListColumnItem {
+			columnKey: "SIZE"
+			text: viewActions.listColumnLabel("SIZE")
+		}
+		ListColumnItem {
+			columnKey: "MODIFIED"
+			text: viewActions.listColumnLabel("MODIFIED")
+		}
+		ListColumnItem {
+			columnKey: "CREATED"
+			text: viewActions.listColumnLabel("CREATED")
+		}
+		ListColumnItem {
+			columnKey: "ACCESSED"
+			text: viewActions.listColumnLabel("ACCESSED")
+		}
+		ListColumnItem {
+			columnKey: "TYPE"
+			text: viewActions.listColumnLabel("TYPE")
 		}
 	}
 

@@ -24,6 +24,18 @@ Item {
 	required property string icon
 	required property string title
 	property int gridSize: 64
+	// List view: one row per item, with the name leading and the configured
+	// columns to its right. The row keeps all the grid slot's interaction,
+	// selection and drag behaviour; only the content layout changes.
+	property bool listMode: false
+	property var listColumns: []
+	property int listIconSize: 24
+	// Filled by the model roles of the same name (see Directory::role_names).
+	// The list columns format these values.
+	required property real size_bytes
+	required property real modified_time
+	required property real created_time
+	required property real accessed_time
 	property bool labelBesideIcon: gridSize < 32
 	property bool showLabels: true
 	// Folders (and the home icon) are recoloured to the accent by the shell
@@ -232,8 +244,12 @@ Item {
 		return menu;
 	}
 
-	implicitWidth: contentLayout.implicitWidth + (fileSlot.labelBesideIcon && fileSlot.showIcon && fileSlot.showLabels ? Kirigami.Units.largeSpacing * 2 : Kirigami.Units.smallSpacing * 2)
-	implicitHeight: contentLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
+	implicitWidth: fileSlot.listMode
+		? listLayout.implicitWidth + Kirigami.Units.smallSpacing * 2
+		: contentLayout.implicitWidth + (fileSlot.labelBesideIcon && fileSlot.showIcon && fileSlot.showLabels ? Kirigami.Units.largeSpacing * 2 : Kirigami.Units.smallSpacing * 2)
+	implicitHeight: fileSlot.listMode
+		? listLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
+		: contentLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
 	// The on-disk name, used by the FILENAME label mode and the tooltip.
 	readonly property string fileName: {
 		const path = fileSlot.path;
@@ -255,6 +271,65 @@ Item {
 
 	// Dotfiles (hidden entries) are always dimmed so they read as secondary.
 	readonly property bool isDotfile: fileSlot.fileName.startsWith(".")
+
+	// ── List columns ──
+	// Human-readable byte count. Folders have no meaningful size here, so the
+	// list leaves that cell empty instead of claiming 4 KiB.
+	function formatSize(bytes) {
+		if (fileSlot.is_dir)
+			return "";
+		const value = Number(bytes) || 0;
+		if (value < 1024)
+			return value + " B";
+		const units = ["KB", "MB", "GB", "TB", "PB"];
+		let scaled = value / 1024;
+		let unit = 0;
+		while (scaled >= 1024 && unit < units.length - 1) {
+			scaled /= 1024;
+			unit++;
+		}
+		return (scaled >= 10 ? Math.round(scaled) : scaled.toFixed(1)) + " " + units[unit];
+	}
+
+	function formatDate(milliseconds) {
+		const value = Number(milliseconds) || 0;
+		if (value <= 0)
+			return "";
+		return Qt.formatDateTime(new Date(value), "yyyy-MM-dd HH:mm");
+	}
+
+	// A compact type label for the list's Type column: "Folder", the upper-case
+	// extension, or "File" when there is none. Avoids a per-delegate MIME query.
+	readonly property string listTypeText: {
+		if (fileSlot.is_dir)
+			return qsTr("Folder");
+		const name = fileSlot.fileName;
+		const dot = name.lastIndexOf(".");
+		if (dot > 0 && dot < name.length - 1)
+			return name.substring(dot + 1).toUpperCase();
+		return qsTr("File");
+	}
+
+	function columnText(key) {
+		switch (String(key).toUpperCase()) {
+		case "SIZE":
+			return fileSlot.formatSize(fileSlot.size_bytes);
+		case "MODIFIED":
+			return fileSlot.formatDate(fileSlot.modified_time);
+		case "CREATED":
+			return fileSlot.formatDate(fileSlot.created_time);
+		case "ACCESSED":
+			return fileSlot.formatDate(fileSlot.accessed_time);
+		case "TYPE":
+			return fileSlot.listTypeText;
+		default:
+			return "";
+		}
+	}
+
+	// What the drag ghost and press-and-hold grab: the visible content of the
+	// slot, whichever layout is active.
+	readonly property var dragGrabItem: fileSlot.listMode ? listLayout : contentLayout
 	opacity: {
 		if (fileSlot.dragDropHandler && fileSlot.dragDropHandler.active_dragged_paths && fileSlot.dragDropHandler.active_dragged_paths.indexOf(fileSlot.path) !== -1)
 			return 0.2;
@@ -401,8 +476,89 @@ Item {
 
 	// ── Layout ──
 
+	// List row: icon, name, then the configured optional columns. Columns are
+	// passed in already normalised and ordered by the view; the weights keep
+	// the name the widest cell and the layout fluid on a narrow pane.
+	RowLayout {
+		id: listLayout
+		visible: fileSlot.listMode
+		anchors.left: parent.left
+		anchors.right: parent.right
+		anchors.verticalCenter: parent.verticalCenter
+		anchors.leftMargin: Kirigami.Units.smallSpacing * 2
+		anchors.rightMargin: Kirigami.Units.smallSpacing * 2
+		spacing: Kirigami.Units.mediumSpacing
+
+		Item {
+			id: listIconItem
+			visible: fileSlot.showIcon
+			Layout.preferredWidth: fileSlot.listIconSize
+			Layout.preferredHeight: fileSlot.listIconSize
+
+			Loader {
+				anchors.fill: parent
+				active: fileSlot.showIcon
+				sourceComponent: (fileSlot.displayIcon.startsWith("file://") || fileSlot.displayIcon.startsWith("/")) ? listThumbnailComponent : listIconComponent
+			}
+
+			Component {
+				id: listThumbnailComponent
+				Image {
+					source: fileSlot.displayIcon
+					asynchronous: true
+					cache: !fileSlot.displayIcon.endsWith(".svg")
+					fillMode: Image.PreserveAspectFit
+					smooth: true
+					anchors.fill: parent
+					clip: true
+				}
+			}
+
+			Component {
+				id: listIconComponent
+				Kirigami.Icon {
+					source: fileSlot.displayIcon
+					anchors.fill: parent
+				}
+			}
+		}
+
+		Label {
+			id: listNameLabel
+			Layout.fillWidth: true
+			Layout.preferredWidth: 4
+			text: fileSlot.labelText
+			textFormat: Text.PlainText
+			color: Kirigami.Theme.textColor
+			elide: Text.ElideMiddle
+			maximumLineCount: 1
+			// Reuse the grid label's resolved face so symlinks stay italic and
+			// the active/radio item stays bold in both views.
+			font: labelItem.font
+		}
+
+		Repeater {
+			model: fileSlot.listColumns
+
+			delegate: Label {
+				required property var modelData
+				Layout.fillWidth: true
+				Layout.preferredWidth: modelData.weight
+				Layout.minimumWidth: 0
+				text: fileSlot.columnText(modelData.key)
+				textFormat: Text.PlainText
+				color: Kirigami.Theme.textColor
+				elide: Text.ElideRight
+				maximumLineCount: 1
+				horizontalAlignment: modelData.align
+				opacity: 0.85
+			}
+		}
+	}
+
 	GridLayout {
 		id: contentLayout
+		visible: !fileSlot.listMode
 		anchors.verticalCenter: parent.verticalCenter
 		x: (fileSlot.labelBesideIcon && fileSlot.showIcon && fileSlot.showLabels) ? Kirigami.Units.largeSpacing : (parent.width - width) / 2
 		columns: (fileSlot.labelBesideIcon && fileSlot.showIcon && fileSlot.showLabels) ? 2 : 1
@@ -539,6 +695,8 @@ Item {
 		anchors.top: contentLayout.bottom
 		anchors.topMargin: Kirigami.Units.smallSpacing
 		visible: {
+			if (fileSlot.listMode)
+				return false;
 			const fm = fileSlot.folderView ? fileSlot.folderView.focusManager : null;
 			if (!fm)
 				return false;
@@ -911,7 +1069,7 @@ Item {
 		}
 
 		function grabAndStartNativeDrag(wx, wy) {
-			const targetToGrab = contentLayout;
+			const targetToGrab = fileSlot.dragGrabItem;
 
 			// A drag ghost grabbed at press-and-hold is ready to use at once, so
 			// the drag keeps up with the finger instead of waiting on a render.
@@ -1176,7 +1334,7 @@ Item {
 			fileSlot.pressHeld(fileSlot.path, fileSlot.index);
 			// Grab the drag ghost now, while the finger is held, so a drag
 			// starting on the next move begins immediately.
-			contentLayout.grabToImage(function (result) {
+			fileSlot.dragGrabItem.grabToImage(function (result) {
 				mouseArea.cachedGrabResult = result;
 				mouseArea.cachedDragImage = result.url.toString();
 				const win = fileSlot.window;

@@ -183,6 +183,7 @@ Module {
 		Property { name: "grid_labels_beside_icons"; type: "bool"; isReadonly: true }
 		Property { name: "label_text"; type: "u8"; isReadonly: true }
 		Property { name: "view_mode"; type: "u8"; isReadonly: true }
+		Property { name: "list_columns"; type: "string"; isReadonly: true }
 		Property { name: "sort"; type: "u8"; isReadonly: true }
 		Property { name: "sort_date_mode"; type: "u8"; isReadonly: true }
 		Property { name: "sort_alpha_mode"; type: "u8"; isReadonly: true }

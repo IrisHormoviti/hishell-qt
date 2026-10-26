@@ -436,6 +436,11 @@ RowLayout {
 				actionManager: pathBar.window.actionManager
 
 				is_dir: true
+				// The breadcrumb is not a model row; it has no size or times.
+				size_bytes: 0
+				modified_time: 0
+				created_time: 0
+				accessed_time: 0
 				// A breadcrumb navigates; it is never a selection in the
 				// current folder's radio group.
 				radioMember: false

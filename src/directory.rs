@@ -221,6 +221,7 @@ pub struct FileItem {
 	pub is_symlink: bool,
 	pub is_dotfile: bool,
 	pub icon: String,
+	pub size: u64,
 	pub modified: u64,
 	pub created: u64,
 	pub accessed: u64,
@@ -775,8 +776,9 @@ impl Directory {
 				let is_symlink = file_type.map(|t| t.is_symlink()).unwrap_or(false);
 				let icon = get_icon(&p);
 
-				let (modified, created, accessed) = entry
-					.metadata()
+				let metadata = entry.metadata().ok();
+				let (modified, created, accessed) = metadata
+					.as_ref()
 					.map(|meta| {
 						(
 							time_ms(meta.modified().ok()),
@@ -785,6 +787,7 @@ impl Directory {
 						)
 					})
 					.unwrap_or((0, 0, 0));
+				let size = metadata.as_ref().map(|meta| meta.len()).unwrap_or(0);
 
 				self.items.push(FileItem {
 					name,
@@ -797,6 +800,7 @@ impl Directory {
 						.and_then(|n| n.to_str())
 						.is_some_and(|n| n.starts_with('.')),
 					icon,
+					size,
 					modified,
 					created,
 					accessed,
@@ -1243,6 +1247,12 @@ impl QAbstractListModel for Directory {
 			0x0103 => QString::from(item.icon.as_str()).into(),
 			0x0104 => QString::from(item.title.as_str()).into(),
 			0x0105 => item.is_symlink.into(),
+			// Sizes and times are exposed for the list view's optional columns.
+			// Times are Unix milliseconds, like the values the sort modes use.
+			0x0106 => QVariant::from(item.size as f64),
+			0x0107 => QVariant::from(item.modified as f64),
+			0x0108 => QVariant::from(item.created as f64),
+			0x0109 => QVariant::from(item.accessed as f64),
 			_ => QVariant::default(),
 		}
 	}
@@ -1255,6 +1265,10 @@ impl QAbstractListModel for Directory {
 		map.insert(0x0103, "icon".into());
 		map.insert(0x0104, "title".into());
 		map.insert(0x0105, "is_symlink".into());
+		map.insert(0x0106, "size_bytes".into());
+		map.insert(0x0107, "modified_time".into());
+		map.insert(0x0108, "created_time".into());
+		map.insert(0x0109, "accessed_time".into());
 		map
 	}
 }

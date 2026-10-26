@@ -103,6 +103,47 @@ Kirigami.OverlaySheet {
 		opacity: 0.6
 	}
 
+	// One configurable list column: the switch shows or hides it, the arrows
+	// move it left/right in the row. Mirrors the View menu's List Columns
+	// submenu, which is the only surface on targets without a menu bar.
+	component ListColumnRow: RowLayout {
+		id: columnRow
+		property string columnKey
+		readonly property bool shown: viewDialog.viewActions.hasListColumn(columnRow.columnKey)
+		Layout.fillWidth: true
+		spacing: Kirigami.Units.smallSpacing
+
+		Label {
+			Layout.fillWidth: true
+			text: viewDialog.viewActions.listColumnLabel(columnRow.columnKey)
+		}
+		ToolButton {
+			icon.name: "go-up"
+			display: AbstractButton.IconOnly
+			enabled: viewDialog.viewActions.canMoveListColumn(columnRow.columnKey, -1)
+			onClicked: viewDialog.viewActions.moveListColumn(columnRow.columnKey, -1)
+		}
+		ToolButton {
+			icon.name: "go-down"
+			display: AbstractButton.IconOnly
+			enabled: viewDialog.viewActions.canMoveListColumn(columnRow.columnKey, 1)
+			onClicked: viewDialog.viewActions.moveListColumn(columnRow.columnKey, 1)
+		}
+		Switch {
+			id: columnSwitch
+			onToggled: {
+				viewDialog.viewActions.setListColumnVisible(columnRow.columnKey, checked);
+				viewDialog.playSound(checked ? "button-toggle-on" : "button-toggle-off");
+			}
+			Binding {
+				target: columnSwitch
+				property: "checked"
+				value: columnRow.shown
+				restoreMode: Binding.RestoreNone
+			}
+		}
+	}
+
 	ColumnLayout {
 		// The dialog sizes itself to this content and scrolls it when it is
 		// taller than the panel; width comes from the dialog's preferredWidth.
@@ -184,6 +225,32 @@ Kirigami.OverlaySheet {
 			]
 			currentValue: viewDialog.viewActions.labelText === 0 ? "TITLE" : "FILENAME"
 			onActivated: value => viewDialog.viewActions.setConfig("LabelText", value)
+		}
+
+		// ── List columns ─────────────────────────────────────────────────
+		SectionHeading {
+			visible: viewDialog.viewActions.isListView
+			text: qsTr("List Columns")
+		}
+		ListColumnRow {
+			visible: viewDialog.viewActions.isListView
+			columnKey: "SIZE"
+		}
+		ListColumnRow {
+			visible: viewDialog.viewActions.isListView
+			columnKey: "MODIFIED"
+		}
+		ListColumnRow {
+			visible: viewDialog.viewActions.isListView
+			columnKey: "CREATED"
+		}
+		ListColumnRow {
+			visible: viewDialog.viewActions.isListView
+			columnKey: "ACCESSED"
+		}
+		ListColumnRow {
+			visible: viewDialog.viewActions.isListView
+			columnKey: "TYPE"
 		}
 
 		// ── Sorting ──────────────────────────────────────────────────────

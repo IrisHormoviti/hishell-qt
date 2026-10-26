@@ -246,6 +246,10 @@ const EXPECTED_KEYS: &[(&str, &str, ExpectedKind)] = &[
 		"ViewMode",
 		ExpectedKind::StrEnum(&["GRID", "LIST"]),
 	),
+	// Ordered optional columns shown after the name in LIST view. The name is
+	// always the leading column; this array only controls the columns to its
+	// right and their order.
+	("Folder View", "ListColumns", ExpectedKind::Array),
 	(
 		"Folder View",
 		"Sort",
@@ -476,6 +480,8 @@ pub struct Config {
 	pub grid_labels_beside_icons: qt_property!(bool; NOTIFY config_changed),
 	pub label_text: qt_property!(u8; NOTIFY config_changed),
 	pub view_mode: qt_property!(u8; NOTIFY config_changed),
+	// JSON array of optional list columns, in display order.
+	pub list_columns: qt_property!(String; NOTIFY config_changed),
 	pub sort: qt_property!(u8; NOTIFY config_changed),
 	pub sort_date_mode: qt_property!(u8; NOTIFY config_changed),
 	pub sort_alpha_mode: qt_property!(u8; NOTIFY config_changed),
@@ -734,6 +740,10 @@ impl Config {
 				"LIST" => 1,
 				_ => 0,
 			};
+		}
+		if changed!("Folder View", "ListColumns") {
+			self.list_columns =
+				json_value(get("Folder View", "ListColumns"), r#"["SIZE", "MODIFIED"]"#).into();
 		}
 		if changed!("Folder View", "Sort") {
 			self.sort = match enum_value(get("Folder View", "Sort"), "NEWEST").as_str() {

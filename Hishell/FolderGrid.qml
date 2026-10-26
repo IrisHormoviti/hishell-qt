@@ -16,6 +16,7 @@
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import Hishell
 
@@ -75,6 +76,67 @@ Item {
 	}
 
 	readonly property bool freeGrid: grid.config ? (grid.config.sort === 3 && grid.config.view_mode === 0) : false
+	// A list is a single column of full-width rows. It keeps the grid's focus,
+	// selection and drag interaction but replaces the cell maths with rows.
+	readonly property bool listMode: grid.config ? grid.config.view_mode === 1 : false
+	readonly property real listRowHeight: Math.max(Kirigami.Units.gridUnit * 2.6, 44)
+	readonly property real listIconSize: Math.max(16, Math.min(28, grid.listRowHeight - Kirigami.Units.largeSpacing))
+	readonly property real listPadding: Kirigami.Units.smallSpacing * 2
+	readonly property real listHeaderHeight: Kirigami.Units.gridUnit * 2
+	// Optional list columns in display order. The name column is always first;
+	// `ListColumns` controls only what follows it.
+	readonly property var listColumnKeys: {
+		const cfg = grid.config;
+		if (!cfg)
+			return [];
+		let parsed = [];
+		try {
+			parsed = JSON.parse(String(cfg.list_columns));
+		} catch (e) {
+			return [];
+		}
+		if (!Array.isArray(parsed))
+			return [];
+		const known = { "SIZE": true, "MODIFIED": true, "CREATED": true, "ACCESSED": true, "TYPE": true };
+		const seen = {};
+		const keys = [];
+		for (const value of parsed) {
+			const key = String(value).toUpperCase();
+			if (!known[key] || seen[key])
+				continue;
+			seen[key] = true;
+			keys.push(key);
+		}
+		return keys;
+	}
+	// The normalised columns together with the layout weight and alignment the
+	// header and row share. The name gets the largest weight, so it stays the
+	// wide column on a narrow pane.
+	readonly property var listColumnSpecs: {
+		const weights = { "SIZE": 1.0, "MODIFIED": 1.8, "CREATED": 1.8, "ACCESSED": 1.8, "TYPE": 1.0 };
+		const labels = {
+			"SIZE": qsTr("Size"),
+			"MODIFIED": qsTr("Modified"),
+			"CREATED": qsTr("Created"),
+			"ACCESSED": qsTr("Accessed"),
+			"TYPE": qsTr("Type")
+		};
+		const specs = [];
+		const keys = grid.listColumnKeys;
+		for (let i = 0; i < keys.length; i++) {
+			const key = keys[i];
+			specs.push({
+				key: key,
+				title: labels[key] || key,
+				weight: weights[key] || 1.0,
+				align: key === "SIZE" ? Text.AlignRight : Text.AlignLeft
+			});
+		}
+		return specs;
+	}
+	// Space kept clear for the vertical scrollbar; rows stop before it instead
+	// of sliding underneath.
+	readonly property real listBarInset: listVerticalScrollBar.width + Kirigami.Units.mediumSpacing
 	// A fixed line count (Folder View > Lines). The GridView wraps by its own
 	// size, so with a count set the view has to be sized to exactly that many
 	// cells; see the view margins below.
@@ -99,16 +161,16 @@ Item {
 		return cfg.grid_labels_beside_icons || cfg.grid_size < 32;
 	}
 
-	// The view actually in charge; free placement and the normal grid never share
-	// one, so scroll and focus code goes through this.
-	readonly property var flickable: grid.freeGrid ? freeFlickable : gridView
+	// The view actually in charge; free placement, the list and the normal grid
+	// never share one, so scroll and focus code goes through this.
+	readonly property var flickable: grid.freeGrid ? freeFlickable : (grid.listMode ? listView : gridView)
 	// Content item the drop handling maps coordinates into.
-	readonly property var gridContent: grid.freeGrid ? freeGridContent : gridView.contentItem
-	readonly property int count: grid.freeGrid ? freeRepeater.count : gridView.count
+	readonly property var gridContent: grid.freeGrid ? freeGridContent : (grid.listMode ? listView.contentItem : gridView.contentItem)
+	readonly property int count: grid.freeGrid ? freeRepeater.count : (grid.listMode ? listView.count : gridView.count)
 	readonly property int gridStride: grid.gridMetrics.stride
 	// Width of the vertical scrollbar in the active view, for the pane's fixed
 	// grid width.
-	readonly property real verticalBarWidth: grid.freeGrid ? freeVerticalScrollBar.width : verticalScrollBar.width
+	readonly property real verticalBarWidth: grid.freeGrid ? freeVerticalScrollBar.width : (grid.listMode ? listVerticalScrollBar.width : verticalScrollBar.width)
 
 	readonly property var gridMetrics: {
 		const cfg = grid.config;
@@ -214,6 +276,31 @@ Item {
 			};
 		}
 
+		// The list is one column of rows. Its items fill the table width minus
+		// the scrollbar strip; the row height is independent of the grid icon
+		// size.
+		if (grid.listMode) {
+			const rowWidth = Math.max(1, viewWidth - grid.listBarInset);
+			const rowHeight = grid.listRowHeight;
+			return {
+				horizontal: false,
+				stride: 1,
+				columns: 1,
+				rows: count,
+				itemWidth: rowWidth,
+				itemHeight: rowHeight,
+				gap: gap,
+				insetX: grid.listBarInset,
+				insetY: 0,
+				offsetX: 0,
+				offsetY: 0,
+				contentWidth: viewWidth,
+				contentHeight: Math.max(viewHeight - grid.listHeaderHeight, count * rowHeight + Math.max(0, count - 1) * gap),
+				free: false,
+				slots: []
+			};
+		}
+
 		let insetX = 0;
 		let insetY = 0;
 		let metrics = measure(insetX, insetY);
@@ -279,7 +366,9 @@ Item {
 	// The live delegate for an item index, when it exists. Only visible items are
 	// instantiated in the GridView, so callers must handle null.
 	function slotAt(index) {
-		return grid.freeGrid ? freeRepeater.itemAt(index) : gridView.itemAtIndex(index);
+		if (grid.freeGrid)
+			return freeRepeater.itemAt(index);
+		return grid.listMode ? listView.itemAtIndex(index) : gridView.itemAtIndex(index);
 	}
 
 	// ── Thumbnails ──
@@ -364,8 +453,12 @@ Item {
 	// as a fast flick. Both axes use the up/down vocabulary: a sideways grid must
 	// not sound like a different kind of movement. Reaching either end plays the
 	// "edge" sound once, then stays quiet until the position moves away again.
-	readonly property real scrollStepX: grid.gridItemSize.width + Kirigami.Units.mediumSpacing
-	readonly property real scrollStepY: grid.gridItemSize.height + Kirigami.Units.mediumSpacing
+	readonly property real scrollStepX: grid.listMode
+		? grid.gridMetrics.itemWidth + Kirigami.Units.mediumSpacing
+		: grid.gridItemSize.width + Kirigami.Units.mediumSpacing
+	readonly property real scrollStepY: grid.listMode
+		? grid.listRowHeight + Kirigami.Units.mediumSpacing
+		: grid.gridItemSize.height + Kirigami.Units.mediumSpacing
 	property real scrollRemainderX: 0
 	property real scrollRemainderY: 0
 	property real lastScrollX: 0
@@ -467,8 +560,8 @@ Item {
 		id: gridView
 		z: 1
 		clip: true
-		visible: !grid.freeGrid
-		model: grid.freeGrid ? null : grid.directory
+		visible: !grid.freeGrid && !grid.listMode
+		model: (grid.freeGrid || grid.listMode) ? null : grid.directory
 		anchors.top: parent.top
 		anchors.left: parent.left
 		anchors.right: parent.right
@@ -549,6 +642,134 @@ Item {
 			gridSize: grid.config ? grid.config.grid_size : 64
 			showLabels: grid.config ? grid.config.show_labels : true
 			labelBesideIcon: grid.labelsBesideIcons
+			labelShowsFilename: grid.config ? grid.config.label_text === 1 : false
+			property SelectionManager selectionManager: grid.selectionManager
+			selectionActive: grid.selectionManager ? grid.selectionManager.selection_active : false
+			actionManager: grid.window ? grid.window.actionManager : null
+			fileManager: grid.window ? grid.window.fileManager : null
+			dragDropHandler: grid.window ? grid.window.dragDropHandler : null
+			isFocused: grid.focusManager ? (grid.focusManager.focus_active && String(grid.focusManager.focused_path) === String(path)) : false
+			isSelected: {
+				const mgr = grid.selectionManager;
+				if (!mgr)
+					return false;
+				mgr.selected_paths; // dependency: re-check when the selection changes
+				return mgr.is_selected(path);
+			}
+
+			onSelectionToggled: (p, idx) => grid.itemSelectionToggled(p, idx)
+			onShiftSelected: idx => grid.itemShiftSelected(idx)
+			onPressHeld: (p, idx) => grid.itemPressHeld(p, idx)
+			onContextMenuRequested: (p, idx) => grid.itemContextMenuRequested(p, idx)
+		}
+	}
+
+	// ── List (lazy rows) ──
+	// A fixed header names the columns. It is drawn outside the ListView so it
+	// stays put while the rows scroll. Its padding, icon gap, spacing and
+	// column weights match FileSlot's list layout, so header and rows line up.
+	Rectangle {
+		id: listHeader
+		z: 2
+		visible: grid.listMode && grid.count > 0
+		height: grid.listHeaderHeight
+		anchors.top: parent.top
+		anchors.left: parent.left
+		anchors.right: parent.right
+		color: Qt.alpha(Kirigami.Theme.textColor, 0.05)
+
+		RowLayout {
+			anchors.fill: parent
+			anchors.leftMargin: grid.listPadding
+			anchors.rightMargin: grid.listPadding + grid.listBarInset
+			spacing: Kirigami.Units.mediumSpacing
+
+			Item {
+				Layout.preferredWidth: grid.listIconSize
+				Layout.preferredHeight: grid.listIconSize
+			}
+			Label {
+				Layout.fillWidth: true
+				Layout.preferredWidth: 4
+				text: qsTr("Name")
+				elide: Text.ElideRight
+				opacity: 0.7
+				font.bold: true
+			}
+			Repeater {
+				model: grid.listColumnSpecs
+
+				delegate: Label {
+					required property var modelData
+					Layout.fillWidth: true
+					Layout.preferredWidth: modelData.weight
+					Layout.minimumWidth: 0
+					text: modelData.title
+					elide: Text.ElideRight
+					horizontalAlignment: modelData.align
+					opacity: 0.7
+					font.bold: true
+				}
+			}
+		}
+	}
+
+	ListView {
+		id: listView
+		z: 1
+		clip: true
+		visible: grid.listMode
+		model: grid.listMode ? grid.directory : null
+		anchors.top: listHeader.visible ? listHeader.bottom : parent.top
+		anchors.left: parent.left
+		anchors.right: parent.right
+		anchors.bottom: parent.bottom
+		spacing: Kirigami.Units.mediumSpacing
+		// Rows are a few screens' worth of delegates; keep a small cache, like
+		// the grid, so a fling does not build while the finger is moving.
+		cacheBuffer: grid.listRowHeight * 4
+
+		onHeightChanged: grid.scheduleThumbnails()
+		onWidthChanged: grid.scheduleThumbnails()
+		onContentYChanged: grid.onViewportMoved()
+		onMovementStarted: {
+			grid.userScrolling = true;
+			grid.onMovementStarted();
+		}
+		onMovementEnded: {
+			grid.userScrolling = false;
+			grid.updateScrollEdges();
+			grid.viewportScrolled();
+			grid.scrollEnded();
+		}
+
+		ScrollBar.vertical: ScrollBar {
+			id: listVerticalScrollBar
+			interactive: false
+			policy: size < 1.0 ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+			z: 2
+		}
+		ScrollBar.horizontal: ScrollBar {
+			policy: ScrollBar.AlwaysOff
+		}
+
+		MouseArea {
+			width: listView.contentWidth
+			height: listView.contentHeight
+			z: 0
+			acceptedButtons: Qt.LeftButton
+			onClicked: mouse => grid.backgroundClicked()
+		}
+
+		delegate: FileSlot {
+			width: grid.gridMetrics.itemWidth
+			height: grid.gridMetrics.itemHeight
+			listMode: true
+			listColumns: grid.listColumnSpecs
+			listIconSize: grid.listIconSize
+			gridSize: grid.config ? grid.config.grid_size : 64
+			showLabels: true
+			labelBesideIcon: true
 			labelShowsFilename: grid.config ? grid.config.label_text === 1 : false
 			property SelectionManager selectionManager: grid.selectionManager
 			selectionActive: grid.selectionManager ? grid.selectionManager.selection_active : false
@@ -667,7 +888,7 @@ Item {
 	// The free-placement drop cell, drawn under the items.
 	Rectangle {
 		id: freeDropHighlight
-		parent: grid.freeGrid ? freeGridContent : gridView.contentItem
+		parent: grid.freeGrid ? freeGridContent : (grid.listMode ? listView.contentItem : gridView.contentItem)
 		z: 0
 		visible: grid.freeDropActive
 		width: grid.gridMetrics.itemWidth
@@ -686,7 +907,7 @@ Item {
 	// x/y behaviours smooth the move between items.
 	Item {
 		id: focusBorderHost
-		parent: grid.freeGrid ? freeGridContent : gridView.contentItem
+		parent: grid.freeGrid ? freeGridContent : (grid.listMode ? listView.contentItem : gridView.contentItem)
 		z: 3
 		readonly property var fm: grid.focusManager
 		readonly property var metrics: grid.gridMetrics
@@ -700,8 +921,8 @@ Item {
 		// The border lives in the view's content item, which sits at the view's
 		// origin. In a GridView that origin is the alignment offset, so subtract
 		// it to place the border on the slot's real position.
-		readonly property real originX: grid.freeGrid ? 0 : focusBorderHost.metrics.offsetX
-		readonly property real originY: grid.freeGrid ? 0 : focusBorderHost.metrics.offsetY
+		readonly property real originX: (grid.freeGrid || grid.listMode) ? 0 : focusBorderHost.metrics.offsetX
+		readonly property real originY: (grid.freeGrid || grid.listMode) ? 0 : focusBorderHost.metrics.offsetY
 		visible: (onEmpty || onItem) && !grid.userScrolling
 		width: focusBorderHost.metrics.itemWidth
 		height: focusBorderHost.metrics.itemHeight
