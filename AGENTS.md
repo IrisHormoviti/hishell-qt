@@ -27,7 +27,7 @@
 - The `Hishell/plugins.qmltypes` file lists the types available to QML imports; keep it in sync with what is
   registered in Rust.
 - New modules: `drag_handler.rs`, `selection_manager.rs`, `focus_manager.rs`, `gamepad.rs`, `path_utils.rs`,
-  `drop_validator.rs`, `layout_engine.rs`
+  `drop_validator.rs`, `layout_engine.rs`, `descriptor_generator.rs`
 - AppImage desktop entries and icons are read directly from the appended SquashFS image by
   `appimage.rs` + `squashfs.rs`; no external tools are involved.
 

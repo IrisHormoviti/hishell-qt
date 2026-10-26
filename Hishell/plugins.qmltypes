@@ -294,6 +294,10 @@ Module {
 			type: "void"
 		}
 		Method {
+			name: "poll_descriptors"
+			type: "void"
+		}
+		Method {
 			name: "poll_changes"
 			type: "void"
 		}
@@ -516,6 +520,11 @@ Module {
 		}
 		Method {
 			name: "can_rename"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "is_rename_only"
 			type: "bool"
 			Parameter { name: "path"; type: "string" }
 		}

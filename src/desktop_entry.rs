@@ -849,7 +849,10 @@ mod tests {
 		fs::remove_file(path).unwrap();
 
 		assert!(entry.is_button());
-		assert_eq!(entry.destroy_command(), Some("clam-connect wifi --forget wpa:abc"));
+		assert_eq!(
+			entry.destroy_command(),
+			Some("clam-connect wifi --forget wpa:abc")
+		);
 		assert!(entry.is_destroyable());
 	}
 

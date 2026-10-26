@@ -240,6 +240,21 @@ fn imagemagick_command() -> Option<&'static str> {
 		.as_deref()
 }
 
+/// Whether a descriptor or descriptor generator owns this item's artwork.
+///
+/// The two mechanisms produce different pictures of the same file, so a
+/// thumbnail must not win the race just because it finished later. The check
+/// lives here rather than in each caller because the file view, the top
+/// screen's focus art and the launch dialogs all ask this module first.
+fn descriptor_owns(src: &Path) -> bool {
+	if crate::descriptor_generator::handles(src) {
+		return true;
+	}
+	crate::directory_descriptor::lookup(src)
+		.and_then(|descriptor| descriptor.icon)
+		.is_some()
+}
+
 /// Whether an item is a candidate for a thumbnail: a known image or video
 /// extension, or a MIME type one of the installed thumbnailers handles.
 fn is_thumbnailable(src: &Path) -> bool {
@@ -358,7 +373,7 @@ fn worker_loop() {
 /// thumbnail when one is already valid, otherwise queues generation and
 /// returns `None`. Called for visible items only, like Dolphin does.
 pub fn request(src: &Path, size: u32, folder: &Path) -> Option<String> {
-	if !is_thumbnailable(src) {
+	if !is_thumbnailable(src) || descriptor_owns(src) {
 		return None;
 	}
 	let bucket = bucket_size(size);
@@ -432,12 +447,16 @@ pub fn has_results() -> bool {
 
 /// The cached thumbnail URI for a source path, once generation has finished.
 pub fn result_for(src: &str) -> Option<String> {
-	state()
+	let dst = state()
 		.results
 		.lock()
 		.unwrap()
 		.get(src)
-		.map(|(dst, _)| format!("file://{dst}"))
+		.map(|(dst, _)| dst.clone())?;
+	if descriptor_owns(Path::new(src)) {
+		return None;
+	}
+	Some(format!("file://{dst}"))
 }
 
 pub fn invalidate(src: &Path) {

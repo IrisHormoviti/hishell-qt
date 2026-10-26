@@ -424,7 +424,11 @@ Item {
 				Image {
 					source: fileSlot.displayIcon
 					asynchronous: true
-					cache: false
+					// Thumbnails are many and disposable, so they stay out of
+					// the image cache. A descriptor icon is usually an SVG card
+					// and is decoded more expensively; caching it avoids
+					// re-rasterising the same file on every repaint.
+					cache: !fileSlot.displayIcon.endsWith(".svg")
 					fillMode: Image.PreserveAspectFit
 					smooth: true
 					anchors.fill: parent

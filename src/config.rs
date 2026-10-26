@@ -727,8 +727,7 @@ impl Config {
 			self.open_on_click = bool_value(get("Folder Navigation", "OpenOnClick"), true);
 		}
 		if changed!("Folder Navigation", "FocusEmptySlots") {
-			self.focus_empty_slots =
-				bool_value(get("Folder Navigation", "FocusEmptySlots"), false);
+			self.focus_empty_slots = bool_value(get("Folder Navigation", "FocusEmptySlots"), false);
 		}
 		if changed!("Folder View", "ViewMode") {
 			self.view_mode = match enum_value(get("Folder View", "ViewMode"), "GRID").as_str() {

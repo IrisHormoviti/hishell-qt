@@ -1,6 +1,6 @@
-//! Directory descriptors: a desktop entry that names a directory and gives it a
-//! display name and icon, so a directory can be presented without writing a
-//! `.directory` into it.
+//! Item descriptors: a desktop entry that names a directory or file and gives
+//! it a display name and icon, so it can be presented without writing a
+//! `.directory` beside it.
 //!
 //! A directory's metadata normally lives in its own `<dir>/.directory`. That is
 //! wrong for a directory someone else owns — a mounted SD card or USB stick is
@@ -21,11 +21,17 @@
 //! on-disk `.directory`, when there is one, still wins: the descriptor is a
 //! fallback for directories that cannot carry their own metadata.
 //!
+//! The same form describes a single file with `Type=File`. That is how a
+//! descriptor generator attaches a title, comment and icon to a ROM without
+//! writing anything beside the ROM itself (see
+//! [`crate::descriptor_generator`]).
+//!
 //! Descriptors are read from `hishell/directories` under the XDG data dirs
-//! (system, bundle, then the user's) and from the runtime directory
-//! [`RUNTIME_ROOT`], which `clam-removable.sh` populates for mounted removable
-//! media. Later roots override earlier ones, so a user descriptor beats a
-//! shipped one and a live mount beats both.
+//! (system and bundle), from the generated-descriptor cache, from the user's
+//! own data directory, and from the runtime directory [`RUNTIME_ROOT`], which
+//! `clam-removable.sh` populates for mounted removable media. Later roots
+//! override earlier ones, so a generated entry beats a shipped one, a user
+//! descriptor beats both, and a live mount beats all of them.
 
 use crate::config_parser::{ConfigParser, ConfigValue};
 use once_cell::sync::Lazy;
@@ -64,6 +70,9 @@ fn roots() -> Vec<PathBuf> {
 	for dir in data_dirs() {
 		roots.push(dir.join("hishell/directories"));
 	}
+	// Generated descriptors are cache, not user files: they override a shipped
+	// definition but a hand-written one in the user's data directory still wins.
+	roots.push(crate::descriptor_generator::cache_root());
 	if let Some(dir) = dirs::data_dir() {
 		roots.push(dir.join("hishell/directories"));
 	}
@@ -116,14 +125,23 @@ fn build() -> HashMap<PathBuf, Descriptor> {
 fn read_descriptor(file: &Path) -> Option<(PathBuf, Descriptor)> {
 	let (sections, _) = ConfigParser::parse_file(file);
 	let section = sections.get("Desktop Entry")?;
-	if !string(section, "Type")?.eq_ignore_ascii_case("Directory") {
+	let kind = string(section, "Type")?;
+	if !kind.eq_ignore_ascii_case("Directory") && !kind.eq_ignore_ascii_case("File") {
 		return None;
 	}
 	let target = expand(&string(section, "Path")?)?;
-	// A descriptor for a directory that is not there describes nothing; keeping
-	// it out of the index also means an unplugged mount stops matching the
-	// moment its descriptor would otherwise go stale.
+	// A descriptor for something that is not there describes nothing; keeping it
+	// out of the index also means an unplugged mount stops matching the moment
+	// its descriptor would otherwise go stale.
 	let target = std::fs::canonicalize(target).ok()?;
+	let kind_ok = if kind.eq_ignore_ascii_case("Directory") {
+		target.is_dir()
+	} else {
+		target.is_file()
+	};
+	if !kind_ok {
+		return None;
+	}
 	let descriptor = Descriptor {
 		name: string(section, "Name").filter(|name| !name.trim().is_empty()),
 		icon: string(section, "Icon").filter(|icon| !icon.trim().is_empty()),
@@ -154,11 +172,11 @@ fn expand(path: &str) -> Option<PathBuf> {
 }
 
 /// The descriptor describing `path`, if there is one. Symlinks are resolved, so
-/// a link in the home directory is described by the mount it points at. Only
-/// directories (and symlinks to them) are ever described, which also keeps this
-/// off the hot path for a folder full of files.
+/// a link in the home directory is described by the mount it points at and a
+/// ROM reachable through a link is described by the entry generated for the
+/// file it points at.
 pub fn lookup(path: &Path) -> Option<Descriptor> {
-	if !path.is_dir() {
+	if !path.exists() {
 		return None;
 	}
 	let canonical = std::fs::canonicalize(path).ok()?;
@@ -173,4 +191,56 @@ pub fn lookup(path: &Path) -> Option<Descriptor> {
 	cache
 		.as_ref()
 		.and_then(|(_, map)| map.get(&canonical).cloned())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::read_descriptor;
+	use std::fs;
+
+	#[test]
+	fn reads_a_file_descriptor() {
+		let dir = std::env::temp_dir().join(format!(
+			"hishell-file-descriptor-test-{}",
+			std::process::id()
+		));
+		fs::create_dir_all(&dir).unwrap();
+		let target = dir.join("game.nds");
+		fs::write(&target, b"not really a rom").unwrap();
+		let descriptor = dir.join("game.desktop");
+		fs::write(
+			&descriptor,
+			format!(
+				"[Desktop Entry]\nType=File\nPath={}\nName=Test Game\nIcon=application-x-nintendo-ds-rom\n",
+				target.display()
+			),
+		)
+		.unwrap();
+
+		let (path, entry) = read_descriptor(&descriptor).unwrap();
+		assert_eq!(path, fs::canonicalize(&target).unwrap());
+		assert_eq!(entry.name.as_deref(), Some("Test Game"));
+		assert_eq!(entry.icon.as_deref(), Some("application-x-nintendo-ds-rom"));
+
+		fs::remove_dir_all(dir).unwrap();
+	}
+
+	#[test]
+	fn a_file_descriptor_does_not_describe_a_directory() {
+		let dir = std::env::temp_dir().join(format!("hishell-kind-test-{}", std::process::id()));
+		fs::create_dir_all(&dir).unwrap();
+		let descriptor = dir.join("wrong.desktop");
+		fs::write(
+			&descriptor,
+			format!(
+				"[Desktop Entry]\nType=File\nPath={}\nName=Not a file\n",
+				dir.display()
+			),
+		)
+		.unwrap();
+
+		assert!(read_descriptor(&descriptor).is_none());
+
+		fs::remove_dir_all(dir).unwrap();
+	}
 }

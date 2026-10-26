@@ -169,9 +169,7 @@ fn run_radio_exec(exec: &str, value: &str, name: &str, path: &str) {
 	// fall back to guessing a folder (docs `clam-configd.md` §5.3).
 	let item = Path::new(path);
 	let cwd = crate::config::base_dir(item);
-	if let Err(error) =
-		crate::launch::spawn_direct(command, &final_args, path, name, Some(cwd))
-	{
+	if let Err(error) = crate::launch::spawn_direct(command, &final_args, path, name, Some(cwd)) {
 		eprintln!("failed to run radio command {command:?}: {error}");
 	}
 }
@@ -247,6 +245,7 @@ pub struct Directory {
 	// re-resolved: the state the periodic change poll compares against.
 	dir_modified: u64,
 	last_icon_poll: Option<Instant>,
+	last_descriptor_epoch: u64,
 
 	title: qt_property!(String; READ get_title),
 	icon: qt_property!(String; READ get_icon NOTIFY path_changed),
@@ -298,9 +297,9 @@ pub struct Directory {
 			// group.  Without this, any directory (a path-bar ancestor, say)
 			// passes the `Only=Directories` test and is treated as selectable.
 			let base = Path::new(self.path_str.trim_end_matches('/'));
-			let parent_ok = path
-				.parent()
-				.is_some_and(|parent| parent == base || parent.as_os_str().is_empty() && base.as_os_str().is_empty());
+			let parent_ok = path.parent().is_some_and(|parent| {
+				parent == base || parent.as_os_str().is_empty() && base.as_os_str().is_empty()
+			});
 			if !parent_ok {
 				return false;
 			}
@@ -344,15 +343,21 @@ pub struct Directory {
 			}
 
 			let parent = self.path_str.clone();
-			self.config
-				.pinned()
-				.borrow_mut()
-				._set(Path::new(&parent), "Radio", "Selected", &value, true);
+			self.config.pinned().borrow_mut()._set(
+				Path::new(&parent),
+				"Radio",
+				"Selected",
+				&value,
+				true,
+			);
 
 			let (exec, name) = {
 				let config = self.config.pinned();
 				let config = config.borrow();
-				(config.radio_exec.to_string(), get_item_title(Path::new(&path)))
+				(
+					config.radio_exec.to_string(),
+					get_item_title(Path::new(&path)),
+				)
 			};
 			if !exec.trim().is_empty() {
 				run_radio_exec(&exec, &value, &name, &path);
@@ -442,6 +447,8 @@ pub struct Directory {
 			let mut updates = Vec::new();
 			for (row, index) in self.visible.iter().enumerate() {
 				let item = &self.items[*index];
+				// `result_for` itself hides thumbnails for descriptor-owned
+				// items, so the two systems cannot fight over the slot.
 				if let Some(uri) = thumbnailer::result_for(&item.path) {
 					if item.icon != uri {
 						updates.push((row, uri));
@@ -453,6 +460,49 @@ pub struct Directory {
 				self.items[index].icon = uri;
 				let model_index = self.row_index(row as i32);
 				self.data_changed(model_index, model_index);
+			}
+		}
+	),
+
+	/// Move finished descriptor-generator results (a ROM's title and icon, for
+	/// example) into the model. Titles are updated for every item, not only the
+	/// visible ones, so scrolling to an item generated minutes ago still shows
+	/// its proper name; rows that are visible are repainted.
+	poll_descriptors: qt_method!(
+		pub fn poll_descriptors(&mut self) {
+			let epoch = crate::descriptor_generator::results_epoch();
+			if epoch == self.last_descriptor_epoch {
+				return;
+			}
+			// Apply a folder's results only after its queue has drained: one
+			// repaint for the whole batch, rather than one per ROM while the
+			// workers are still producing them.
+			if crate::descriptor_generator::folder_busy(Path::new(&self.path_str)) {
+				return;
+			}
+			self.last_descriptor_epoch = epoch;
+			if !crate::descriptor_generator::has_results() {
+				return;
+			}
+			for index in 0..self.items.len() {
+				let item = &self.items[index];
+				let Some(generated) = crate::descriptor_generator::result_for(&item.path) else {
+					continue;
+				};
+				let title = generated
+					.name
+					.filter(|name| !name.trim().is_empty())
+					.unwrap_or_else(|| item.title.clone());
+				let icon = generated.icon.unwrap_or_else(|| item.icon.clone());
+				if title == item.title && icon == item.icon {
+					continue;
+				}
+				self.items[index].title = title;
+				self.items[index].icon = icon;
+				if let Some(row) = self.visible.iter().position(|visible| *visible == index) {
+					let model_index = self.row_index(row as i32);
+					self.data_changed(model_index, model_index);
+				}
 			}
 		}
 	),
@@ -684,10 +734,11 @@ pub struct Directory {
 
 	load_directory: qt_method!(
 		fn load_directory(&mut self, path: String, include_hidden: bool) {
-			// Re-reading a folder drops its pending thumbnail work; results that
-			// are still in flight simply no longer match any item.
+			// Re-reading a folder drops its pending preview and descriptor work;
+			// results that are still in flight simply no longer match any item.
 			if !self.path_str.is_empty() {
 				crate::thumbnailer::cancel_folder(Path::new(&self.path_str));
+				crate::descriptor_generator::cancel_folder(Path::new(&self.path_str));
 			}
 			Directory::new(self, path, include_hidden);
 		}
@@ -698,6 +749,7 @@ impl Directory {
 	pub fn new(&mut self, path: String, include_hidden: bool) {
 		self.begin_reset_model();
 		self.items.clear();
+		let folder = PathBuf::from(&self.path_str);
 
 		if let Ok(entries) = fs::read_dir(path) {
 			for entry in entries.flatten() {
@@ -749,6 +801,12 @@ impl Directory {
 					created,
 					accessed,
 				});
+
+				// A file with no cached descriptor is described in the
+				// background; the next poll moves its name and icon into the
+				// model. `request` ignores directories and file types no
+				// installed generator handles.
+				crate::descriptor_generator::request(&entry_path, &folder);
 			}
 		}
 
@@ -932,6 +990,7 @@ impl Directory {
 
 		if !self.path_str.is_empty() && self.path_str != abs_str {
 			crate::thumbnailer::cancel_folder(Path::new(&self.path_str));
+			crate::descriptor_generator::cancel_folder(Path::new(&self.path_str));
 		}
 
 		// Navigating to a different folder drops the type-to-filter text.
@@ -1264,6 +1323,16 @@ pub fn get_icon(path: &str) -> String {
 		return get_folder_icon(path);
 	}
 
+	// A file descriptor supplies the name and icon from outside the file, the
+	// same way a directory descriptor describes a mounted card. A generated
+	// ROM entry lives in the descriptor cache and arrives here through this
+	// lookup, so no special case is needed once it has been written.
+	if let Some(descriptor) = crate::directory_descriptor::lookup(path_buf) {
+		if let Some(icon) = descriptor.icon {
+			return icon_source(icon, crate::config::base_dir(path_buf));
+		}
+	}
+
 	if crate::desktop_entry::is_link(path_buf) {
 		return "open-link".to_string();
 	}
@@ -1289,6 +1358,15 @@ pub fn get_icon(path: &str) -> String {
 
 	if let Some(cached) = ICON_CACHE.lock().unwrap().get(&key) {
 		return cached.clone();
+	}
+
+	// A content type owned by a descriptor generator keeps that generator's
+	// placeholder even when no descriptor could be produced. Otherwise the
+	// `gio` icon (the bare type name, which the theme may not ship) would win
+	// and the file would look generic.
+	if let Some(icon) = crate::descriptor_generator::placeholder_icon(path_buf) {
+		ICON_CACHE.lock().unwrap().insert(key, icon.clone());
+		return icon;
 	}
 
 	if let Some(icon) = query_gio_icon(path) {
@@ -1382,7 +1460,14 @@ pub fn open_file(path: String) -> String {
 	if crate::kde_bridge::open_with_default(&path) {
 		return String::new();
 	}
-	let _ = crate::launch::spawn("xdg-open", std::slice::from_ref(&path), &path, "xdg-open", None);
+	let _ = crate::launch::spawn(
+		"xdg-open",
+		std::slice::from_ref(&path),
+		&path,
+		"xdg-open",
+		"",
+		None,
+	);
 	String::new()
 }
 
@@ -1411,10 +1496,7 @@ mod tests {
 
 	#[test]
 	fn radio_exec_exports_the_selected_item() {
-		let root = std::env::temp_dir().join(format!(
-			"hishell-radio-exec-{}",
-			std::process::id()
-		));
+		let root = std::env::temp_dir().join(format!("hishell-radio-exec-{}", std::process::id()));
 		std::fs::create_dir_all(&root).unwrap();
 		let script = root.join("capture.sh");
 		let output = root.join("item");

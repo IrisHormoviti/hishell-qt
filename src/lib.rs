@@ -9,6 +9,7 @@
 pub mod appimage;
 pub mod config;
 pub mod config_parser;
+pub mod descriptor_generator;
 pub mod desktop_entry;
 pub mod destroy;
 pub mod directory;

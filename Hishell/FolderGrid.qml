@@ -75,6 +75,10 @@ Item {
 	}
 
 	readonly property bool freeGrid: grid.config ? (grid.config.sort === 3 && grid.config.view_mode === 0) : false
+	// A fixed line count (Folder View > Lines). The GridView wraps by its own
+	// size, so with a count set the view has to be sized to exactly that many
+	// cells; see the view margins below.
+	readonly property bool fixedLines: grid.config ? grid.config.grid_lines > 0 : false
 
 	// The item cell size: icon plus room for the label, or a wide row when the
 	// label sits beside the icon.
@@ -173,7 +177,11 @@ Item {
 			const lines = cfg ? cfg.grid_lines : 0;
 			const viewMain = horizontal ? height : width;
 			const itemMain = horizontal ? itemHeight : itemWidth;
-			const stride = lines > 0 ? lines : Math.max(1, Math.floor((viewMain + gap) / (itemMain + gap)));
+			// A fixed Lines count is a cap, not a promise: the pane may not have
+			// room for that many lines. Clamp it so the layout maths and the
+			// GridView (which wraps by its own size) agree even then.
+			const fitting = Math.max(1, Math.floor((viewMain + gap) / (itemMain + gap)));
+			const stride = lines > 0 ? Math.min(lines, fitting) : fitting;
 			const lineCount = Math.max(1, Math.ceil(count / stride));
 			const columns = horizontal ? lineCount : stride;
 			const rows = horizontal ? stride : lineCount;
@@ -452,7 +460,9 @@ Item {
 	// ── Normal grid (lazy) ──
 	// A GridView ignores leftMargin when it places delegates, so the grid block is
 	// positioned by insetting the view itself: the delegates then start at the
-	// view's left edge, which lands at the alignment offset.
+	// view's left edge, which lands at the alignment offset. Insets also shrink
+	// the area the view uses to wrap, which is how a fixed Lines count is
+	// enforced (see the right/bottom margins below).
 	GridView {
 		id: gridView
 		z: 1
@@ -465,6 +475,19 @@ Item {
 		anchors.bottom: parent.bottom
 		anchors.leftMargin: grid.gridMetrics.offsetX
 		anchors.topMargin: grid.gridMetrics.offsetY
+		// A fixed Lines count has to be enforced on the view itself: GridView
+		// wraps by the space it has, not by the layout maths. Size the view to
+		// exactly gridMetrics.columns (or rows, when scrolling sideways) cells so
+		// the visual wrap and the focus grid cannot disagree. The trailing cell
+		// gap is where the scrollbar sits, so the block is not covered.
+		anchors.rightMargin: (!grid.horizontalScroll && grid.fixedLines)
+			? Math.max(0, parent.width - grid.gridMetrics.offsetX
+				- grid.gridMetrics.columns * (grid.gridMetrics.itemWidth + grid.gridMetrics.gap))
+			: 0
+		anchors.bottomMargin: (grid.horizontalScroll && grid.fixedLines)
+			? Math.max(0, parent.height - grid.gridMetrics.offsetY
+				- grid.gridMetrics.rows * (grid.gridMetrics.itemHeight + grid.gridMetrics.gap))
+			: 0
 
 		// Uniform cells: the delegate fills the item box, the gap lives in the
 		// cell.

@@ -107,7 +107,12 @@ pub fn set_icon_theme(name: &str) -> bool {
 /// marks `ColorScheme-Accent` (Breeze draws every folder body that way), and
 /// returns the cached PNG's `file://` URI. `None` means the icon could not be
 /// rendered; callers fall back to the plain themed icon name.
-pub fn accent_icon(name: &str, size: u32, accent: (u8, u8, u8), text: (u8, u8, u8)) -> Option<String> {
+pub fn accent_icon(
+	name: &str,
+	size: u32,
+	accent: (u8, u8, u8),
+	text: (u8, u8, u8),
+) -> Option<String> {
 	if name.is_empty() || size == 0 {
 		return None;
 	}

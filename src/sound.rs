@@ -121,11 +121,7 @@ pub struct Sound {
 			if !self.enabled {
 				return false;
 			}
-			submit(Command::Play(
-				event_id,
-				Instant::now(),
-				TRANSIENT_MAX_AGE,
-			))
+			submit(Command::Play(event_id, Instant::now(), TRANSIENT_MAX_AGE))
 		}
 	),
 

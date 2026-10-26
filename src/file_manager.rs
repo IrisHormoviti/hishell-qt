@@ -1012,8 +1012,7 @@ fn move_item(src: &Path, dst: &Path) -> bool {
 	if is_symlink(src) {
 		return match (fs::read_link(src), dst.parent()) {
 			(Ok(target), Some(parent)) if parent.is_dir() => {
-				std::os::unix::fs::symlink(target, dst).is_ok()
-					&& fs::remove_file(src).is_ok()
+				std::os::unix::fs::symlink(target, dst).is_ok() && fs::remove_file(src).is_ok()
 			}
 			_ => false,
 		};
@@ -1267,7 +1266,7 @@ fn percent_decode(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-	use super::{can_rename, cut_into, rename_is_label_only, FileManager};
+	use super::{FileManager, can_rename, cut_into, rename_is_label_only};
 	use std::fs;
 	use std::path::PathBuf;
 
@@ -1335,12 +1334,10 @@ mod tests {
 		);
 
 		let fm = FileManager::default();
-		let denied: serde_json::Value =
-			serde_json::from_str(&fm.rename_file(
-				wifi.to_string_lossy().to_string(),
-				"New name".to_string(),
-			))
-			.unwrap();
+		let denied: serde_json::Value = serde_json::from_str(
+			&fm.rename_file(wifi.to_string_lossy().to_string(), "New name".to_string()),
+		)
+		.unwrap();
 		assert_eq!(denied["ok"], false);
 		assert!(wifi.exists());
 		assert_eq!(
@@ -1366,7 +1363,11 @@ mod tests {
 		)
 		.unwrap();
 
-		assert!(cut_into(&dest, &[entry.to_string_lossy().to_string()], &mut Vec::new()));
+		assert!(cut_into(
+			&dest,
+			&[entry.to_string_lossy().to_string()],
+			&mut Vec::new()
+		));
 		assert!(entry.exists(), "a destroy is not a move");
 		assert!(!dest.join("wpa:abc.desktop").exists());
 
@@ -1386,7 +1387,11 @@ mod tests {
 		)
 		.unwrap();
 
-		assert!(cut_into(&dest, &[entry.to_string_lossy().to_string()], &mut Vec::new()));
+		assert!(cut_into(
+			&dest,
+			&[entry.to_string_lossy().to_string()],
+			&mut Vec::new()
+		));
 		assert!(entry.exists(), "an undestroyable source is never unlinked");
 		let linked = dest.join("00-scan.desktop");
 		assert!(linked.exists());
@@ -1415,7 +1420,12 @@ mod tests {
 			"copy".to_string()
 		));
 		let copied = dest.join("Wi-Fi");
-		assert!(fs::symlink_metadata(&copied).unwrap().file_type().is_symlink());
+		assert!(
+			fs::symlink_metadata(&copied)
+				.unwrap()
+				.file_type()
+				.is_symlink()
+		);
 		assert!(section.exists(), "copy never touches the source");
 
 		let other = dir.join("other");
@@ -1426,8 +1436,16 @@ mod tests {
 			"move".to_string()
 		));
 		let moved = other.join("Wi-Fi");
-		assert!(fs::symlink_metadata(&moved).unwrap().file_type().is_symlink());
-		assert!(section.exists(), "moving an undestroyable source links instead");
+		assert!(
+			fs::symlink_metadata(&moved)
+				.unwrap()
+				.file_type()
+				.is_symlink()
+		);
+		assert!(
+			section.exists(),
+			"moving an undestroyable source links instead"
+		);
 
 		fs::remove_dir_all(&dir).ok();
 	}
@@ -1502,7 +1520,12 @@ mod tests {
 			"move".to_string()
 		));
 		let moved = other.join("Wi-Fi link");
-		assert!(fs::symlink_metadata(&moved).unwrap().file_type().is_symlink());
+		assert!(
+			fs::symlink_metadata(&moved)
+				.unwrap()
+				.file_type()
+				.is_symlink()
+		);
 		assert!(!handle.exists(), "the handle itself moved");
 		assert!(section.exists(), "the section stayed where it was");
 
@@ -1534,7 +1557,12 @@ mod tests {
 			"the handle moves; its target's Destroy= must not run"
 		);
 		let moved = dest.join("Home link");
-		assert!(fs::symlink_metadata(&moved).unwrap().file_type().is_symlink());
+		assert!(
+			fs::symlink_metadata(&moved)
+				.unwrap()
+				.file_type()
+				.is_symlink()
+		);
 		assert!(!handle.exists());
 		assert!(entry.exists(), "the generated entry stayed in its section");
 
@@ -1560,7 +1588,12 @@ mod tests {
 			"copy".to_string()
 		));
 		let linked = dest.join("wpa:abc.desktop");
-		assert!(fs::symlink_metadata(&linked).unwrap().file_type().is_symlink());
+		assert!(
+			fs::symlink_metadata(&linked)
+				.unwrap()
+				.file_type()
+				.is_symlink()
+		);
 		assert!(entry.exists());
 		assert_eq!(fs::read_link(&linked).unwrap(), entry);
 
@@ -1575,9 +1608,16 @@ mod tests {
 		let file = dir.join("holiday.txt");
 		fs::write(&file, "sun\n").unwrap();
 
-		assert!(cut_into(&dest, &[file.to_string_lossy().to_string()], &mut Vec::new()));
+		assert!(cut_into(
+			&dest,
+			&[file.to_string_lossy().to_string()],
+			&mut Vec::new()
+		));
 		assert!(!file.exists());
-		assert_eq!(fs::read_to_string(dest.join("holiday.txt")).unwrap(), "sun\n");
+		assert_eq!(
+			fs::read_to_string(dest.join("holiday.txt")).unwrap(),
+			"sun\n"
+		);
 
 		fs::remove_dir_all(&dir).ok();
 	}

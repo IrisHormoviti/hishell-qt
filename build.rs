@@ -58,7 +58,14 @@ fn build_kde_bridge() {
 	let out_dir = env::var("OUT_DIR").expect("OUT_DIR is missing");
 	build.include(&out_dir);
 
-	for component in ["KService", "KIO", "KIOCore", "KIOGui", "KCoreAddons", "KIconThemes"] {
+	for component in [
+		"KService",
+		"KIO",
+		"KIOCore",
+		"KIOGui",
+		"KCoreAddons",
+		"KIconThemes",
+	] {
 		// KF6 headers normally live under /usr/include/KF6, but a cross build
 		// (RG DS Plus sysroot) keeps them under the sysroot prefix. Honour a
 		// KF6_INCLUDE_PATH override, then try the sysroot the pkg-config setup

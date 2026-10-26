@@ -19,6 +19,7 @@ Hishell isn't intended to just be the name for this file manager, but a specific
 - [ ] Behavior overrides (e.g. always open in new windows)
 - [ ] In-folder text or images
 - [ ] Directory inheritance
+- [X] Descriptor generators (titles and icons read from file contents)
 - [ ] Potentially scripting...? (Security is a big concern there)
 
 All these things would be able to be set per folder using a few dot files, allowing the user to customize their workspace, aesthetically and practically, and even create mini applications to help with their workflow.
@@ -35,6 +36,43 @@ Planned features:
 - [X] Menubar with context related actions
 - [X] Right click context menu
 - [X] "Open as" dialog
+
+## Descriptors and generators
+
+A descriptor is a desktop entry that names another path and gives it a title,
+comment and icon, without writing anything beside that path:
+
+```ini
+[Desktop Entry]
+Type=Directory
+Path=/mnt/sdcard
+Name=SD Card
+Icon=media-flash-sd-mmc
+```
+
+`Type=File` does the same for a single file. Descriptors are read from
+`hishell/directories` under the XDG data directories and from
+`/run/clam-removable/directories`; the generated-descriptor cache is a root too.
+
+A **descriptor generator** is discovered the way a thumbnailer is:
+
+```ini
+[Descriptor Generator Entry]
+TryExec=clam-nds-descriptor
+Exec=clam-nds-descriptor %i %o
+Icon=application-x-nintendo-ds-rom
+MimeType=application/vnd.nintendo.nitro.rom;
+```
+
+It runs for files of a matching content type, writes a descriptor, and Hishell
+caches it under `$XDG_CACHE_HOME/hishell/descriptors`. A DS ROM therefore shows
+its banner title and its own cartridge artwork instead of a generic MIME icon.
+The optional `Icon` is the themed placeholder used before generation finishes
+and after a generator fails, so such a file still looks like the type it is. A
+type an installed generator handles is not also sent to a thumbnailer, so the
+two pictures cannot fight over the item. Generators are deliberately
+format-agnostic: the shell only knows the directories, the MIME match and the
+`%i`/`%o` contract.
 
 ## Unusual design choices
 ### No double clicking
