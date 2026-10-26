@@ -83,21 +83,26 @@ Item {
 	readonly property real listIconSize: Math.max(16, Math.min(28, grid.listRowHeight - Kirigami.Units.largeSpacing))
 	readonly property real listPadding: Kirigami.Units.smallSpacing * 2
 	readonly property real listHeaderHeight: Kirigami.Units.gridUnit * 2
-	// Optional list columns in display order. The name column is always first;
-	// `ListColumns` controls only what follows it.
+	readonly property bool showListHeader: grid.config ? grid.config.list_header : true
+	readonly property bool listHeaderVisible: grid.listMode && grid.showListHeader && grid.count > 0
+	// Columns in display order. TITLE/FILENAME are the name columns; at least
+	// one is kept so list rows always have a label.
 	readonly property var listColumnKeys: {
 		const cfg = grid.config;
 		if (!cfg)
-			return [];
+			return ["TITLE"];
 		let parsed = [];
 		try {
 			parsed = JSON.parse(String(cfg.list_columns));
 		} catch (e) {
-			return [];
+			parsed = [];
 		}
 		if (!Array.isArray(parsed))
-			return [];
-		const known = { "SIZE": true, "MODIFIED": true, "CREATED": true, "ACCESSED": true, "TYPE": true };
+			parsed = [];
+		const known = {
+			"TITLE": true, "FILENAME": true, "SIZE": true, "MODIFIED": true,
+			"CREATED": true, "ACCESSED": true, "TYPE": true
+		};
 		const seen = {};
 		const keys = [];
 		for (const value of parsed) {
@@ -107,14 +112,21 @@ Item {
 			seen[key] = true;
 			keys.push(key);
 		}
+		if (!keys.some(key => key === "TITLE" || key === "FILENAME"))
+			keys.unshift("TITLE");
 		return keys;
 	}
 	// The normalised columns together with the layout weight and alignment the
-	// header and row share. The name gets the largest weight, so it stays the
-	// wide column on a narrow pane.
+	// header and row share. Title/Filename get the largest weight, so a name
+	// stays the wide column on a narrow pane.
 	readonly property var listColumnSpecs: {
-		const weights = { "SIZE": 1.0, "MODIFIED": 1.8, "CREATED": 1.8, "ACCESSED": 1.8, "TYPE": 1.0 };
+		const weights = {
+			"TITLE": 4.0, "FILENAME": 4.0, "SIZE": 1.0,
+			"MODIFIED": 1.8, "CREATED": 1.8, "ACCESSED": 1.8, "TYPE": 1.0
+		};
 		const labels = {
+			"TITLE": qsTr("Title"),
+			"FILENAME": qsTr("File Name"),
 			"SIZE": qsTr("Size"),
 			"MODIFIED": qsTr("Modified"),
 			"CREATED": qsTr("Created"),
@@ -129,7 +141,8 @@ Item {
 				key: key,
 				title: labels[key] || key,
 				weight: weights[key] || 1.0,
-				align: key === "SIZE" ? Text.AlignRight : Text.AlignLeft
+				align: key === "SIZE" ? Text.AlignRight : Text.AlignLeft,
+				nameColumn: key === "TITLE" || key === "FILENAME"
 			});
 		}
 		return specs;
@@ -295,7 +308,7 @@ Item {
 				offsetX: 0,
 				offsetY: 0,
 				contentWidth: viewWidth,
-				contentHeight: Math.max(viewHeight - grid.listHeaderHeight, count * rowHeight + Math.max(0, count - 1) * gap),
+				contentHeight: Math.max(viewHeight - (grid.listHeaderVisible ? grid.listHeaderHeight : 0), count * rowHeight + Math.max(0, count - 1) * gap),
 				free: false,
 				slots: []
 			};
@@ -671,7 +684,7 @@ Item {
 	Rectangle {
 		id: listHeader
 		z: 2
-		visible: grid.listMode && grid.count > 0
+		visible: grid.listHeaderVisible
 		height: grid.listHeaderHeight
 		anchors.top: parent.top
 		anchors.left: parent.left
@@ -687,14 +700,6 @@ Item {
 			Item {
 				Layout.preferredWidth: grid.listIconSize
 				Layout.preferredHeight: grid.listIconSize
-			}
-			Label {
-				Layout.fillWidth: true
-				Layout.preferredWidth: 4
-				text: qsTr("Name")
-				elide: Text.ElideRight
-				opacity: 0.7
-				font.bold: true
 			}
 			Repeater {
 				model: grid.listColumnSpecs
@@ -720,7 +725,7 @@ Item {
 		clip: true
 		visible: grid.listMode
 		model: grid.listMode ? grid.directory : null
-		anchors.top: listHeader.visible ? listHeader.bottom : parent.top
+		anchors.top: grid.listHeaderVisible ? listHeader.bottom : parent.top
 		anchors.left: parent.left
 		anchors.right: parent.right
 		anchors.bottom: parent.bottom

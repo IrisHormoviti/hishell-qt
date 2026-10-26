@@ -175,6 +175,7 @@ Kirigami.OverlaySheet {
 		}
 		RowLayout {
 			Layout.fillWidth: true
+			visible: !viewDialog.viewActions.isListView
 			spacing: Kirigami.Units.smallSpacing
 
 			Label {
@@ -203,20 +204,24 @@ Kirigami.OverlaySheet {
 
 		// ── Labels ───────────────────────────────────────────────────────
 		SectionHeading {
+			visible: !viewDialog.viewActions.isListView
 			text: qsTr("Labels")
 		}
 		ToggleRow {
+			visible: !viewDialog.viewActions.isListView
 			text: qsTr("Show Labels")
 			checked: viewDialog.viewActions.showLabels
 			onToggled: checked => viewDialog.viewActions.setConfig("ShowLabels", String(checked))
 		}
 		ToggleRow {
+			visible: !viewDialog.viewActions.isListView
 			text: qsTr("Labels Beside Icons")
 			enabled: viewDialog.viewActions.showLabels
 			checked: viewDialog.viewActions.labelsBesideIcons
 			onToggled: checked => viewDialog.viewActions.setConfig("GridLabelsBesidesIcons", String(checked))
 		}
 		SegmentedButtons {
+			visible: !viewDialog.viewActions.isListView
 			enabled: viewDialog.viewActions.showLabels
 			options: [
 				{ text: qsTr("Titles"), value: "TITLE" },
@@ -230,6 +235,20 @@ Kirigami.OverlaySheet {
 		SectionHeading {
 			visible: viewDialog.viewActions.isListView
 			text: qsTr("List Columns")
+		}
+		ToggleRow {
+			visible: viewDialog.viewActions.isListView
+			text: qsTr("Show Header")
+			checked: viewDialog.viewActions.showListHeader
+			onToggled: checked => viewDialog.viewActions.setListHeaderVisible(checked)
+		}
+		ListColumnRow {
+			visible: viewDialog.viewActions.isListView
+			columnKey: "TITLE"
+		}
+		ListColumnRow {
+			visible: viewDialog.viewActions.isListView
+			columnKey: "FILENAME"
 		}
 		ListColumnRow {
 			visible: viewDialog.viewActions.isListView
@@ -263,8 +282,9 @@ Kirigami.OverlaySheet {
 					{ text: qsTr("Oldest"), value: "OLDEST" },
 					{ text: qsTr("Name"), value: "ALPHABETICAL" }
 				];
-				// Free placement only makes sense for a folder's own config.
-				if (viewDialog.viewActions.isLocal)
+				// Free placement only makes sense for a folder's own config,
+				// and only in grid view where cells can be positioned.
+				if (viewDialog.viewActions.isLocal && !viewDialog.viewActions.isListView)
 					list.push({ text: qsTr("Free"), value: "FREE" });
 				return list;
 			}
@@ -310,7 +330,7 @@ Kirigami.OverlaySheet {
 		Button {
 			Layout.fillWidth: true
 			Layout.minimumHeight: Kirigami.Units.gridUnit * 2.4
-			visible: viewDialog.viewActions.hasFreePlacementPositions
+			visible: viewDialog.viewActions.hasFreePlacementPositions && !viewDialog.viewActions.isListView
 			text: qsTr("Reset Manual Placement")
 			icon.name: "edit-reset"
 			onPressed: viewDialog.playSound("button-pressed")
@@ -320,10 +340,12 @@ Kirigami.OverlaySheet {
 
 		// ── Arrangement ──────────────────────────────────────────────────
 		SectionHeading {
+			visible: !viewDialog.viewActions.isListView
 			text: qsTr("Arrange")
 		}
 		RowLayout {
 			Layout.fillWidth: true
+			visible: !viewDialog.viewActions.isListView
 			spacing: Kirigami.Units.smallSpacing
 
 			Label {
@@ -349,6 +371,7 @@ Kirigami.OverlaySheet {
 		}
 		RowLayout {
 			Layout.fillWidth: true
+			visible: !viewDialog.viewActions.isListView
 			spacing: Kirigami.Units.smallSpacing
 			Label {
 				text: qsTr("Scroll")
@@ -364,6 +387,7 @@ Kirigami.OverlaySheet {
 		}
 		RowLayout {
 			Layout.fillWidth: true
+			visible: !viewDialog.viewActions.isListView
 			spacing: Kirigami.Units.smallSpacing
 			Label {
 				text: qsTr("Align X")
@@ -381,6 +405,7 @@ Kirigami.OverlaySheet {
 		}
 		RowLayout {
 			Layout.fillWidth: true
+			visible: !viewDialog.viewActions.isListView
 			spacing: Kirigami.Units.smallSpacing
 			Label {
 				text: qsTr("Align Y")

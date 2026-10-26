@@ -311,6 +311,10 @@ Item {
 
 	function columnText(key) {
 		switch (String(key).toUpperCase()) {
+		case "TITLE":
+			return fileSlot.title !== "" ? fileSlot.title : fileSlot.fileName;
+		case "FILENAME":
+			return fileSlot.fileName;
 		case "SIZE":
 			return fileSlot.formatSize(fileSlot.size_bytes);
 		case "MODIFIED":
@@ -334,7 +338,9 @@ Item {
 			return 0.2;
 		return fileSlot.isDotfile ? 0.5 : 1.0;
 	}
-	scale: mouseArea.pressed ? 0.9 : (mouseArea.containsMouse ? 1.05 : 1.0)
+	// List rows are full-width: a cell-style hover zoom would push a wide row
+	// past both edges and fight the shared focus border. Keep rows in place.
+	scale: fileSlot.listMode ? 1.0 : (mouseArea.pressed ? 0.9 : (mouseArea.containsMouse ? 1.05 : 1.0))
 
 	Behavior on opacity {
 		NumberAnimation {
@@ -475,9 +481,9 @@ Item {
 
 	// ── Layout ──
 
-	// List row: icon, name, then the configured optional columns. Columns are
-	// passed in already normalised and ordered by the view; the weights keep
-	// the name the widest cell and the layout fluid on a narrow pane.
+	// List row: icon, then the configured columns. Columns are passed in
+	// already normalised and ordered by the view; a name column (Title or File
+	// Name) is always present, so the row always has a label.
 	RowLayout {
 		id: listLayout
 		visible: fileSlot.listMode
@@ -522,20 +528,6 @@ Item {
 			}
 		}
 
-		Label {
-			id: listNameLabel
-			Layout.fillWidth: true
-			Layout.preferredWidth: 4
-			text: fileSlot.labelText
-			textFormat: Text.PlainText
-			color: Kirigami.Theme.textColor
-			elide: Text.ElideMiddle
-			maximumLineCount: 1
-			// Reuse the grid label's resolved face so symlinks stay italic and
-			// the active/radio item stays bold in both views.
-			font: labelItem.font
-		}
-
 		Repeater {
 			model: fileSlot.listColumns
 
@@ -550,7 +542,11 @@ Item {
 				elide: Text.ElideRight
 				maximumLineCount: 1
 				horizontalAlignment: modelData.align
-				opacity: 0.85
+				// Name columns use the grid label's resolved face so symlinks
+				// stay italic and the active/radio item stays bold. Metadata
+				// stays in the normal application face.
+				font: modelData.nameColumn ? labelItem.font : Qt.application.font
+				opacity: modelData.nameColumn ? 1.0 : 0.85
 			}
 		}
 	}

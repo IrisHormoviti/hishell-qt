@@ -82,6 +82,11 @@ Menu {
 		viewMenu.decideSound();
 	}
 
+	function setListHeaderVisible(visible) {
+		viewActions.setListHeaderVisible(visible);
+		viewMenu.decideSound();
+	}
+
 	function resetFreePlacement() {
 		viewActions.resetFreePlacement();
 	}
@@ -188,6 +193,7 @@ Menu {
 	MenuSeparator {}
 
 	MenuItem {
+		visible: !viewActions.isListView
 		contentItem: RowLayout {
 			Label {
 				text: qsTr("Icon Size")
@@ -261,10 +267,27 @@ Menu {
 	Menu {
 		title: qsTr("List Columns")
 		icon.name: "view-list-details"
+		visible: viewActions.isListView
 		popupType: viewMenu.menuPopupType
 		onOpened: viewActions.playSound("menu-open")
 		onClosed: viewActions.playSound("menu-close")
 
+		MenuItem {
+			text: qsTr("Show Header")
+			checkable: true
+			checked: viewActions.showListHeader
+			onToggled: viewMenu.setListHeaderVisible(checked)
+		}
+		MenuSeparator {}
+
+		ListColumnItem {
+			columnKey: "TITLE"
+			text: viewActions.listColumnLabel("TITLE")
+		}
+		ListColumnItem {
+			columnKey: "FILENAME"
+			text: viewActions.listColumnLabel("FILENAME")
+		}
 		ListColumnItem {
 			columnKey: "SIZE"
 			text: viewActions.listColumnLabel("SIZE")
@@ -376,6 +399,7 @@ Menu {
 		MenuItem {
 			text: qsTr("Free Placement")
 			checkable: true
+			visible: !viewActions.isListView
 			ButtonGroup.group: sortGroup
 			checked: viewMenu.config ? viewMenu.config.sort === 3 : false
 			enabled: viewMenu.isLocal
@@ -385,6 +409,7 @@ Menu {
 		MenuItem {
 			text: qsTr("Reset Manual Placement")
 			icon.name: "edit-reset"
+			visible: !viewActions.isListView
 			enabled: viewMenu.hasFreePlacementPositions
 			onTriggered: viewMenu.resetFreePlacement()
 		}
@@ -393,6 +418,7 @@ Menu {
 	Menu {
 		title: qsTr("Labels")
 		icon.name: "label"
+		visible: !viewActions.isListView
 		popupType: viewMenu.menuPopupType
 		onOpened: viewActions.playSound("menu-open")
 		onClosed: viewActions.playSound("menu-close")
@@ -433,6 +459,7 @@ Menu {
 	Menu {
 		title: qsTr("Arrange")
 		icon.name: "format-justify-fill"
+		visible: !viewActions.isListView
 		popupType: viewMenu.menuPopupType
 		onOpened: viewActions.playSound("menu-open")
 		onClosed: viewActions.playSound("menu-close")

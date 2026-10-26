@@ -246,10 +246,12 @@ const EXPECTED_KEYS: &[(&str, &str, ExpectedKind)] = &[
 		"ViewMode",
 		ExpectedKind::StrEnum(&["GRID", "LIST"]),
 	),
-	// Ordered optional columns shown after the name in LIST view. The name is
-	// always the leading column; this array only controls the columns to its
-	// right and their order.
+	// Ordered columns shown in LIST view. TITLE and FILENAME are the name
+	// columns; at least one of them is always kept, so a list always has a
+	// label. The array's order is the left-to-right display order.
 	("Folder View", "ListColumns", ExpectedKind::Array),
+	// Show the sticky column header above a list view.
+	("Folder View", "ListHeader", ExpectedKind::Bool),
 	(
 		"Folder View",
 		"Sort",
@@ -480,8 +482,10 @@ pub struct Config {
 	pub grid_labels_beside_icons: qt_property!(bool; NOTIFY config_changed),
 	pub label_text: qt_property!(u8; NOTIFY config_changed),
 	pub view_mode: qt_property!(u8; NOTIFY config_changed),
-	// JSON array of optional list columns, in display order.
+	// JSON array of list columns, in display order.
 	pub list_columns: qt_property!(String; NOTIFY config_changed),
+	// Whether the list view draws its sticky column header.
+	pub list_header: qt_property!(bool; NOTIFY config_changed),
 	pub sort: qt_property!(u8; NOTIFY config_changed),
 	pub sort_date_mode: qt_property!(u8; NOTIFY config_changed),
 	pub sort_alpha_mode: qt_property!(u8; NOTIFY config_changed),
@@ -742,8 +746,14 @@ impl Config {
 			};
 		}
 		if changed!("Folder View", "ListColumns") {
-			self.list_columns =
-				json_value(get("Folder View", "ListColumns"), r#"["SIZE", "MODIFIED"]"#).into();
+			self.list_columns = json_value(
+				get("Folder View", "ListColumns"),
+				r#"["TITLE", "SIZE", "MODIFIED"]"#,
+			)
+			.into();
+		}
+		if changed!("Folder View", "ListHeader") {
+			self.list_header = bool_value(get("Folder View", "ListHeader"), true);
 		}
 		if changed!("Folder View", "Sort") {
 			self.sort = match enum_value(get("Folder View", "Sort"), "NEWEST").as_str() {

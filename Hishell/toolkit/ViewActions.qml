@@ -40,10 +40,13 @@ QtObject {
 	readonly property string viewModeIcon: viewActions.isListView ? "view-list-details" : "view-grid"
 	readonly property string viewModeLabel: viewActions.isListView ? qsTr("List") : qsTr("Grid")
 
-	// Optional columns the list view can show, in the order the menu offers
-	// them. "Name" is not here: it is always the leading column. The configured
-	// order lives in `ListColumns` and controls left-to-right display order.
+	// Columns the list view can show, in the order the menu offers them. The
+	// configured order lives in `ListColumns` and controls left-to-right display
+	// order. TITLE and FILENAME are the name columns; at least one is always
+	// kept, so a list always has a label.
 	readonly property var availableListColumns: [
+		{ key: "TITLE", label: qsTr("Title") },
+		{ key: "FILENAME", label: qsTr("File Name") },
 		{ key: "SIZE", label: qsTr("Size") },
 		{ key: "MODIFIED", label: qsTr("Date Modified") },
 		{ key: "CREATED", label: qsTr("Date Created") },
@@ -51,31 +54,45 @@ QtObject {
 		{ key: "TYPE", label: qsTr("Type") }
 	]
 
-	readonly property var listColumns: {
-		const cfg = viewActions.config;
-		if (!cfg)
-			return [];
-		let parsed = [];
-		try {
-			parsed = JSON.parse(String(cfg.list_columns));
-		} catch (e) {
-			return [];
-		}
-		if (!Array.isArray(parsed))
-			return [];
+	readonly property bool showListHeader: viewActions.config ? viewActions.config.list_header : true
+
+	function isNameColumn(key) {
+		return key === "TITLE" || key === "FILENAME";
+	}
+
+	// Parse, de-duplicate and filter a column array. A list without a name
+	// column would have no labels, so TITLE is restored in that case.
+	function normalizeListColumns(values) {
 		const known = {};
 		for (const column of viewActions.availableListColumns)
 			known[column.key] = true;
 		const seen = {};
 		const result = [];
-		for (const value of parsed) {
-			const key = String(value).toUpperCase();
-			if (!known[key] || seen[key])
-				continue;
-			seen[key] = true;
-			result.push(key);
+		if (values) {
+			for (const value of values) {
+				const key = String(value).toUpperCase();
+				if (!known[key] || seen[key])
+					continue;
+				seen[key] = true;
+				result.push(key);
+			}
 		}
+		if (!result.some(viewActions.isNameColumn))
+			result.unshift("TITLE");
 		return result;
+	}
+
+	readonly property var listColumns: {
+		const cfg = viewActions.config;
+		if (!cfg)
+			return normalizeListColumns([]);
+		let parsed = [];
+		try {
+			parsed = JSON.parse(String(cfg.list_columns));
+		} catch (e) {
+			parsed = [];
+		}
+		return normalizeListColumns(Array.isArray(parsed) ? parsed : []);
 	}
 
 	function listColumnLabel(key) {
@@ -93,30 +110,26 @@ QtObject {
 	// Write the entire ordered column list. The menu adds/removes one key at a
 	// time but the config stores one array, so every edit goes through here.
 	function setListColumns(columns) {
-		const known = {};
-		for (const column of viewActions.availableListColumns)
-			known[column.key] = true;
-		const seen = {};
-		const result = [];
-		for (const value of columns) {
-			const key = String(value).toUpperCase();
-			if (!known[key] || seen[key])
-				continue;
-			seen[key] = true;
-			result.push(key);
-		}
-		viewActions.setConfig("ListColumns", JSON.stringify(result));
+		viewActions.setConfig("ListColumns", JSON.stringify(viewActions.normalizeListColumns(columns)));
 	}
 
 	function setListColumnVisible(key, visible) {
 		const columns = viewActions.listColumns.slice();
 		const index = columns.indexOf(key);
-		if (visible && index === -1)
+		if (visible && index === -1) {
 			columns.push(key);
-		else if (!visible && index !== -1)
-			columns.splice(index, 1);
-		else
+		} else if (!visible && index !== -1) {
+			const nameColumns = columns.filter(viewActions.isNameColumn);
+			if (viewActions.isNameColumn(key) && nameColumns.length === 1) {
+				// Keep a label: switching the only name column off flips it to
+				// the other representation instead of leaving the list nameless.
+				columns[index] = key === "TITLE" ? "FILENAME" : "TITLE";
+			} else {
+				columns.splice(index, 1);
+			}
+		} else {
 			return;
+		}
 		viewActions.setListColumns(columns);
 	}
 
@@ -137,6 +150,10 @@ QtObject {
 		const index = columns.indexOf(key);
 		const target = index + delta;
 		return index !== -1 && target >= 0 && target < columns.length;
+	}
+
+	function setListHeaderVisible(visible) {
+		viewActions.setConfig("ListHeader", String(visible));
 	}
 
 	readonly property bool showLabels: viewActions.config ? viewActions.config.show_labels : true
