@@ -116,7 +116,7 @@ pub fn accent_icon(
 	if name.is_empty() || size == 0 {
 		return None;
 	}
-	let cache_dir = dirs::cache_dir()?.join("hishell").join("accent-icons");
+	let cache_dir = dirs::cache_dir()?.join("hishell").join("accent-icons-v2");
 	let cache_dir = CString::new(cache_dir.to_string_lossy().as_bytes()).ok()?;
 	let name = CString::new(name).ok()?;
 	let rendered = unsafe {

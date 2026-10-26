@@ -614,11 +614,18 @@ const char *hishell_accent_icon(const char *name, int size, int accent_r, int ac
 
 	QString safeName = QString::fromUtf8(name);
 	safeName.replace(QLatin1Char('/'), QLatin1Char('_'));
+	// The rendered PNG depends on the icon theme as well as the colours, and
+	// KIconLoader only recolours themes that declare FollowsColorScheme, so
+	// keep the theme in the key. A theme changed in place (e.g. that flag
+	// added) still needs the cache version in the directory name bumped.
+	QString themeName = QIcon::themeName();
+	themeName.replace(QLatin1Char('/'), QLatin1Char('_'));
 
 	const QString dir = QString::fromUtf8(cache_dir);
 	QDir().mkpath(dir);
 
-	const QString fileName = QStringLiteral("%1_%2_%3-%4-%5_%6-%7-%8.png")
+	const QString fileName = QStringLiteral("%1_%2_%3_%4-%5-%6_%7-%8-%9.png")
+	                                 .arg(themeName)
 	                                 .arg(safeName)
 	                                 .arg(size)
 	                                 .arg(accent_r)
