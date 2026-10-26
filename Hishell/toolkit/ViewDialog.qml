@@ -5,7 +5,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
 import org.kde.kirigami as Kirigami
-import ClamOS.Theme
 
 Kirigami.OverlaySheet {
 	id: viewDialog

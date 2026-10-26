@@ -1,6 +1,8 @@
 module Hishell
 typeinfo plugins.qmltypes
 
+singleton CoreTheme 1.0 CoreTheme.qml
+
 ActionManager ActionManager.qml
 ActionGroupMenu ActionGroupMenu.qml
 ShellContextMenu ShellContextMenu.qml

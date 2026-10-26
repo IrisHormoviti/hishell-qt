@@ -5,7 +5,6 @@ import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import Hishell
 import Hishell.toolkit
-import ClamOS.Theme
 
 Kirigami.ApplicationWindow {
 	id: root
@@ -84,11 +83,24 @@ Kirigami.ApplicationWindow {
 	// Follow the active theme's icon theme (e.g. breeze-dark for a dark
 	// theme) at runtime, without restarting the shell.
 	Connections {
-		target: ClamTheme
+		target: CoreTheme
 		function onIconThemeChanged() {
-			if (ClamTheme.iconTheme !== "" && root.fileManager)
-				root.fileManager.set_icon_theme(ClamTheme.iconTheme);
+			if (CoreTheme.iconTheme !== "" && root.fileManager)
+				root.fileManager.set_icon_theme(CoreTheme.iconTheme);
 		}
+	}
+
+	// ClamOS's QML style sums its generic control sounds through its own theme
+	// singleton. The module is optional (a plain KDE desktop does not have it),
+	// so it is loaded only when an actual ClamOS theme is active. The import
+	// lives in StyleThemeBridge.qml, keeping a missing module from breaking the
+	// whole window.
+	Loader {
+		id: styleThemeBridge
+		active: CoreTheme.themeId !== ""
+		source: "qrc:/Hishell/StyleThemeBridge.qml"
+		onLoaded: if (item)
+			item.theme.soundPlayer = root.sound
 	}
 
 	WindowOverlay {
@@ -533,14 +545,13 @@ Kirigami.ApplicationWindow {
 		root.refreshWindowIcon();
 
 		// The style's controls (a segmented button, for one) ask the theme for
-		// their generic feedback sounds; this window owns the player, so the
-		// style itself needs no sound backend.
-		Theme.soundPlayer = sound;
+		// their generic feedback sounds; this window owns the player. The
+		// optional ClamOS theme bridge installs it when that module exists.
 
 		// Pick up the active theme's icon theme on first start; later changes
-		// arrive through the ClamTheme Connections above.
-		if (ClamTheme.iconTheme !== "" && root.fileManager)
-			root.fileManager.set_icon_theme(ClamTheme.iconTheme);
+		// arrive through the CoreTheme Connections above.
+		if (CoreTheme.iconTheme !== "" && root.fileManager)
+			root.fileManager.set_icon_theme(CoreTheme.iconTheme);
 
 		// Show first, then choose the output, then go fullscreen.
 		//
@@ -616,9 +627,9 @@ Kirigami.ApplicationWindow {
 				// The bar height is a Clam theme metric; the header content
 				// (breadcrumb, view button, window control) keeps its own size
 				// and stays vertically centred inside the taller strip.
-				minimumHeight: ClamTheme.headerHeight
-				preferredHeight: ClamTheme.headerHeight
-				maximumHeight: ClamTheme.headerHeight
+				minimumHeight: CoreTheme.headerHeight
+				preferredHeight: CoreTheme.headerHeight
+				maximumHeight: CoreTheme.headerHeight
 
 				z: 1
 

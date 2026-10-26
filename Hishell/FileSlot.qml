@@ -4,7 +4,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
-import ClamOS.Theme
 import Hishell
 
 Item {
@@ -45,7 +44,7 @@ Item {
 	readonly property string displayIcon: {
 		if (!fileSlot.is_dir)
 			return fileSlot.icon;
-		const recoloured = ClamTheme.accentFolderIcon(fileManager, fileSlot.icon, fileSlot.iconDisplaySize);
+		const recoloured = CoreTheme.accentFolderIcon(fileManager, fileSlot.icon, fileSlot.iconDisplaySize);
 		return recoloured.length > 0 ? recoloured : fileSlot.icon;
 	}
 	// With no label the icon takes over the whole slot, so the view reads as a gallery.
@@ -407,7 +406,7 @@ Item {
 				anchors.topMargin: modelData.d - modelData.s
 				anchors.bottomMargin: -(modelData.s + modelData.d)
 				radius: buttonRim.radius + modelData.s
-				color: ClamTheme.shadowColor
+				color: CoreTheme.shadowColor
 				opacity: buttonPlate.down ? modelData.o * 0.5 : modelData.o
 			}
 		}
