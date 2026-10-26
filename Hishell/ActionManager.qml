@@ -319,7 +319,11 @@ Item {
 				// spawned directly (no wrapper, no guest window), so it gets the
 				// menu-item sound and none of the app-launch transition.
 				const isButton = actionManager.fileManager && actionManager.fileManager.is_button(path);
-				actionManager.playSound(isButton ? "menu-item" : "app-launch");
+				// The launch sound is the compositor's now: the shell is
+				// stopped for the guest and its playback thread would be cut
+				// off. Only controls keep their in-shell sound.
+				if (isButton)
+					actionManager.playSound("menu-item");
 				if (!isButton) {
 					actionManager.prepareLaunch();
 					if (sourceItem) {
@@ -376,7 +380,12 @@ Item {
 				// its handler. The 3DS makes the same distinction, and so does the
 				// theme: window-new for going into a folder, the launch sound for
 				// handing a file to another program.
-				actionManager.playSound(isButton || selectsRadio ? "menu-item" : (isDir ? "window-new" : "app-launch"));
+				if (isButton || selectsRadio)
+					actionManager.playSound("menu-item");
+				else if (isDir)
+					actionManager.playSound("window-new");
+				// Files and apps: the compositor plays app-launch, so it
+				// survives the shell being stopped for the guest.
 				if (!isDir && !isButton && !selectsRadio)
 					actionManager.prepareLaunch();
 				if (sourceItem && !isButton && !selectsRadio && !(isDir && !inNewWindow)) {

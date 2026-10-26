@@ -251,9 +251,13 @@ fn launch_marker() -> PathBuf {
 /// resume to the card animation instead.
 fn announce_launch(animation: &str, item: &str) {
 	let animation = animation.trim();
-	if animation != "white" && animation != "black" {
-		return;
-	}
+	let colour = match animation {
+		"white" => "white",
+		"black" => "black",
+		// No wash, but the compositor still owns the launch sound so that
+		// stopping the shell for the guest cannot cut it.
+		_ => "none",
+	};
 	let path = launch_marker();
 	if let Some(parent) = path.parent() {
 		let _ = std::fs::create_dir_all(parent);
@@ -262,7 +266,7 @@ fn announce_launch(animation: &str, item: &str) {
 		.duration_since(std::time::UNIX_EPOCH)
 		.map(|elapsed| elapsed.as_nanos())
 		.unwrap_or(0);
-	let text = format!("{animation}\n{nonce}\n{item}\n");
+	let text = format!("{colour}\n{nonce}\n{item}\n");
 	let temporary = path.with_extension("tmp");
 	if std::fs::write(&temporary, text).is_ok() {
 		let _ = std::fs::rename(&temporary, path);

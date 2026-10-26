@@ -70,7 +70,7 @@ Kirigami.OverlaySheet {
 	function accept() {
 		const fm = launchConfirm.fileManager;
 		launchConfirm.accepted = true;
-		launchConfirm.playSound("app-launch");
+		// The compositor plays app-launch when the confirmed launch spawns.
 		launchConfirm.close();
 		if (fm)
 			fm.confirm_launch();
