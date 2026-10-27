@@ -60,6 +60,8 @@ static BUILDING: AtomicBool = AtomicBool::new(false);
 pub struct Descriptor {
 	pub name: Option<String>,
 	pub icon: Option<String>,
+	/// `Comment=`: secondary text for a list column or a tooltip.
+	pub comment: Option<String>,
 	/// An optional `Unmount=<command line>`: how to make the described thing
 	/// go away.  A mounted device's link is reconciled by whoever mounted it,
 	/// so trashing the link would not stick; the warning offers this instead
@@ -166,6 +168,7 @@ fn read_descriptor(file: &Path) -> Option<(PathBuf, Descriptor)> {
 	let descriptor = Descriptor {
 		name: string(section, "Name").filter(|name| !name.trim().is_empty()),
 		icon: string(section, "Icon").filter(|icon| !icon.trim().is_empty()),
+		comment: string(section, "Comment").filter(|comment| !comment.trim().is_empty()),
 		unmount: string(section, "Unmount").filter(|command| !command.trim().is_empty()),
 	};
 	Some((target, descriptor))

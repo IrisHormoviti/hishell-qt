@@ -33,6 +33,8 @@ Item {
 
 	required property string icon
 	required property string title
+	// Secondary desktop-entry data; only the list's Comment column shows it.
+	property string comment: ""
 	property int gridSize: 64
 	// List view: one row per item, with the name leading and the configured
 	// columns to its right. The row keeps all the grid slot's interaction,
@@ -109,19 +111,15 @@ Item {
 	// on the folder background rather than on the button plate that a Button or
 	// Number uses.  A switch on top of a button read as an imitation of one.
 	readonly property bool hasControlPlate: fileSlot.isControl && !fileSlot.isToggle
-	// The current value, shown beside the label and in the list's Title
-	// column.  Toggles say On/Off; numbers join their fields.
-	readonly property string controlValue: {
-		if (fileSlot.isToggle)
-			return fileSlot.toggleOn ? qsTr("On") : qsTr("Off");
+	// The current value of a Number control belongs in the list's Comment
+	// column, not in its title.  A Toggle's state is already the switch itself,
+	// so it keeps the entry's descriptive comment.
+	readonly property string displayComment: {
 		if (fileSlot.isNumber)
-			return fileSlot.numberValue;
-		return "";
+			return fileSlot.numberValue !== "" ? fileSlot.numberValue : fileSlot.comment;
+		return fileSlot.comment;
 	}
-	readonly property string displayTitle: {
-		const base = fileSlot.title !== "" ? fileSlot.title : fileSlot.fileName;
-		return fileSlot.controlValue !== "" ? base + " · " + fileSlot.controlValue : base;
-	}
+	readonly property string displayTitle: fileSlot.title !== "" ? fileSlot.title : fileSlot.fileName
 
 	// Detailed performance mode logs one line per delegate so a scan can be
 	// attributed to file work or to building the visible items. Off in normal
@@ -389,6 +387,8 @@ Item {
 			return fileSlot.displayTitle;
 		case "FILENAME":
 			return fileSlot.fileName;
+		case "COMMENT":
+			return fileSlot.displayComment;
 		case "SIZE":
 			return fileSlot.formatSize(fileSlot.size_bytes);
 		case "MODIFIED":

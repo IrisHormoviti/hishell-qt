@@ -17,6 +17,7 @@ Item {
 	required property string path
 	required property string icon
 	required property string title
+	required property string comment
 	required property real size_bytes
 	required property real modified_time
 	required property real created_time
@@ -84,6 +85,7 @@ Item {
 			path: host.path
 			icon: host.icon
 			title: host.title
+			comment: host.comment
 			size_bytes: host.size_bytes
 			modified_time: host.modified_time
 			created_time: host.created_time

@@ -217,6 +217,9 @@ fn split_command(line: &str) -> Vec<String> {
 pub struct FileItem {
 	pub name: String,
 	pub title: String,
+	/// `Comment=` from the item's desktop entry or descriptor: secondary data
+	/// for the settings list view (`Connected`, a kernel version, …).
+	pub comment: String,
 	pub path: String,
 	pub is_dir: bool,
 	pub is_symlink: bool,
@@ -2000,6 +2003,7 @@ impl QAbstractListModel for Directory {
 			0x010d => i32::from(item.group).into(),
 			0x010e => QString::from(item.group_label.as_str()).into(),
 			0x010f => item.is_stashed.into(),
+			0x0110 => QString::from(item.comment.as_str()).into(),
 			_ => QVariant::default(),
 		}
 	}
@@ -2022,6 +2026,7 @@ impl QAbstractListModel for Directory {
 		map.insert(0x010d, "group_index".into());
 		map.insert(0x010e, "group_label".into());
 		map.insert(0x010f, "is_stashed".into());
+		map.insert(0x0110, "comment".into());
 		map
 	}
 }
@@ -2421,6 +2426,7 @@ fn placeholder_items(path: &str, include_hidden: bool) -> Vec<FileItem> {
 		let is_stashed = name.starts_with('.');
 		items.push(FileItem {
 			title: name.clone(),
+			comment: String::new(),
 			path: entry_path.to_string_lossy().to_string(),
 			is_dotfile: is_stashed,
 			name,
@@ -2499,6 +2505,15 @@ fn scan_items(path: &str, include_hidden: bool) -> Vec<FileItem> {
 				}
 				let is_entry = entry_data.is_some();
 				let p = entry_path.to_string_lossy().to_string();
+				// A descriptor can supply both the title and the secondary
+				// comment for a file the directory cannot describe itself (a
+				// ROM on a read-only card). It is a cached index lookup, and a
+				// desktop entry never needs it.
+				let descriptor = if entry_data.is_none() {
+					crate::directory_descriptor::lookup(&entry_path)
+				} else {
+					None
+				};
 				let title = if let Some(name) = entry_data
 					.as_ref()
 					.and_then(|entry| entry.name.clone())
@@ -2506,12 +2521,12 @@ fn scan_items(path: &str, include_hidden: bool) -> Vec<FileItem> {
 				{
 					name
 				} else if is_dir {
-					let descriptor = crate::directory_descriptor::lookup(&entry_path);
 					let app_name = crate::appimage::desktop_entry(&entry_path)
 						.and_then(|entry| entry.name)
 						.filter(|name| !name.is_empty());
 					descriptor
-						.and_then(|descriptor| descriptor.name)
+						.as_ref()
+						.and_then(|descriptor| descriptor.name.clone())
 						.or(app_name)
 						.unwrap_or_else(|| {
 							entry_path
@@ -2520,8 +2535,16 @@ fn scan_items(path: &str, include_hidden: bool) -> Vec<FileItem> {
 								.unwrap_or_else(|| entry_path.to_string_lossy().to_string())
 						})
 				} else {
-					get_item_title(&entry_path)
+					descriptor
+						.as_ref()
+						.and_then(|descriptor| descriptor.name.clone())
+						.unwrap_or_else(|| get_item_title(&entry_path))
 				};
+				let comment = entry_data
+					.as_ref()
+					.and_then(|entry| entry.comment.clone())
+					.or_else(|| descriptor.as_ref().and_then(|descriptor| descriptor.comment.clone()))
+					.unwrap_or_default();
 				let icon = entry_data
 					.as_ref()
 					.and_then(|entry| entry.icon.clone())
@@ -2575,6 +2598,7 @@ fn scan_items(path: &str, include_hidden: bool) -> Vec<FileItem> {
 				items.push(FileItem {
 					name,
 					title,
+					comment,
 					path: p,
 					is_dir,
 					is_symlink,

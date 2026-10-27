@@ -774,7 +774,7 @@ Item {
 
 	// Current-directory actions. These belong to the background/current
 	// folder menu only; a folder *item's* context menu must not show them.
-	readonly property var directoryActionsGroup: [editPathAction, goBackAction, goForwardAction, goUpAction, refreshAction, pasteAction, copyPathAction]
+	readonly property var directoryActionsGroup: [editPathAction, refreshAction, pasteAction]
 	// Actions that apply to a folder item. Open/Edit are already in the item
 	// groups; keep this separate so the folder target never inherits the
 	// current directory's navigation actions.

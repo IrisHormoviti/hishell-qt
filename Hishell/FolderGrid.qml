@@ -107,8 +107,8 @@ Item {
 		if (!Array.isArray(parsed))
 			parsed = [];
 		const known = {
-			"TITLE": true, "FILENAME": true, "SIZE": true, "MODIFIED": true,
-			"CREATED": true, "ACCESSED": true, "TYPE": true
+			"TITLE": true, "FILENAME": true, "COMMENT": true, "SIZE": true,
+			"MODIFIED": true, "CREATED": true, "ACCESSED": true, "TYPE": true
 		};
 		const seen = {};
 		const keys = [];
@@ -128,12 +128,13 @@ Item {
 	// stays the wide column on a narrow pane.
 	readonly property var listColumnSpecs: {
 		const weights = {
-			"TITLE": 4.0, "FILENAME": 4.0, "SIZE": 1.0,
+			"TITLE": 4.0, "FILENAME": 4.0, "COMMENT": 3.2, "SIZE": 1.0,
 			"MODIFIED": 1.8, "CREATED": 1.8, "ACCESSED": 1.8, "TYPE": 1.0
 		};
 		const labels = {
 			"TITLE": qsTr("Title"),
 			"FILENAME": qsTr("File Name"),
+			"COMMENT": qsTr("Comment"),
 			"SIZE": qsTr("Size"),
 			"MODIFIED": qsTr("Modified"),
 			"CREATED": qsTr("Created"),

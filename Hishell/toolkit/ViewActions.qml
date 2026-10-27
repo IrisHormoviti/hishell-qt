@@ -47,6 +47,7 @@ QtObject {
 	readonly property var availableListColumns: [
 		{ key: "TITLE", label: qsTr("Title") },
 		{ key: "FILENAME", label: qsTr("File Name") },
+		{ key: "COMMENT", label: qsTr("Comment") },
 		{ key: "SIZE", label: qsTr("Size") },
 		{ key: "MODIFIED", label: qsTr("Date Modified") },
 		{ key: "CREATED", label: qsTr("Date Created") },
