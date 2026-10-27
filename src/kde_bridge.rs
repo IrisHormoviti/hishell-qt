@@ -1,8 +1,11 @@
+use once_cell::sync::Lazy;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::Mutex;
 
 unsafe extern "C" {
 	fn hishell_open_with_apps(path: *const c_char) -> *const c_char;
@@ -27,6 +30,17 @@ unsafe extern "C" {
 	fn hishell_warm_icons();
 	fn hishell_install_message_handler();
 	fn hishell_accent_icon(
+		name: *const c_char,
+		size: i32,
+		accent_r: i32,
+		accent_g: i32,
+		accent_b: i32,
+		text_r: i32,
+		text_g: i32,
+		text_b: i32,
+		cache_dir: *const c_char,
+	) -> *const c_char;
+	fn hishell_accent_icon_cached(
 		name: *const c_char,
 		size: i32,
 		accent_r: i32,
@@ -100,6 +114,10 @@ pub fn set_icon_theme(name: &str) -> bool {
 	let Ok(name) = CString::new(name) else {
 		return false;
 	};
+	// The rendered PNG's name includes the theme; dropping the memory cache
+	// makes the next lookup build the new theme's path.
+	ACCENT_ICONS.lock().unwrap().clear();
+	ACCENT_PENDING.lock().unwrap().clear();
 	unsafe { hishell_set_icon_theme(name.as_ptr()) }
 }
 
@@ -107,6 +125,18 @@ pub fn set_icon_theme(name: &str) -> bool {
 /// marks `ColorScheme-Accent` (Breeze draws every folder body that way), and
 /// returns the cached PNG's `file://` URI. `None` means the icon could not be
 /// rendered; callers fall back to the plain themed icon name.
+/// Resolved accent-icon URIs. A folder view asks for the same handful of
+/// folder icons once per delegate; the C++ side checks the disk cache, but
+/// reaching it still costs a string build and a `stat` per ask. This keeps the
+/// answer in memory until the icon theme changes.
+type AccentKey = (String, u32, (u8, u8, u8), (u8, u8, u8));
+static ACCENT_ICONS: Lazy<Mutex<HashMap<AccentKey, Option<String>>>> =
+	Lazy::new(|| Mutex::new(HashMap::new()));
+// Icons whose PNG has been requested but not rendered yet. Rendering a QIcon
+// needs the GUI thread, so a first request uses the themed icon and leaves the
+// PNG to an idle tick; the next binding pass picks up the cached file.
+static ACCENT_PENDING: Lazy<Mutex<Vec<AccentKey>>> = Lazy::new(|| Mutex::new(Vec::new()));
+
 pub fn accent_icon(
 	name: &str,
 	size: u32,
@@ -116,6 +146,73 @@ pub fn accent_icon(
 	if name.is_empty() || size == 0 {
 		return None;
 	}
+	let key = (name.to_string(), size, accent, text);
+	if let Some(cached) = ACCENT_ICONS.lock().unwrap().get(&key) {
+		return cached.clone();
+	}
+	if let Some(value) = accent_icon_cached(name, size, accent, text) {
+		ACCENT_ICONS.lock().unwrap().insert(key, Some(value.clone()));
+		return Some(value);
+	}
+	let mut pending = ACCENT_PENDING.lock().unwrap();
+	if !pending.contains(&key) {
+		pending.push(key);
+	}
+	None
+}
+
+/// Render one queued icon on the calling (GUI) thread. Returns false when the
+/// queue is empty.
+pub fn render_pending_icon() -> bool {
+	let Some(key) = ACCENT_PENDING.lock().unwrap().pop() else {
+		return false;
+	};
+	let value = accent_icon_uncached(&key.0, key.1, key.2, key.3);
+	ACCENT_ICONS.lock().unwrap().insert(key, value);
+	true
+}
+
+pub fn has_pending_icons() -> bool {
+	!ACCENT_PENDING.lock().unwrap().is_empty()
+}
+
+fn accent_icon_cached(
+	name: &str,
+	size: u32,
+	accent: (u8, u8, u8),
+	text: (u8, u8, u8),
+) -> Option<String> {
+	let cache_dir = dirs::cache_dir()?.join("hishell").join("accent-icons-v2");
+	let cache_dir = CString::new(cache_dir.to_string_lossy().as_bytes()).ok()?;
+	let name = CString::new(name).ok()?;
+	let rendered = unsafe {
+		hishell_accent_icon_cached(
+			name.as_ptr(),
+			size as i32,
+			accent.0 as i32,
+			accent.1 as i32,
+			accent.2 as i32,
+			text.0 as i32,
+			text.1 as i32,
+			text.2 as i32,
+			cache_dir.as_ptr(),
+		)
+	};
+	if rendered.is_null() {
+		return None;
+	}
+	let value = unsafe { CStr::from_ptr(rendered) }
+		.to_string_lossy()
+		.into_owned();
+	if value.is_empty() { None } else { Some(value) }
+}
+
+fn accent_icon_uncached(
+	name: &str,
+	size: u32,
+	accent: (u8, u8, u8),
+	text: (u8, u8, u8),
+) -> Option<String> {
 	let cache_dir = dirs::cache_dir()?.join("hishell").join("accent-icons-v2");
 	let cache_dir = CString::new(cache_dir.to_string_lossy().as_bytes()).ok()?;
 	let name = CString::new(name).ok()?;

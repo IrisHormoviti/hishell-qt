@@ -3,6 +3,17 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
 
+/// One integer field of a `Type=Number` control.  The entry carries the
+/// current value and the range the dialog may move it within.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct NumberField {
+	pub label: String,
+	pub value: i64,
+	pub min: i64,
+	pub max: i64,
+	pub default: i64,
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct DesktopEntry {
 	pub name: Option<String>,
@@ -10,6 +21,10 @@ pub struct DesktopEntry {
 	pub entry_type: Option<String>,
 	pub exec: Option<String>,
 	pub url: Option<String>,
+	/// `Type=Toggle`: the current state of a provider's switch.
+	pub toggle: Option<bool>,
+	/// `Type=Number`: the labelled integers the number dialog edits.
+	pub number: Vec<NumberField>,
 	/// `LaunchAnimation=white|black`: the wash the compositor plays while this
 	/// app starts. Absent means no animation (the app just appears).
 	pub launch_animation: Option<String>,
@@ -36,6 +51,10 @@ pub struct DesktopEntry {
 	/// honest rename is the provider's own action; `%v` is the new name.  The
 	/// key is omitted for everything that must not be renamed at all.
 	pub rename: Option<String>,
+	/// `Group=<label>`: the custom group this item belongs to.  Only read in
+	/// `Group=CUSTOM` folders; a folder-level `Groups` list can also assign
+	/// files by name when the entry has no key of its own.
+	pub group: Option<String>,
 }
 
 impl DesktopEntry {
@@ -54,27 +73,62 @@ impl DesktopEntry {
 		self.entry_type.as_deref() == Some("Button")
 	}
 
+	/// A `Type=Toggle` control: a switch whose `Exec` receives the new state
+	/// through `%v`.
+	pub fn is_toggle(&self) -> bool {
+		self.entry_type.as_deref() == Some("Toggle")
+	}
+
+	/// A `Type=Number` control: one or more integer fields edited in the
+	/// number dialog, passed to `Exec` as `%1`, `%2`, ...
+	pub fn is_number(&self) -> bool {
+		self.entry_type.as_deref() == Some("Number")
+	}
+
+	/// Toggles and numbers are controls too, even though only `Type=Button`
+	/// is the generic control type.
+	pub fn is_control(&self) -> bool {
+		self.is_button() || self.is_toggle() || self.is_number()
+	}
+
 	#[allow(dead_code)]
 	pub fn is_directory(&self) -> bool {
 		self.entry_type.as_deref() == Some("Directory")
 	}
 
 	pub fn is_action_entry(&self) -> bool {
-		self.is_application() || self.is_link() || self.is_button()
+		self.is_application()
+			|| self.is_link()
+			|| self.is_button()
+			|| self.is_toggle()
+			|| self.is_number()
+	}
+
+	/// The state of a `Type=Toggle`, when the entry is one.
+	pub fn toggle_state(&self) -> Option<bool> {
+		self.toggle
+	}
+
+	/// The fields of a `Type=Number`, when the entry is one.
+	pub fn number_fields(&self) -> &[NumberField] {
+		&self.number
 	}
 
 	/// A generated control whose only action is to change its own label.
 	///
 	/// The settings profile's user-name row is one: it is a `Type=Button`
-	/// with a `Rename=` command and no `Exec=`, so activating it should open
-	/// the rename dialog instead of running an empty command. Bluetooth
+	/// with a `Rename=` command and no `Exec=`, so activating it should begin
+	/// the rename flow instead of running an empty command. Bluetooth
 	/// devices also carry `Rename=`, but they have an `Exec=` (connect), so
 	/// they keep launching.
 	pub fn is_rename_only(&self) -> bool {
 		self.generated
 			&& self.is_button()
 			&& self.rename_command().is_some()
-			&& self.exec.as_deref().is_none_or(|exec| exec.trim().is_empty())
+			&& self
+				.exec
+				.as_deref()
+				.is_none_or(|exec| exec.trim().is_empty())
 	}
 
 	/// The command that destroys this entry, when the provider that wrote it
@@ -134,6 +188,16 @@ fn from_values(values: &HashMap<String, ConfigValue>) -> DesktopEntry {
 		entry_type: crate::config::entry_string(&values, "Type"),
 		exec: crate::config::entry_string(&values, "Exec"),
 		url,
+		toggle: values
+			.get("Toggle")
+			.and_then(crate::config::string_value)
+			.map(|value| {
+				matches!(
+					value.trim().to_ascii_lowercase().as_str(),
+					"1" | "true" | "yes" | "on"
+				)
+			}),
+		number: parse_number_fields(values),
 		launch_animation: crate::config::entry_string(&values, "LaunchAnimation")
 			.filter(|value| !value.trim().is_empty()),
 		terminal: values
@@ -158,6 +222,43 @@ fn from_values(values: &HashMap<String, ConfigValue>) -> DesktopEntry {
 			.filter(|command| !command.trim().is_empty()),
 		rename: crate::config::entry_string(&values, "Rename")
 			.filter(|command| !command.trim().is_empty()),
+		group: crate::config::entry_string(&values, "Group")
+			.map(|group| group.trim().to_string())
+			.filter(|group| !group.is_empty()),
+	}
+}
+
+/// Read the `NumberNLabel`, `NumberNValue`, `NumberNMin`, `NumberNMax` and
+/// `NumberNDefault` keys a `Type=Number` provider writes.
+fn parse_number_fields(values: &HashMap<String, ConfigValue>) -> Vec<NumberField> {
+	let count = crate::config::entry_string(values, "NumberCount")
+		.and_then(|value| value.trim().parse::<usize>().ok())
+		.unwrap_or(0)
+		.min(16);
+	(1..=count)
+		.filter_map(|index| {
+			let label = crate::config::entry_string(values, &format!("Number{index}Label"))?;
+			let value = entry_integer(values, &format!("Number{index}Value"))?;
+			let default = entry_integer(values, &format!("Number{index}Default")).unwrap_or(value);
+			let min = entry_integer(values, &format!("Number{index}Min")).unwrap_or(value);
+			let max = entry_integer(values, &format!("Number{index}Max")).unwrap_or(value);
+			Some(NumberField {
+				label,
+				value: value.clamp(min, max),
+				min,
+				max,
+				default,
+			})
+		})
+		.collect()
+}
+
+fn entry_integer(values: &HashMap<String, ConfigValue>, key: &str) -> Option<i64> {
+	match values.get(key) {
+		Some(ConfigValue::Number(value)) => Some(*value as i64),
+		Some(ConfigValue::String(value)) => value.trim().parse::<i64>().ok(),
+		Some(ConfigValue::Boolean(value)) => Some(if *value { 1 } else { 0 }),
+		_ => None,
 	}
 }
 
@@ -182,7 +283,72 @@ pub fn launch(path: &Path) -> String {
 			launch_link(path, &entry);
 			String::new()
 		}
+		// The shell draws and drives these controls; the entry's Exec is run
+		// by `run_toggle`/`run_number` with the value the user chose.
+		Some("Toggle") | Some("Number") => String::new(),
 		_ => String::new(),
+	}
+}
+
+/// Flip a `Type=Toggle` and run its `Exec` with `%v` replaced by the new state.
+pub fn run_toggle(path: &Path) -> bool {
+	let entry = read(path);
+	let Some(state) = entry.toggle_state() else {
+		return false;
+	};
+	let Some(exec) = entry.exec.as_deref().filter(|exec| !exec.trim().is_empty()) else {
+		eprintln!("{} has no Exec value", path.display());
+		return false;
+	};
+	let value = if state { "off" } else { "on" };
+	let expanded = exec.replace("%v", value);
+	spawn_control(path, &entry, &expanded)
+}
+
+/// Run a `Type=Number`'s `Exec` with `%1`, `%2`, … replaced by the dialog's
+/// values.
+pub fn run_number(path: &Path, values: &[i64]) -> bool {
+	let entry = read(path);
+	if !entry.is_number() {
+		return false;
+	}
+	let Some(exec) = entry.exec.as_deref().filter(|exec| !exec.trim().is_empty()) else {
+		eprintln!("{} has no Exec value", path.display());
+		return false;
+	};
+	let mut expanded = exec.to_string();
+	for (index, value) in values.iter().enumerate() {
+		expanded = expanded.replace(&format!("%{}", index + 1), &value.to_string());
+	}
+	spawn_control(path, &entry, &expanded)
+}
+
+fn spawn_control(path: &Path, entry: &DesktopEntry, command: &str) -> bool {
+	let args = match parse_exec(command, entry, path, None) {
+		Ok(args) if !args.is_empty() => args,
+		Ok(_) => {
+			eprintln!("{} has an empty control command", path.display());
+			return false;
+		}
+		Err(error) => {
+			eprintln!("{}: {error}", path.display());
+			return false;
+		}
+	};
+	let entry_path = path.to_string_lossy();
+	let name = entry.name.clone().unwrap_or_default();
+	match crate::launch::spawn_direct(
+		&args[0],
+		&args[1..],
+		&entry_path,
+		&name,
+		Some(crate::config::base_dir(path)),
+	) {
+		Ok(_) => true,
+		Err(error) => {
+			eprintln!("could not run control {}: {error}", path.display());
+			false
+		}
 	}
 }
 
@@ -389,7 +555,8 @@ pub fn run_reset(directory: &Path, command: &str) -> bool {
 /// Run an entry's `Rename=<command line>`: how a provider changes a generated
 /// entry's display label (docs `clam-configd.md` §5.7).  Unlike the other
 /// hooks this one is waited on, so a provider that refuses ("only a paired
-/// device", "no longer in range") can put its answer in the rename dialog.
+/// device", "no longer in range") can report its answer through the rename
+/// flow.
 pub fn run_rename(
 	path: &Path,
 	entry: &DesktopEntry,
@@ -526,6 +693,26 @@ pub fn is_link(path: &Path) -> bool {
 
 pub fn is_button(path: &Path) -> bool {
 	read(path).is_button()
+}
+
+pub fn is_control(path: &Path) -> bool {
+	read(path).is_control()
+}
+
+pub fn is_toggle(path: &Path) -> bool {
+	read(path).is_toggle()
+}
+
+pub fn is_number(path: &Path) -> bool {
+	read(path).is_number()
+}
+
+pub fn toggle_state(path: &Path) -> Option<bool> {
+	read(path).toggle_state()
+}
+
+pub fn number_fields(path: &Path) -> Vec<NumberField> {
+	read(path).number_fields().to_vec()
 }
 
 pub fn is_rename_only(path: &Path) -> bool {
@@ -699,7 +886,7 @@ fn tokenize_exec(exec: &str) -> Result<Vec<String>, String> {
 
 #[cfg(test)]
 mod tests {
-	use super::{DesktopEntry, parse_exec, read, rename_args, tokenize_exec};
+	use super::{DesktopEntry, parse, parse_exec, read, rename_args, tokenize_exec};
 	use std::fs;
 	use std::path::{Path, PathBuf};
 
@@ -1003,6 +1190,34 @@ mod tests {
 		assert_eq!(entry.icon.as_deref(), Some("/icons/bsky.png"));
 
 		fs::remove_file(path).unwrap();
+	}
+
+	#[test]
+	fn reads_a_toggle_control() {
+		let entry = parse(
+			"[Desktop Entry]\nType=Toggle\nName=Use 24-hour time\nToggle=on\n\
+			 Exec=clam-configd settings set clock-24h %v\nGenerated=true\n",
+		);
+		assert!(entry.is_toggle());
+		assert!(entry.is_control());
+		assert!(entry.is_action_entry());
+		assert_eq!(entry.toggle_state(), Some(true));
+	}
+
+	#[test]
+	fn reads_number_fields_and_their_ranges() {
+		let entry = parse(
+			"[Desktop Entry]\nType=Number\nName=Set date\nNumberCount=2\n\
+			 Number1Label=Year\nNumber1Value=2026\nNumber1Min=1970\nNumber1Max=2100\nNumber1Default=2026\n\
+			 Number2Label=Month\nNumber2Value=10\nNumber2Min=1\nNumber2Max=12\nNumber2Default=1\n\
+			 Exec=clam-configd settings set datetime %1 %2\nGenerated=true\n",
+		);
+		assert!(entry.is_number());
+		let fields = entry.number_fields();
+		assert_eq!(fields.len(), 2);
+		assert_eq!(fields[0].label, "Year");
+		assert_eq!((fields[0].min, fields[0].max), (1970, 2100));
+		assert_eq!(fields[1].value, 10);
 	}
 
 	#[test]

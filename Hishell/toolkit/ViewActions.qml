@@ -180,6 +180,8 @@ QtObject {
 	readonly property int sort: viewActions.config ? viewActions.config.sort : 0
 	readonly property int sortDateMode: viewActions.config ? viewActions.config.sort_date_mode : 0
 	readonly property int sortAlphaMode: viewActions.config ? viewActions.config.sort_alpha_mode : 0
+	readonly property int groupMode: viewActions.config ? viewActions.config.group_mode : 0
+	readonly property bool customGroups: viewActions.groupMode === 4
 
 	readonly property int gridLines: viewActions.config ? viewActions.config.grid_lines : 0
 	readonly property bool scrollHorizontal: viewActions.config ? viewActions.config.scroll_horizontal : false
@@ -195,7 +197,7 @@ QtObject {
 	readonly property bool freePlacement: viewActions.config ? (viewActions.config.sort === 3 && viewActions.config.view_mode === 0) : false
 
 	readonly property string wallpaper: viewActions.config ? String(viewActions.config.wallpaper) : ""
-	readonly property bool stashShown: viewActions.config ? viewActions.config.stash_shown : false
+	readonly property bool stashShown: viewActions.config ? viewActions.config.show_stash : false
 	readonly property bool stashDotfiles: viewActions.config ? viewActions.config.stash_dotfiles : false
 
 	readonly property bool hasFreePlacementPositions: {
@@ -232,6 +234,15 @@ QtObject {
 	function setSort(value) {
 		viewActions.setConfig("Sort", value);
 		viewActions.playSound("menu-item");
+	}
+
+	function setGroup(value) {
+		viewActions.setConfig("Group", value);
+		viewActions.playSound("menu-item");
+	}
+
+	function setGroupSilent(value) {
+		viewActions.setConfig("Group", value);
 	}
 
 	// Same writes without the sound, for callers that play their own (the View

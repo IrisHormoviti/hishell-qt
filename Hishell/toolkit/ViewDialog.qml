@@ -266,7 +266,8 @@ Kirigami.OverlaySheet {
 				];
 				// Free placement only makes sense for a folder's own config,
 				// and only in grid view where cells can be positioned.
-				if (viewDialog.viewActions.isLocal && !viewDialog.viewActions.isListView)
+				if (viewDialog.viewActions.isLocal && !viewDialog.viewActions.isListView
+					&& !viewDialog.viewActions.customGroups)
 					list.push({ text: qsTr("Free"), value: "FREE" });
 				return list;
 			}
@@ -318,6 +319,24 @@ Kirigami.OverlaySheet {
 			onPressed: viewDialog.playSound("button-pressed")
 			onReleased: viewDialog.playSound("button-released")
 			onClicked: viewDialog.viewActions.resetFreePlacement()
+		}
+
+		// ── Grouping ─────────────────────────────────────────────────────
+		SectionHeading {
+			visible: viewDialog.viewActions.sort !== 3 && !viewDialog.viewActions.customGroups
+			text: qsTr("Group By")
+		}
+		SegmentedButtons {
+			Layout.fillWidth: true
+			visible: viewDialog.viewActions.sort !== 3 && !viewDialog.viewActions.customGroups
+			options: [
+				{ text: qsTr("None"), value: "NONE" },
+				{ text: qsTr("Date"), value: "DATE" },
+				{ text: qsTr("Letters"), value: "LETTERS" },
+				{ text: qsTr("Type"), value: "TYPE" }
+			]
+			currentValue: ["NONE", "DATE", "LETTERS", "TYPE", "CUSTOM"][viewDialog.viewActions.groupMode]
+			onActivated: value => viewDialog.viewActions.setGroupSilent(value)
 		}
 
 		// ── Arrangement ──────────────────────────────────────────────────
@@ -466,7 +485,7 @@ Kirigami.OverlaySheet {
 		ToggleRow {
 			text: qsTr("Show Stash")
 			checked: viewDialog.viewActions.stashShown
-			onToggled: checked => viewDialog.viewActions.setConfig("StashShown", String(checked))
+			onToggled: checked => viewDialog.viewActions.setConfig("ShowStash", String(checked))
 		}
 		ToggleRow {
 			text: qsTr("Stash Dotfiles")

@@ -3,12 +3,52 @@ use qmetaobject::prelude::*;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use trash;
 
 static INTERNAL_CLIPBOARD: Lazy<Mutex<Option<(Vec<String>, bool)>>> =
 	Lazy::new(|| Mutex::new(None));
+
+/// Non-zero when the shell should run its frame/scan instrumentation. Set
+/// `HISHELL_PERF=1` in the environment, or create `/run/clam/perf`, which is
+/// handy on a running device (it is a tmpfs marker, gone after a reboot).
+pub fn perf_mode() -> i32 {
+	static MODE: OnceLock<i32> = OnceLock::new();
+	*MODE.get_or_init(|| {
+		if let Ok(value) = std::env::var("HISHELL_PERF")
+			&& let Ok(mode) = value.trim().parse::<i32>()
+			&& mode > 0
+		{
+			return mode;
+		}
+		if Path::new("/run/clam/perf-detailed").exists() {
+			return 2;
+		}
+		if let Some(config) = dirs::config_dir() {
+			// Persistent markers for a device under test: they live with the
+			// rest of the user configuration and survive an A/B update of the
+			// rootfs. Mode 2 adds a line per delegate creation, so it is only
+			// for diagnosing where a scan's time goes.
+			if config.join("clam/perf-detailed").exists() {
+				return 2;
+			}
+			if config.join("clam/perf-focus").exists() {
+				return 5;
+			}
+			if config.join("clam/perf-grab").exists() {
+				return 4;
+			}
+			if config.join("clam/perf").exists() {
+				return 1;
+			}
+		}
+		if Path::new("/run/clam/perf").exists() {
+			return 1;
+		}
+		0
+	})
+}
 
 /// How long a virtual folder gets to consume an accepted drop before the shell
 /// calls the name it left behind ignored.  A Wi-Fi install removes its staged
@@ -171,6 +211,12 @@ pub struct FileManager {
 	/// ignored by the provider.  QML says so instead of leaving the user to
 	/// wonder where the file went.
 	drop_declined: qt_signal!(name: String),
+
+	/// Bumped after an icon PNG is rendered on an idle tick. QML bindings that
+	/// read it re-resolve the item's icon from the themed fallback to the
+	/// cached image.
+	icon_revision: qt_property!(i32; NOTIFY icon_revision_changed),
+	icon_revision_changed: qt_signal!(),
 
 	copy_file: qt_method!(
 		fn copy_file(&self, source: String, dest: String) -> bool {
@@ -402,7 +448,7 @@ pub struct FileManager {
 		}
 	),
 
-	/// Whether activating this entry should open the rename dialog: a
+	/// Whether activating this entry should begin the rename flow: a
 	/// provider's label-only control with no command of its own (the user
 	/// name in the profile folder).
 	is_rename_only: qt_method!(
@@ -412,7 +458,7 @@ pub struct FileManager {
 		}
 	),
 
-	/// The text the rename dialog starts with: the file name for ordinary
+	/// The text the rename request starts with: the file name for ordinary
 	/// items, or the entry's current display label where `Rename=` applies.
 	rename_display_name: qt_method!(
 		fn rename_display_name(&self, path: String) -> String {
@@ -439,6 +485,49 @@ pub struct FileManager {
 		fn rename_moves_path(&self, path: String) -> bool {
 			let p = clean_path(&path.to_string());
 			!rename_is_label_only(Path::new(&p))
+		}
+	),
+
+	/// Ask the system keyboard for a string. Returns the request id, or an
+	/// empty string when no keyboard is available; callers then use their own
+	/// dialog, which is also the path on a system without ClamOS.
+	request_text_entry: qt_method!(
+		fn request_text_entry(&self, prompt: String, text: String, cursor: String) -> String {
+			crate::keyboard::request(&prompt, &text, &cursor).unwrap_or_default()
+		}
+	),
+
+	/// The outcome of a request as JSON: `{"status":"pending"}`,
+	/// `{"status":"ok","text":"..."}` or `{"status":"cancel"}`.
+	poll_text_entry: qt_method!(
+		fn poll_text_entry(&self, id: String) -> String {
+			match crate::keyboard::poll(&id) {
+				crate::keyboard::Poll::Pending => {
+					serde_json::json!({ "status": "pending" }).to_string()
+				}
+				crate::keyboard::Poll::Accepted(text) => {
+					serde_json::json!({ "status": "ok", "text": text }).to_string()
+				}
+				crate::keyboard::Poll::Cancelled => {
+					serde_json::json!({ "status": "cancel" }).to_string()
+				}
+			}
+		}
+	),
+
+	/// Withdraw a request the keyboard has not answered yet.
+	cancel_text_entry: qt_method!(
+		fn cancel_text_entry(&self, id: String) {
+			crate::keyboard::cancel(&id);
+		}
+	),
+
+	/// Whether the system keyboard is running. The shell polls this while a
+	/// request is pending, so it can fall back to its dialog if the keyboard
+	/// dies or was never there.
+	keyboard_available: qt_method!(
+		fn keyboard_available(&self) -> bool {
+			crate::keyboard::available()
 		}
 	),
 
@@ -763,6 +852,14 @@ pub struct FileManager {
 	),
 
 	/// JSON with the default application for the file ({id, name, icon}; empty when none).
+	/// Ask the execution wrapper to quit the focused guest and remove its
+	/// saved state, if it has one.
+	quit_active: qt_method!(
+		fn quit_active(&self, path: String) -> bool {
+			crate::launch::quit_active(&path)
+		}
+	),
+
 	get_default_app: qt_method!(
 		fn get_default_app(&self, path: String) -> String {
 			let p = clean_path(&path.to_string());
@@ -846,6 +943,88 @@ pub struct FileManager {
 		}
 	),
 
+	/// Whether this entry is any kind of control: a button or one of the
+	/// settings controls the shell draws itself.
+	is_control: qt_method!(
+		fn is_control(&self, path: String) -> bool {
+			let p = clean_path(&path.to_string());
+			crate::desktop_entry::is_control(Path::new(&p))
+		}
+	),
+
+	/// Whether this entry is a `Type=Toggle` switch.
+	is_toggle: qt_method!(
+		fn is_toggle(&self, path: String) -> bool {
+			let p = clean_path(&path.to_string());
+			crate::desktop_entry::is_toggle(Path::new(&p))
+		}
+	),
+
+	/// The current state of a `Type=Toggle`; false for anything else.
+	toggle_on: qt_method!(
+		fn toggle_on(&self, path: String) -> bool {
+			let p = clean_path(&path.to_string());
+			crate::desktop_entry::toggle_state(Path::new(&p)).unwrap_or(false)
+		}
+	),
+
+	/// Whether this entry is a `Type=Number` control.
+	is_number: qt_method!(
+		fn is_number(&self, path: String) -> bool {
+			let p = clean_path(&path.to_string());
+			crate::desktop_entry::is_number(Path::new(&p))
+		}
+	),
+
+	/// The fields a `Type=Number` dialog shows, as JSON.
+	number_spec: qt_method!(
+		fn number_spec(&self, path: String) -> String {
+			let p = clean_path(&path.to_string());
+			let fields = crate::desktop_entry::number_fields(Path::new(&p));
+			if fields.is_empty() {
+				return String::from("{\"ok\":false}");
+			}
+			let fields: Vec<serde_json::Value> = fields
+				.iter()
+				.map(|field| {
+					serde_json::json!({
+						"label": field.label,
+						"value": field.value,
+						"min": field.min,
+						"max": field.max,
+						"default": field.default,
+					})
+				})
+				.collect();
+			serde_json::json!({ "ok": true, "fields": fields }).to_string()
+		}
+	),
+
+	/// Flip a toggle and run its provider command.
+	run_toggle: qt_method!(
+		fn run_toggle(&self, path: String) -> bool {
+			let p = clean_path(&path.to_string());
+			crate::desktop_entry::run_toggle(Path::new(&p))
+		}
+	),
+
+	/// Run a number control with the dialog's values, separated by commas or
+	/// whitespace.
+	run_number: qt_method!(
+		fn run_number(&self, path: String, values: String) -> bool {
+			let p = clean_path(&path.to_string());
+			let values: Vec<i64> = values
+				.split(|character: char| character == ',' || character.is_whitespace())
+				.filter(|value| !value.is_empty())
+				.filter_map(|value| value.parse::<i64>().ok())
+				.collect();
+			if values.is_empty() {
+				return false;
+			}
+			crate::desktop_entry::run_number(Path::new(&p), &values)
+		}
+	),
+
 	/// Switch the process icon theme at runtime.  The active ClamOS theme can
 	/// declare `[Icons] Theme=`; ClamTheme calls this when it changes so the
 	/// file tiles follow a dark theme without restarting the shell.
@@ -880,6 +1059,41 @@ pub struct FileManager {
 				(clamp(text_r), clamp(text_g), clamp(text_b)),
 			)
 			.unwrap_or_default()
+		}
+	),
+
+	/// Whether the shell should run its performance instrumentation, and in
+	/// which mode. The QML benchmark only exists for development builds; in a
+	/// normal boot this is zero and nothing runs.
+	perf_mode: qt_method!(
+		fn perf_mode(&self) -> i32 {
+			perf_mode()
+		}
+	),
+
+	/// Write one benchmark line to the shell log.
+	perf_log: qt_method!(
+		fn perf_log(&self, message: String) {
+			eprintln!("hishell-perf: {}", message);
+		}
+	),
+
+	/// Render one queued themed icon. Called from an idle timer so the GUI
+	/// thread never pays for a batch of QIcon renders while the user is moving.
+	render_icon_tick: qt_method!(
+		fn render_icon_tick(&mut self) -> bool {
+			if !crate::kde_bridge::render_pending_icon() {
+				return false;
+			}
+			self.icon_revision = self.icon_revision.wrapping_add(1);
+			self.icon_revision_changed();
+			true
+		}
+	),
+
+	icons_pending: qt_method!(
+		fn icons_pending(&self) -> bool {
+			crate::kde_bridge::has_pending_icons()
 		}
 	),
 

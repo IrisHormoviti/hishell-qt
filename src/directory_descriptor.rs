@@ -38,6 +38,7 @@ use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 /// Where `clam-removable.sh` writes descriptors for mounted removable media.
@@ -48,7 +49,12 @@ pub const RUNTIME_ROOT: &str = "/run/clam-removable/directories";
 /// The index is rebuilt at most this often. A device plugged while the shell is
 /// running has its descriptor written by the udev helper; the folder poll (and
 /// the icon poll on the same timer) then sees it within a second.
-const REFRESH: Duration = Duration::from_secs(1);
+const REFRESH: Duration = Duration::from_secs(10);
+
+/// One rebuild at a time. The index is rebuilt on a worker: validating and
+/// parsing descriptors used to run inside the first folder scan, where it
+/// blocked the GUI thread for most of a second on a slow card.
+static BUILDING: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Debug, Default)]
 pub struct Descriptor {
@@ -132,16 +138,31 @@ fn read_descriptor(file: &Path) -> Option<(PathBuf, Descriptor)> {
 	let target = expand(&string(section, "Path")?)?;
 	// A descriptor for something that is not there describes nothing; keeping it
 	// out of the index also means an unplugged mount stops matching the moment
-	// its descriptor would otherwise go stale.
-	let target = std::fs::canonicalize(target).ok()?;
-	let kind_ok = if kind.eq_ignore_ascii_case("Directory") {
-		target.is_dir()
-	} else {
-		target.is_file()
+	// its descriptor would otherwise go stale. On removable media that check is
+	// what makes it expensive: validating every generated ROM descriptor stats
+	// long filenames on a slow vfat card, and the first build blocked the folder
+	// scan for most of a second. The path is still only used when something at
+	// it is being looked up, so skipping the eager check there costs nothing.
+	let removable = {
+		let text = target.to_string_lossy();
+		text.starts_with("/mnt/")
+			|| text.starts_with("/media/")
+			|| text.starts_with("/run/media/")
 	};
-	if !kind_ok {
-		return None;
-	}
+	let target = if removable {
+		target
+	} else {
+		let target = std::fs::canonicalize(target).ok()?;
+		let kind_ok = if kind.eq_ignore_ascii_case("Directory") {
+			target.is_dir()
+		} else {
+			target.is_file()
+		};
+		if !kind_ok {
+			return None;
+		}
+		target
+	};
 	let descriptor = Descriptor {
 		name: string(section, "Name").filter(|name| !name.trim().is_empty()),
 		icon: string(section, "Icon").filter(|icon| !icon.trim().is_empty()),
@@ -175,22 +196,63 @@ fn expand(path: &str) -> Option<PathBuf> {
 /// a link in the home directory is described by the mount it points at and a
 /// ROM reachable through a link is described by the entry generated for the
 /// file it points at.
-pub fn lookup(path: &Path) -> Option<Descriptor> {
-	if !path.exists() {
-		return None;
+/// Start building the descriptor index in the background, if it is stale.
+pub fn warm() {
+	schedule_build();
+}
+
+fn schedule_build() {
+	if BUILDING.swap(true, Ordering::AcqRel) {
+		return;
 	}
-	let canonical = std::fs::canonicalize(path).ok()?;
-	let mut cache = CACHE.lock().ok()?;
+	std::thread::Builder::new()
+		.name("descriptor-index".into())
+		.spawn(|| {
+			let map = build();
+			if let Ok(mut cache) = CACHE.lock() {
+				*cache = Some((Instant::now(), map));
+			}
+			BUILDING.store(false, Ordering::Release);
+		})
+		.ok();
+}
+
+pub fn lookup(path: &Path) -> Option<Descriptor> {
+	let cache = CACHE.lock().ok()?;
 	let stale = match cache.as_ref() {
 		Some((built, _)) => built.elapsed() >= REFRESH,
 		None => true,
 	};
+
+	// Never build on the caller's thread: the first folder scan would wait for
+	// the whole index. An older map is still good enough to answer with until
+	// the worker replaces it.
+	let path_text = path.to_string_lossy();
+	let removable = path_text.starts_with("/mnt/")
+		|| path_text.starts_with("/media/")
+		|| path_text.starts_with("/run/media/");
+	let descriptor = match cache.as_ref() {
+		Some((_, map)) => {
+			// A descriptor stores the path it names. Try that directly: paths on
+			// removable media are keyed by their mount path, and canonicalising
+			// each one is both unnecessary and slow on vfat. Paths elsewhere can
+			// still be symlinks, so they keep the canonical fallback.
+			map.get(path).cloned().or_else(|| {
+				if removable {
+					return None;
+				}
+				let canonical = std::fs::canonicalize(path).ok()?;
+				map.get(&canonical).cloned()
+			})
+		}
+		None => None,
+	};
+	drop(cache);
+
 	if stale {
-		*cache = Some((Instant::now(), build()));
+		schedule_build();
 	}
-	cache
-		.as_ref()
-		.and_then(|(_, map)| map.get(&canonical).cloned())
+	descriptor
 }
 
 #[cfg(test)]

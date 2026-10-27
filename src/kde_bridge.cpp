@@ -590,7 +590,8 @@ extern "C" void hishell_warm_icons(void)
 		"edit-rename", "edit-link", "user-trash", "folder", "folder-add",
 		"text-plain", "object-rotate-right", "object-rotate-left",
 		"utilities-terminal-symbolic", "text-field-framed-symbolic",
-		"edit-copy-path-symbolic",
+		"edit-copy-path-symbolic", "process-stop", "application-exit",
+		"arrow-left-symbolic", "arrow-right-symbolic",
 	};
 	for (const char *name : names) {
 		// Ask for the sizes the actions render at; QIconLoader caches per name.
@@ -606,10 +607,13 @@ extern "C" void hishell_warm_icons(void)
 // exactly the way KDE apps do. The result is cached as a PNG (the cache is
 // keyed by icon, size and both colours, so all folders sharing an icon render
 // once) and returned as a file:// URI, or "" when it cannot be rendered.
-const char *hishell_accent_icon(const char *name, int size, int accent_r, int accent_g, int accent_b, int text_r, int text_g, int text_b, const char *cache_dir)
+// The cache path of the rendered icon. Kept as a small helper so the shell can
+// ask whether a PNG already exists without paying for a render on the GUI
+// thread; missing icons are rendered later from an idle timer.
+static QString accent_icon_path(const char *name, int size, int accent_r, int accent_g, int accent_b, int text_r, int text_g, int text_b, const char *cache_dir)
 {
 	if (!name || !*name || !cache_dir || !*cache_dir || size <= 0) {
-		return "";
+		return QString();
 	}
 
 	QString safeName = QString::fromUtf8(name);
@@ -634,7 +638,21 @@ const char *hishell_accent_icon(const char *name, int size, int accent_r, int ac
 	                                 .arg(text_r)
 	                                 .arg(text_g)
 	                                 .arg(text_b);
-	const QString path = dir + QLatin1Char('/') + fileName;
+	return dir + QLatin1Char('/') + fileName;
+}
+
+static const char *accent_icon_result(const QString &path)
+{
+	g_result = QUrl::fromLocalFile(path).toString().toUtf8();
+	return g_result.constData();
+}
+
+const char *hishell_accent_icon(const char *name, int size, int accent_r, int accent_g, int accent_b, int text_r, int text_g, int text_b, const char *cache_dir)
+{
+	const QString path = accent_icon_path(name, size, accent_r, accent_g, accent_b, text_r, text_g, text_b, cache_dir);
+	if (path.isEmpty()) {
+		return "";
+	}
 
 	if (!QFileInfo::exists(path)) {
 		KIconColors colors;
@@ -648,8 +666,18 @@ const char *hishell_accent_icon(const char *name, int size, int accent_r, int ac
 		}
 	}
 
-	g_result = QUrl::fromLocalFile(path).toString().toUtf8();
-	return g_result.constData();
+	return accent_icon_result(path);
+}
+
+// The cached PNG's URI, or "" when it has not been rendered yet. Does not
+// render, so the shell can use a themed icon in the meantime.
+const char *hishell_accent_icon_cached(const char *name, int size, int accent_r, int accent_g, int accent_b, int text_r, int text_g, int text_b, const char *cache_dir)
+{
+	const QString path = accent_icon_path(name, size, accent_r, accent_g, accent_b, text_r, text_g, text_b, cache_dir);
+	if (path.isEmpty() || !QFileInfo::exists(path)) {
+		return "";
+	}
+	return accent_icon_result(path);
 }
 
 // Applies an icon (a themed name, a local path or a file:// URI) to the focused
@@ -676,6 +704,18 @@ bool hishell_set_window_icon(const char *source)
 	}
 
 	const QString value = QString::fromUtf8(source);
+	// Building the masked icon renders the source at every size and computes a
+	// heuristic mask for each. A folder navigation asks for the same icon as
+	// the previous folder, so cache the result; the first one is built while
+	// the shell starts, before the window is shown.
+	static QHash<QString, QIcon> windowIcons;
+	const QString key = QIcon::themeName() + QLatin1Char('|') + value;
+	auto cached = windowIcons.constFind(key);
+	if (cached != windowIcons.constEnd()) {
+		window->setIcon(*cached);
+		return true;
+	}
+
 	const QIcon icon = value.startsWith(QLatin1String("file://"))
 		? QIcon(value)
 		: QIcon::fromTheme(value);
@@ -684,7 +724,7 @@ bool hishell_set_window_icon(const char *source)
 	}
 
 	QIcon masked;
-	for (int size : {16, 22, 24, 32, 48, 64, 128, 256}) {
+	for (int size : {16, 22, 24, 32, 48, 64}) {
 		const QPixmap pixmap = icon.pixmap(size, size);
 		if (pixmap.isNull()) {
 			continue;
@@ -693,6 +733,10 @@ bool hishell_set_window_icon(const char *source)
 		copy.setMask(copy.createHeuristicMask());
 		masked.addPixmap(copy);
 	}
+	if (windowIcons.size() > 64) {
+		windowIcons.clear();
+	}
+	windowIcons.insert(key, masked);
 	window->setIcon(masked);
 	return true;
 }

@@ -22,7 +22,7 @@ const RESUME_GRACE: Duration = Duration::from_millis(400);
 /// process was stopped.
 const STOPPED_GAP: Duration = Duration::from_secs(1);
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Input {
 	Up,
 	Down,
@@ -33,6 +33,7 @@ pub enum Input {
 	Menu,
 	Select,
 	Directory,
+	Quit,
 }
 
 impl Input {
@@ -47,6 +48,7 @@ impl Input {
 			Input::Menu => "menu",
 			Input::Select => "select",
 			Input::Directory => "directory",
+			Input::Quit => "quit",
 		}
 	}
 }
@@ -249,11 +251,16 @@ fn snapshot(gilrs: &Gilrs) {
 }
 
 fn button_input(button: Button) -> Option<Input> {
+	// The pad's reported face-button positions are opposite to its Nintendo
+	// markings (gilrs numbers them by position): South carries the A label and
+	// East the B label, while West carries X and North carries Y. Map the
+	// physical labels the shell documents: A confirm, B cancel, X quit, Y menu.
 	match button {
 		Button::South => Some(Input::Accept),
 		Button::East => Some(Input::Cancel),
 		Button::North => Some(Input::Menu),
-		Button::West => Some(Input::Select),
+		Button::West => Some(Input::Quit),
+		Button::Select => Some(Input::Select),
 		Button::Start => Some(Input::Directory),
 		_ => None,
 	}
@@ -298,5 +305,21 @@ fn held_direction() -> Option<Input> {
 		Some(if x < 0 { Input::Left } else { Input::Right })
 	} else {
 		Some(if y < 0 { Input::Up } else { Input::Down })
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::{Input, button_input};
+	use gilrs::Button;
+
+	#[test]
+	fn face_buttons_use_the_device_nintendo_layout() {
+		assert_eq!(button_input(Button::South), Some(Input::Accept));
+		assert_eq!(button_input(Button::East), Some(Input::Cancel));
+		assert_eq!(button_input(Button::North), Some(Input::Menu));
+		assert_eq!(button_input(Button::West), Some(Input::Quit));
+		assert_eq!(button_input(Button::Select), Some(Input::Select));
+		assert_eq!(button_input(Button::Start), Some(Input::Directory));
 	}
 }

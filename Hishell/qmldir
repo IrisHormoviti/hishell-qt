@@ -7,6 +7,7 @@ ActionManager ActionManager.qml
 ActionGroupMenu ActionGroupMenu.qml
 ShellContextMenu ShellContextMenu.qml
 FileSlot FileSlot.qml
+DeferredFileSlot DeferredFileSlot.qml
 FocusBorder FocusBorder.qml
 FolderFilterBar FolderFilterBar.qml
 FolderGrid FolderGrid.qml
@@ -20,4 +21,6 @@ DragPreview DragPreview.qml
 DestroyConfirmDialog DestroyConfirmDialog.qml
 ExecuteDialog ExecuteDialog.qml
 LaunchConfirmDialog LaunchConfirmDialog.qml
+NumberDialog NumberDialog.qml
 OpenWithDialog OpenWithDialog.qml
+ToggleSwitch ToggleSwitch.qml

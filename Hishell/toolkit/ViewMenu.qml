@@ -57,6 +57,8 @@ Menu {
 				viewMenu.setMenuRowVisible(item, !list);
 			else if (item.subMenu === arrangeMenu)
 				viewMenu.setMenuRowVisible(item, !list);
+			else if (item.subMenu === groupMenu)
+				viewMenu.setMenuRowVisible(item, !viewActions.freePlacement && !viewActions.customGroups);
 			else if (item.action === increaseSizeAction || item.action === decreaseSizeAction)
 				viewMenu.setMenuRowVisible(item, !list);
 		}
@@ -67,6 +69,12 @@ Menu {
 	Connections {
 		target: viewActions
 		function onIsListViewChanged() {
+			viewMenu.applyModeVisibility();
+		}
+		function onFreePlacementChanged() {
+			viewMenu.applyModeVisibility();
+		}
+		function onCustomGroupsChanged() {
 			viewMenu.applyModeVisibility();
 		}
 	}
@@ -144,6 +152,9 @@ Menu {
 	}
 	ButtonGroup {
 		id: sortAlphaMode
+	}
+	ButtonGroup {
+		id: groupMode
 	}
 	ButtonGroup {
 		id: scrollDirectionGroup
@@ -437,7 +448,7 @@ Menu {
 			height: visible ? implicitHeight : 0
 			ButtonGroup.group: sortGroup
 			checked: viewMenu.config ? viewMenu.config.sort === 3 : false
-			enabled: viewMenu.isLocal
+			enabled: viewMenu.isLocal && !viewActions.customGroups
 			objectName: "FREE"
 			onTriggered: viewMenu.setSort("FREE")
 		}
@@ -448,6 +459,44 @@ Menu {
 			height: visible ? implicitHeight : 0
 			enabled: viewMenu.hasFreePlacementPositions
 			onTriggered: viewMenu.resetFreePlacement()
+		}
+	}
+
+	Menu {
+		id: groupMenu
+		title: qsTr("Group By...")
+		icon.name: "view-group"
+		popupType: viewMenu.menuPopupType
+		visible: !viewActions.freePlacement && !viewActions.customGroups
+		onOpened: viewActions.playSound("menu-open")
+		onClosed: viewActions.playSound("menu-close")
+		MenuItem {
+			text: qsTr("None")
+			checkable: true
+			ButtonGroup.group: groupMode
+			checked: viewMenu.config ? viewMenu.config.group_mode === 0 : true
+			onTriggered: viewActions.setGroup("NONE")
+		}
+		MenuItem {
+			text: qsTr("Date")
+			checkable: true
+			ButtonGroup.group: groupMode
+			checked: viewMenu.config ? viewMenu.config.group_mode === 1 : false
+			onTriggered: viewActions.setGroup("DATE")
+		}
+		MenuItem {
+			text: qsTr("Letters")
+			checkable: true
+			ButtonGroup.group: groupMode
+			checked: viewMenu.config ? viewMenu.config.group_mode === 2 : false
+			onTriggered: viewActions.setGroup("LETTERS")
+		}
+		MenuItem {
+			text: qsTr("Type")
+			checkable: true
+			ButtonGroup.group: groupMode
+			checked: viewMenu.config ? viewMenu.config.group_mode === 3 : false
+			onTriggered: viewActions.setGroup("TYPE")
 		}
 	}
 
@@ -686,8 +735,8 @@ Menu {
 		MenuItem {
 			text: qsTr("Show Stash")
 			checkable: true
-			checked: viewMenu.config ? viewMenu.config.stash_shown : false
-			onToggled: viewMenu.setConfig("StashShown", String(checked))
+			checked: viewMenu.config ? viewMenu.config.show_stash : false
+			onToggled: viewMenu.setConfig("ShowStash", String(checked))
 		}
 		MenuItem {
 			text: qsTr("Stash Dotfiles")

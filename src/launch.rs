@@ -215,6 +215,31 @@ pub fn active_items() -> Vec<String> {
 		.collect()
 }
 
+/// Ask the wrapper to quit the guest for `item` and drop its saved state.
+/// Returns whether the wrapper accepted the request. The wrapper owns what
+/// "quit" means for its host: ClamOS stops the running supervisor and removes
+/// the item's suspended entry so a later launch starts fresh.
+pub fn quit_active(item: &str) -> bool {
+	let wrapper = WRAPPER.lock().unwrap().clone();
+	if wrapper.trim().is_empty() || !command_exists(&wrapper) {
+		return false;
+	}
+	let parts: Vec<String> = wrapper.split_whitespace().map(String::from).collect();
+	let Some((head, rest)) = parts.split_first() else {
+		return false;
+	};
+	let mut command = Command::new(head);
+	command.args(rest);
+	command.arg("--quit");
+	if !item.is_empty() {
+		command.env(ITEM_ENV, item);
+	}
+	command
+		.output()
+		.map(|output| output.status.success())
+		.unwrap_or(false)
+}
+
 fn spawn_now(
 	program: &str,
 	args: &[String],

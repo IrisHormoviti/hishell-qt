@@ -26,6 +26,14 @@ Item {
 			actionManager.window.sound.play(name);
 	}
 
+	// A short message in the window's notice banner. Used for failures that
+	// happen after the keyboard has already closed, where a dialog would only
+	// be another thing to dismiss.
+	function showNotice(text) {
+		if (actionManager.window && typeof actionManager.window.showNotice === "function")
+			actionManager.window.showNotice(text);
+	}
+
 	readonly property int selectedCount: selectionManager ? selectionManager.selected_count : 0
 	readonly property var selectedPathList: (selectedCount > 0 && selectionManager && selectionManager.selection_status) ? selectionManager.get_selected_path_list() : []
 	readonly property string firstSelectedPath: selectedPathList.length > 0 ? selectedPathList[0] : ""
@@ -40,18 +48,39 @@ Item {
 			return "";
 		return String(fm.focused_path);
 	}
-	readonly property var targetPathList: actionManager.hasSelection ? actionManager.selectedPathList : (actionManager.focusedPath !== "" ? [actionManager.focusedPath] : [])
-	readonly property bool hasTarget: actionManager.targetPathList.length > 0
-	readonly property bool isSingleTarget: actionManager.targetPathList.length === 1
-	readonly property string firstTargetPath: actionManager.targetPathList.length > 0 ? actionManager.targetPathList[0] : ""
+	// The count is what the menu's `enabled` bindings watch. Moving the cursor
+	// between two items keeps it at 1, so those bindings do not all re-run on
+	// every step; only the path-dependent state (refreshed lazily) does.
+	readonly property int targetCount: actionManager.hasSelection ? actionManager.selectedCount : (actionManager.focusedPath !== "" ? 1 : 0)
+	readonly property bool hasTarget: actionManager.targetCount > 0
+	readonly property bool isSingleTarget: actionManager.targetCount === 1
+	readonly property string firstTargetPath: actionManager.hasSelection ? actionManager.firstSelectedPath : actionManager.focusedPath
+	// Whether one of the targets has an app that is running/suspended behind
+	// the shell. The Quit action is only offered for such an item.
+	readonly property bool isTargetActive: {
+		const fm = actionManager.window ? actionManager.window.focusManager : null;
+		if (!fm || !actionManager.hasTarget)
+			return false;
+		fm.active_revision; // dependency: re-check when the suspended set changes
+		const paths = actionManager.targetPaths();
+		for (let i = 0; i < paths.length; i++) {
+			if (fm.is_item_active(paths[i]))
+				return true;
+		}
+		return false;
+	}
+
+	// Built only when an action actually runs; a per-focus array would change
+	// identity on every cursor step and wake every binding that reads it.
+	function targetPaths() {
+		return actionManager.hasSelection ? actionManager.selectedPathList : (actionManager.focusedPath !== "" ? [actionManager.focusedPath] : []);
+	}
 	// The directory the target lives in; a layout can show several folders, so the
 	// owning view decides where paths open and what gets reloaded afterwards.
 	readonly property var targetFolderView: actionManager.hasSelection
 		? (actionManager.window ? actionManager.window.selectionFolderView : null)
 		: (actionManager.window ? actionManager.window.focusedFolderView : null)
 	readonly property Directory targetDirectory: (actionManager.targetFolderView && actionManager.targetFolderView.directory) ? actionManager.targetFolderView.directory : actionManager.directory
-
-	readonly property bool isFirstTargetDir: (isSingleTarget && fileManager) ? fileManager.is_directory(firstTargetPath) : false
 
 	// A generated entry (a provider's network or control row) may be destroyed
 	// only when the provider says how: Trash then runs the entry's `Destroy=`
@@ -61,36 +90,96 @@ Item {
 	// back. A source that is not destroyable is never copied or moved: drag
 	// Copy/Move degrade to a link, and Trash opens the warning instead (§5).
 
-	// True when every target is a folder. The menubar's Folder menu corresponds
-	// to a selected folder, so it is shown only for such a target; the folder
-	// view's own menu carries the directory-level actions separately.
-	readonly property bool isFolderTarget: actionManager.hasTarget
-		&& actionManager.targetPathList.every(path => actionManager.fileManager !== null && actionManager.fileManager.is_directory(path))
+	// Action-target state.
+	//
+	// These values depend on the focused or selected item, but resolving them
+	// is not free: `can_rename` canonicalises the path and consults the
+	// descriptor cache, `get_default_app` goes through the MIME database and
+	// the KService trader, and every predicate is a separate Rust call. Doing
+	// that for each cursor step made a held direction stutter. They are plain
+	// properties refreshed when a menu is built (or shortly after the cursor
+	// settles), so walking a folder only re-reads the cheap path/count.
+	property bool isTargetLink: false
+	property bool isTargetRadio: false
+	property bool isFolderTarget: false
+	property bool isImageTarget: false
+	property bool targetRenameable: false
+	property bool executeAvailable: false
+	property var openApp: null
+	readonly property string openAppIcon: openApp ? String(openApp.icon) : ""
+	property bool targetStateValid: false
 
-	// Default application of the single target file, used by the Open action
-	readonly property string openAppPath: (isSingleTarget && !isFirstTargetDir) ? firstTargetPath : ""
-	readonly property var openApp: {
-		if (openAppPath === "" || !fileManager)
-			return null;
-		try {
-			const info = JSON.parse(fileManager.get_default_app(openAppPath));
-			return info && info.id ? info : null;
-		} catch (e) {
-			return null;
+	function invalidateTargetState() {
+		actionManager.targetStateValid = false;
+		targetRefreshTimer.restart();
+	}
+
+	function ensureTargetState() {
+		if (!actionManager.targetStateValid)
+			actionManager.refreshTargetState();
+	}
+
+	function refreshTargetState() {
+		actionManager.targetStateValid = true;
+		const paths = actionManager.targetPaths();
+		const count = paths.length;
+		const fm = actionManager.fileManager;
+		const directory = actionManager.targetDirectory;
+		const first = count > 0 ? String(paths[0]) : "";
+		const single = count === 1;
+
+		let folders = count > 0 && fm !== null;
+		let images = folders;
+		let execute = folders;
+		let radio = false;
+		let link = false;
+
+		if (count > 0 && fm) {
+			for (let i = 0; i < count; i++) {
+				const path = String(paths[i]);
+				if (folders && !fm.is_directory(path))
+					folders = false;
+				if (images && !fm.is_image_file(path))
+					images = false;
+				if (execute) {
+					const isRadio = directory ? directory.is_radio_member(path) : false;
+					if (!isRadio && !(directory && directory.is_execute_target(path)))
+						execute = false;
+				}
+			}
+			if (single && directory) {
+				radio = directory.is_radio_member(first);
+				link = directory.is_link(first);
+			}
+		}
+
+		actionManager.isTargetLink = link;
+		actionManager.isTargetRadio = radio;
+		actionManager.isFolderTarget = folders;
+		actionManager.isImageTarget = images;
+		actionManager.executeAvailable = execute;
+		actionManager.targetRenameable = single && fm !== null && fm.can_rename(first);
+
+		actionManager.openApp = null;
+		if (single && !folders && fm) {
+			try {
+				const info = JSON.parse(fm.get_default_app(first));
+				if (info && info.id)
+					actionManager.openApp = info;
+			} catch (e) {
+				// No handler: the action falls back to the plain Open label.
+			}
 		}
 	}
-	readonly property string openAppIcon: openApp ? String(openApp.icon) : ""
 
-	readonly property bool isImageTarget: {
-		if (!hasTarget || !fileManager)
-			return false;
-		if (isSingleTarget)
-			return fileManager.is_image_file(firstTargetPath);
-		for (let i = 0; i < targetPathList.length; i++) {
-			if (!fileManager.is_image_file(targetPathList[i]))
-				return false;
-		}
-		return true;
+	onFocusedPathChanged: actionManager.invalidateTargetState()
+	onHasSelectionChanged: actionManager.invalidateTargetState()
+
+	Timer {
+		id: targetRefreshTimer
+		interval: 140
+		repeat: false
+		onTriggered: actionManager.refreshTargetState()
 	}
 
 	// Open Animation
@@ -139,9 +228,8 @@ Item {
 	// The descriptor array is deliberately kept identity-stable across focus
 	// changes: QML models that rebuild when the array identity changes would
 	// otherwise destroy and recreate every menu item (and re-resolve every
-	// action icon) on each focus move — and, because `openGroup` depends on
-	// `executeAction.available`, that happened continuously. Actions are read
-	// through `groupActions()` instead of being embedded here.
+	// action icon) on each focus move. Actions are read through
+	// `groupActions()` instead of being embedded here.
 	readonly property var menuGroups: [
 		{
 			id: "open",
@@ -168,7 +256,7 @@ Item {
 			submenu: true
 		},
 		{
-			id: "directory",
+			id: "folders",
 			title: qsTr("&Folder"),
 			contexts: ["folders"],
 			submenu: false
@@ -185,17 +273,18 @@ Item {
 	// The actions for a group, resolved on demand so the descriptor array above
 	// stays constant even when the available actions change.
 	function groupActions(id) {
+		actionManager.ensureTargetState();
 		switch (id) {
 		case "open":
-			return actionManager.openGroup;
+			return actionManager.openActions();
 		case "edit":
 			return actionManager.editGroup;
 		case "image":
 			return actionManager.imageGroup;
 		case "new":
 			return actionManager.newActionsGroup;
-		case "directory":
-			return actionManager.folderActionsGroup;
+		case "folders":
+			return actionManager.folderTargetActionsGroup;
 		default:
 			return [];
 		}
@@ -215,6 +304,7 @@ Item {
 	}
 
 	function actionsFor(context) {
+		actionManager.ensureTargetState();
 		let actions = [];
 		const groups = groupsFor(context);
 		for (let i = 0; i < groups.length; i++) {
@@ -226,7 +316,7 @@ Item {
 		// ...). Those live in the folder-actions group, which is otherwise only
 		// reached through a selected folder, so the view menu would miss them.
 		if (context === "directory")
-			actions = actions.concat(actionManager.folderActionsGroup);
+			actions = actions.concat(actionManager.directoryActionsGroup);
 		return actions;
 	}
 
@@ -244,17 +334,82 @@ Item {
 		return true;
 	}
 
-	// Open Group
-	readonly property var openGroup: executeAction.available
-		? [executeAction, openAction, openWithAction, openWindowAction]
-		: [openAction, openWithAction, openWindowAction]
+	// Open Group. ClamOS has a single kiosk shell, so a second window is not a
+	// concept the user can act on; keep the action for desktop Hishell only.
+	readonly property bool isClamOS: CoreTheme.themeId !== ""
+
+	function openActions() {
+		const actions = [];
+		if (actionManager.isTargetActive)
+			actions.push(quitAction);
+		if (actionManager.executeAvailable)
+			actions.push(executeAction);
+		actions.push(openAction, openWithAction);
+		if (!actionManager.isClamOS)
+			actions.push(openWindowAction);
+		return actions;
+	}
+
+	property alias quitAction: quitAction
+	Action {
+		id: quitAction
+		text: qsTr("&Quit")
+		icon.name: "process-stop"
+		enabled: actionManager.isTargetActive
+		onTriggered: {
+			const fm = actionManager.window ? actionManager.window.focusManager : null;
+			if (!fm || !actionManager.fileManager)
+				return;
+			const paths = actionManager.targetPaths();
+			for (let i = 0; i < paths.length; i++) {
+				if (fm.is_item_active(paths[i])) {
+					if (actionManager.fileManager.quit_active(paths[i])) {
+						fm.refresh_active_items();
+						actionManager.playSound("window-close");
+					}
+					return;
+				}
+			}
+		}
+	}
+
+	// A Toggle or Number is a control the shell owns: a toggle flips in place,
+	// a number opens the dialog with its labelled values.  Returns true when
+	// the path was one of them, so the caller stops before treating it as a
+	// file or a launch.
+	function activateControl(path: string, sourceItem: Item): bool {
+		const fm = actionManager.fileManager;
+		if (!fm || !fm.is_control(path))
+			return false;
+		if (fm.is_toggle(path)) {
+			// A switch has its own two sounds (the same pair the View dialog's
+			// switches use), so flipping it does not sound like opening a menu
+			// item.
+			const turningOn = !fm.toggle_on(path);
+			actionManager.playSound(turningOn ? "button-toggle-on" : "button-toggle-off");
+			fm.run_toggle(path);
+			// The provider rewrites the entry when the command returns. Polling
+			// would catch it a moment later; this keeps the switch immediate.
+			controlReload.restart();
+			return true;
+		}
+		if (fm.is_number(path)) {
+			actionManager.playSound("dialog-open");
+			if (actionManager.window && typeof actionManager.window.requestNumberDialog === 'function')
+				actionManager.window.requestNumberDialog(path);
+			return true;
+		}
+		return false;
+	}
 
 	function activatePath(path: string, sourceItem: Item) {
 		// The profile's user-name row is a generated button with a Rename=
-		// command and no command of its own. Activating it opens the rename
-		// dialog, which is how it reaches the system keyboard.
+		// command and no command of its own. Activating it begins the rename,
+		// which is how it reaches the system keyboard.
+		if (actionManager.activateControl(path, sourceItem))
+			return;
 		if (actionManager.fileManager && actionManager.fileManager.is_rename_only(path))
-			actionManager.openRenameDialog(path);
+			actionManager.beginRename(path);
 		else if (directory && directory.is_execute_target(path))
 			executeAction.execute(path, sourceItem);
 		else
@@ -279,6 +434,16 @@ Item {
 			actionManager.fileManager.cancel_launch();
 	}
 
+	Timer {
+		id: controlReload
+		interval: 350
+		repeat: false
+		onTriggered: {
+			if (actionManager.targetDirectory)
+				actionManager.targetDirectory.reload();
+		}
+	}
+
 	// A launch is about to start: let the window drop the previous return frame
 	// at once, so it cannot show through the launch wash.
 	function prepareLaunch() {
@@ -286,34 +451,25 @@ Item {
 			actionManager.window.clearReturnFrame();
 	}
 
-	readonly property bool isTargetLink: actionManager.hasTarget
-		&& actionManager.isSingleTarget
-		&& actionManager.targetDirectory
-		&& actionManager.targetDirectory.is_link(actionManager.firstTargetPath)
-
-	// A child of a folder-owned `[Radio]` group is a selection, not a launch.
-	readonly property bool isTargetRadio: actionManager.hasTarget
-		&& actionManager.isSingleTarget
-		&& actionManager.targetDirectory
-		&& actionManager.targetDirectory.is_radio_member(actionManager.firstTargetPath)
-
 	property alias executeAction: executeAction
 	Action {
 		id: executeAction
 		text: actionManager.isTargetRadio ? qsTr("&Select") : (actionManager.isTargetLink ? qsTr("Open &Link") : qsTr("&Execute"))
 		icon.name: actionManager.isTargetRadio ? "checkbox" : (actionManager.isTargetLink ? "open-link" : "system-run")
-		readonly property bool available: actionManager.hasTarget
-			&& actionManager.targetPathList.every(path => actionManager.targetDirectory.is_radio_member(path) || actionManager.targetDirectory.is_execute_target(path))
-		enabled: available
+		enabled: actionManager.executeAvailable
 
 		function execute(targetPath: string, sourceItem: Item) {
-			const paths = targetPath !== "" ? [targetPath] : actionManager.targetPathList;
+			const paths = targetPath !== "" ? [targetPath] : actionManager.targetPaths();
 			for (let i = 0; i < paths.length; i++) {
 				const path = paths[i];
+				// Toggles and numbers have their own editor; Execute means the
+				// same as activating the control.
+				if (actionManager.activateControl(path, sourceItem))
+					continue;
 				// A label-only control has no command: Execute means the same
-				// as activating it, which opens the rename dialog.
+				// as activating it, which begins the rename.
 				if (actionManager.fileManager && actionManager.fileManager.is_rename_only(path)) {
-					actionManager.openRenameDialog(path);
+					actionManager.beginRename(path);
 					continue;
 				}
 				const isRadio = actionManager.targetDirectory.is_radio_member(path);
@@ -329,7 +485,7 @@ Item {
 				// A `Type=Button` entry is a control, not an app: its Exec is
 				// spawned directly (no wrapper, no guest window), so it gets the
 				// menu-item sound and none of the app-launch transition.
-				const isButton = actionManager.fileManager && actionManager.fileManager.is_button(path);
+				const isButton = actionManager.fileManager && actionManager.fileManager.is_control(path);
 				// The launch sound is the compositor's now: the shell is
 				// stopped for the guest and its playback thread would be cut
 				// off. Only controls keep their in-shell sound.
@@ -337,8 +493,8 @@ Item {
 					actionManager.playSound("menu-item");
 				if (!isButton) {
 					actionManager.prepareLaunch();
-					if (sourceItem) {
-						const layout = sourceItem.contentLayout;
+					const layout = sourceItem ? (sourceItem.contentBody ? sourceItem.contentBody : sourceItem.contentLayout) : null;
+					if (layout) {
 						const globalPos = layout.mapToItem(actionManager, 0, 0);
 						layout.grabToImage(result => {
 							externalOpenAnimation.x = globalPos.x;
@@ -370,9 +526,13 @@ Item {
 		enabled: actionManager.hasTarget
 
 		function execute(targetPath: string, sourceItem: Item, inNewWindow = false) {
-			const paths = targetPath !== "" ? [targetPath] : actionManager.targetPathList;
+			const paths = targetPath !== "" ? [targetPath] : actionManager.targetPaths();
 			for (let i = 0; i < paths.length; i++) {
 				const p = paths[i];
+				// A settings control acts in place; it is not a file to hand to
+				// another application.
+				if (actionManager.activateControl(p, sourceItem))
+					continue;
 				// Opening a folder in place resets the view's model and destroys the
 				// source item, taking any in-flight grab with it while the render
 				// thread is still using it. Only grab when the item survives the open.
@@ -380,7 +540,7 @@ Item {
 				// A `Type=Button` entry is a control, not an app: it runs its Exec
 				// directly (no wrapper, no guest window), so it gets the menu-item
 				// sound and none of the app-launch transition.
-				const isButton = actionManager.fileManager && actionManager.fileManager.is_button(p);
+				const isButton = actionManager.fileManager && actionManager.fileManager.is_control(p);
 				// A child of a folder-owned radio group is selected in place: the
 				// parent writes the selection and runs its own Exec. Opening it in a
 				// new window still navigates, since that is an explicit request to
@@ -399,8 +559,8 @@ Item {
 				// survives the shell being stopped for the guest.
 				if (!isDir && !isButton && !selectsRadio)
 					actionManager.prepareLaunch();
-				if (sourceItem && !isButton && !selectsRadio && !(isDir && !inNewWindow)) {
-					const layout = sourceItem.contentLayout;
+				const layout = sourceItem ? (sourceItem.contentBody ? sourceItem.contentBody : sourceItem.contentLayout) : null;
+				if (layout && !isButton && !selectsRadio && !(isDir && !inNewWindow)) {
 					const globalPos = layout.mapToItem(actionManager, 0, 0);
 					layout.grabToImage(result => {
 						externalOpenAnimation.x = globalPos.x;
@@ -444,7 +604,7 @@ Item {
 		enabled: actionManager.isSingleTarget
 
 		function execute(targetPath: string, sourceItem: Item) {
-			const paths = targetPath !== "" ? [targetPath] : actionManager.targetPathList;
+			const paths = targetPath !== "" ? [targetPath] : actionManager.targetPaths();
 			for (let i = 0; i < paths.length; i++) {
 				const p = paths[i];
 				const warning = String(actionManager.targetDirectory.open_path(p));
@@ -465,13 +625,13 @@ Item {
 		id: openWindowAction
 		text: qsTr("Open in Win&dow")
 		icon.name: "window-new-symbolic"
-		shortcut: actionManager.showShortcuts ? "Ctrl+N" : ""
-		enabled: actionManager.hasTarget
+		shortcut: actionManager.showShortcuts && !actionManager.isClamOS ? "Ctrl+N" : ""
+		enabled: actionManager.hasTarget && !actionManager.isClamOS
 		onTriggered: {
 			if (!actionManager.hasTarget) {
 				actionManager.directory.open_in_new_window(actionManager.directory.path);
 			} else {
-				const paths = actionManager.targetPathList;
+				const paths = actionManager.targetPaths();
 				for (let i = 0; i < paths.length; i++) {
 					openAction.execute(paths[i], null, true);
 				}
@@ -502,7 +662,7 @@ Item {
 		shortcut: actionManager.showShortcuts ? "Ctrl+C" : ""
 		enabled: actionManager.hasTarget
 		onTriggered: {
-			const paths = actionManager.targetPathList.join("\n");
+			const paths = actionManager.targetPaths().join("\n");
 			if (actionManager.fileManager)
 				actionManager.fileManager.copy_paths_to_clipboard(paths);
 		}
@@ -515,7 +675,7 @@ Item {
 		shortcut: actionManager.showShortcuts ? "Ctrl+X" : ""
 		enabled: actionManager.hasTarget
 		onTriggered: {
-			const paths = actionManager.targetPathList.join("\n");
+			const paths = actionManager.targetPaths().join("\n");
 			if (actionManager.fileManager)
 				actionManager.fileManager.cut_paths_to_clipboard(paths);
 		}
@@ -528,7 +688,7 @@ Item {
 		shortcut: actionManager.showShortcuts ? "Ctrl+D" : ""
 		enabled: actionManager.hasTarget
 		onTriggered: {
-			const paths = actionManager.targetPathList;
+			const paths = actionManager.targetPaths();
 			let anyOk = false;
 			for (let i = 0; i < paths.length; i++) {
 				if (actionManager.fileManager && actionManager.fileManager.duplicate_file(paths[i]))
@@ -546,7 +706,7 @@ Item {
 		shortcut: actionManager.showShortcuts ? "Ctrl+Shift+L" : ""
 		enabled: actionManager.hasTarget
 		onTriggered: {
-			const paths = actionManager.targetPathList;
+			const paths = actionManager.targetPaths();
 			let anyOk = false;
 			for (let i = 0; i < paths.length; i++) {
 				const p = paths[i];
@@ -566,11 +726,10 @@ Item {
 		text: qsTr("&Rename")
 		icon.name: "edit-rename"
 		shortcut: actionManager.showShortcuts ? "F2" : ""
-		enabled: actionManager.isSingleTarget && actionManager.fileManager !== null
-			&& actionManager.fileManager.can_rename(actionManager.firstTargetPath)
+		enabled: actionManager.targetRenameable
 		onTriggered: {
 			if (actionManager.isSingleTarget) {
-				actionManager.openRenameDialog(actionManager.firstTargetPath);
+				actionManager.beginRename(actionManager.firstTargetPath);
 			}
 		}
 	}
@@ -594,10 +753,10 @@ Item {
 		enabled: actionManager.hasTarget
 		onTriggered: {
 			if (actionManager.window && actionManager.window.requestDestroy) {
-				actionManager.window.requestDestroy(actionManager.targetPathList, actionManager.targetDirectory);
+				actionManager.window.requestDestroy(actionManager.targetPaths(), actionManager.targetDirectory);
 			} else {
 				// A host without the warning adapter keeps the old direct path.
-				const paths = actionManager.targetPathList;
+				const paths = actionManager.targetPaths();
 				let anyOk = false;
 				for (let i = 0; i < paths.length; i++) {
 					if (actionManager.fileManager && actionManager.fileManager.trash_file(paths[i]))
@@ -613,8 +772,15 @@ Item {
 		}
 	}
 
-	// Folder Group
-	readonly property var folderActionsGroup: [editPathAction, goUpAction, refreshAction, pasteAction, copyPathAction]
+	// Current-directory actions. These belong to the background/current
+	// folder menu only; a folder *item's* context menu must not show them.
+	readonly property var directoryActionsGroup: [editPathAction, goBackAction, goForwardAction, goUpAction, refreshAction, pasteAction, copyPathAction]
+	// Actions that apply to a folder item. Open/Edit are already in the item
+	// groups; keep this separate so the folder target never inherits the
+	// current directory's navigation actions.
+	readonly property var folderTargetActionsGroup: []
+	property alias goBackAction: goBackAction
+	property alias goForwardAction: goForwardAction
 	property alias goUpAction: goUpAction
 	property alias refreshAction: refreshAction
 	property alias editPathAction: editPathAction
@@ -635,14 +801,17 @@ Item {
 		}
 	}
 
+	readonly property var navigationView: actionManager.window ? actionManager.window.focusedFolderView : null
+
 	Action {
 		id: goBackAction
 		text: qsTr("Go &Back")
 		icon.name: "arrow-left-symbolic"
 		shortcut: actionManager.showShortcuts ? "Alt+Left" : ""
-		enabled: actionManager.directory
+		enabled: actionManager.navigationView ? actionManager.navigationView.canGoBack : false
 		onTriggered: {
-			// FIXME
+			if (actionManager.navigationView)
+				actionManager.navigationView.goBack();
 		}
 	}
 
@@ -651,9 +820,10 @@ Item {
 		text: qsTr("Go &Forward")
 		icon.name: "arrow-right-symbolic"
 		shortcut: actionManager.showShortcuts ? "Alt+Right" : ""
-		enabled: actionManager.directory
+		enabled: actionManager.navigationView ? actionManager.navigationView.canGoForward : false
 		onTriggered: {
-			// FIXME
+			if (actionManager.navigationView)
+				actionManager.navigationView.goForward();
 		}
 	}
 
@@ -801,7 +971,7 @@ Item {
 		shortcut: actionManager.showShortcuts ? "Ctrl+R" : ""
 		enabled: actionManager.isImageTarget
 		onTriggered: {
-			const paths = actionManager.targetPathList;
+			const paths = actionManager.targetPaths();
 			let anyOk = false;
 			for (let i = 0; i < paths.length; i++) {
 				if (actionManager.fileManager && actionManager.fileManager.rotate_image(paths[i], 90))
@@ -819,7 +989,7 @@ Item {
 		shortcut: actionManager.showShortcuts ? "Ctrl+Shift+R" : ""
 		enabled: actionManager.isImageTarget
 		onTriggered: {
-			const paths = actionManager.targetPathList;
+			const paths = actionManager.targetPaths();
 			let anyOk = false;
 			for (let i = 0; i < paths.length; i++) {
 				if (actionManager.fileManager && actionManager.fileManager.rotate_image(paths[i], 270))
@@ -830,15 +1000,145 @@ Item {
 		}
 	}
 
-	// Rename Dialog
-	function openRenameDialog(filePath) {
+	// Rename: ask the system keyboard when it is running. The keyboard already
+	// draws the text with an OK/Cancel bar, and it covers the touch panel, so a
+	// dialog with a second text field would only be hidden underneath it. The
+	// dialog stays as the fallback for systems without ClamOS's keyboard, and
+	// for a keyboard that dies while a request is pending.
+	property string renamePath: ""
+	property string renameOriginal: ""
+	property string renameRequest: ""
+
+	function beginRename(filePath) {
 		if (!actionManager.fileManager || !actionManager.fileManager.can_rename(filePath))
 			return;
-		renameDialog.filePath = filePath;
+		if (actionManager.renameRequest !== "")
+			return;
 		const name = String(actionManager.fileManager.rename_display_name(filePath));
+		const id = String(actionManager.fileManager.request_text_entry(qsTr("Rename"), name, "stem"));
+		if (id !== "") {
+			actionManager.renamePath = filePath;
+			actionManager.renameOriginal = name;
+			actionManager.renameRequest = id;
+			renameTimer.missing = 0;
+			renameTimer.restart();
+			return;
+		}
+		actionManager.showRenameDialog(filePath, name);
+	}
+
+	function showRenameDialog(filePath, name) {
+		renameDialog.filePath = filePath;
 		renameDialog.originalName = name;
 		renameDialog.newName = name;
 		renameDialog.open();
+	}
+
+	/// Apply a rename for either input path. Returns "" on success (including
+	/// a no-op), or the message to show.
+	function renameTo(filePath, originalName, newName) {
+		const trimmed = String(newName).trim();
+		if (trimmed.length === 0 || trimmed === originalName)
+			return "";
+		const fm = actionManager.fileManager;
+		if (!fm)
+			return qsTr("Rename is not available.");
+		const movesPath = fm.rename_moves_path(filePath);
+		let status;
+		try {
+			status = JSON.parse(fm.rename_file(filePath, trimmed));
+		} catch (e) {
+			return qsTr("Rename is not available.");
+		}
+		if (!status.ok)
+			return status.error || qsTr("Rename failed.");
+		actionManager.playSound("dialog-ok");
+		if (actionManager.selectionManager)
+			actionManager.selectionManager.clear();
+		if (actionManager.targetDirectory) {
+			// A label rename leaves the file name alone, so there is no
+			// free-placement entry to move; just refresh the view.  Waiting
+			// for the provider's own revision is the same poll that already
+			// updates live entries.
+			if (movesPath)
+				actionManager.targetDirectory.rename_free_position(originalName, trimmed);
+			else
+				actionManager.targetDirectory.reload();
+		}
+		return "";
+	}
+
+	function finishKeyboardRename(status, text) {
+		const filePath = actionManager.renamePath;
+		const originalName = actionManager.renameOriginal;
+		actionManager.renamePath = "";
+		actionManager.renameOriginal = "";
+		actionManager.renameRequest = "";
+		if (filePath === "")
+			return;
+		if (status === "cancel") {
+			actionManager.playSound("dialog-cancel");
+			return;
+		}
+		if (status !== "ok")
+			return;
+		const error = actionManager.renameTo(filePath, originalName, String(text || ""));
+		if (error !== "") {
+			actionManager.playSound("dialog-error");
+			actionManager.showNotice(error);
+		}
+	}
+
+	// Poll the keyboard's response. A request is only abandoned when the
+	// keyboard stops answering its liveness marker; there is no timeout while
+	// someone is typing.
+	Timer {
+		id: renameTimer
+		interval: 120
+		repeat: true
+		running: false
+		property int missing: 0
+
+		function fallBackToDialog() {
+			const filePath = actionManager.renamePath;
+			const originalName = actionManager.renameOriginal;
+			const id = actionManager.renameRequest;
+			actionManager.renamePath = "";
+			actionManager.renameOriginal = "";
+			actionManager.renameRequest = "";
+			stop();
+			if (id !== "" && actionManager.fileManager)
+				actionManager.fileManager.cancel_text_entry(id);
+			if (filePath !== "")
+				actionManager.showRenameDialog(filePath, originalName);
+		}
+
+		onTriggered: {
+			const fm = actionManager.fileManager;
+			if (actionManager.renameRequest === "" || !fm) {
+				stop();
+				return;
+			}
+			if (!fm.keyboard_available()) {
+				if (++missing < 10)
+					return;
+				fallBackToDialog();
+				return;
+			}
+			missing = 0;
+			let result = {
+				status: "pending"
+			};
+			try {
+				result = JSON.parse(fm.poll_text_entry(actionManager.renameRequest));
+			} catch (e) {
+				return;
+			}
+			if (result.status === "pending")
+				return;
+			stop();
+			actionManager.finishKeyboardRename(result.status, result.text || "");
+		}
 	}
 
 	Dialog {
@@ -849,43 +1149,19 @@ Item {
 		property string errorText: ""
 
 		function applyRename() {
-			var trimmed = renameDialog.newName.trim();
+			const trimmed = renameDialog.newName.trim();
 			if (trimmed.length === 0 || trimmed === renameDialog.originalName) {
 				renameDialog.accept();
 				return;
 			}
-			const fm = actionManager.fileManager;
-			if (!fm) {
-				renameDialog.errorText = qsTr("Rename is not available.");
-				actionManager.playSound("dialog-error");
-				return;
-			}
-			const movesPath = fm.rename_moves_path(renameDialog.filePath);
-			var status = {
-				ok: true,
-				error: ""
-			};
-			status = JSON.parse(fm.rename_file(renameDialog.filePath, trimmed));
-			if (!status.ok) {
-				renameDialog.errorText = status.error;
+			const error = actionManager.renameTo(renameDialog.filePath, renameDialog.originalName, trimmed);
+			if (error !== "") {
+				renameDialog.errorText = error;
 				actionManager.playSound("dialog-error");
 				renameField.forceActiveFocus();
 				return;
 			}
 			renameDialog.accept();
-			actionManager.playSound("dialog-ok");
-			if (actionManager.selectionManager)
-				actionManager.selectionManager.clear();
-			if (actionManager.targetDirectory) {
-				// A label rename leaves the file name alone, so there is no
-				// free-placement entry to move; just refresh the view.  Waiting
-				// for the provider's own revision is the same poll that already
-				// updates live entries.
-				if (movesPath)
-					actionManager.targetDirectory.rename_free_position(renameDialog.originalName, trimmed);
-				else
-					actionManager.targetDirectory.reload();
-			}
 		}
 
 		title: qsTr("Rename")

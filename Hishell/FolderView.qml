@@ -23,10 +23,50 @@ Item {
 	// The path the focus sound last played for, so moving the cursor within one
 	// item does not retrigger it.
 	property string lastFocusSoundPath: ""
+	property double lastFocusSoundTime: 0
 	// Set while a selection gesture moves the cursor. The gesture owns its
 	// item-selected sound; the focus sound underneath it would make one tap
 	// sound twice.
 	property bool suppressFocusSound: false
+	// Set while a folder is being entered. The viewport is placed directly at
+	// its target instead of being animated there, and the programmatic move
+	// stays silent. Cleared on the first real input or shortly afterwards.
+	property bool entryScrollReset: false
+	property bool entryScanPending: false
+
+	function endEntry() {
+		folderView.entryScrollReset = false;
+		folderView.suppressFocusScroll = false;
+		folderView.suppressFocusSound = false;
+		entrySettleTimer.stop();
+	}
+
+	function resetEntryViewport() {
+		folderView.entryScrollReset = true;
+		folderView.suppressFocusScroll = true;
+		folderView.suppressFocusSound = true;
+		const flick = folderView.flickable;
+		if (flick) {
+			if (flick.cancelFlick)
+				flick.cancelFlick();
+			flick.contentY = 0;
+			flick.contentX = 0;
+			folderView.lastViewMoveTime = Date.now();
+			grid.lastScrollX = flick.contentX;
+			grid.lastScrollY = flick.contentY;
+			grid.scrollRemainderX = 0;
+			grid.scrollRemainderY = 0;
+			grid.updateScrollEdges(false);
+		}
+		entrySettleTimer.restart();
+	}
+
+	Timer {
+		id: entrySettleTimer
+		interval: 400
+		repeat: false
+		onTriggered: folderView.endEntry()
+	}
 
 	property Directory directory
 	property Config config: directory ? directory.config : null
@@ -46,6 +86,9 @@ Item {
 	property string suppressRevealPath: ""
 	readonly property bool viewMoving: flickable.moving
 	readonly property real viewContentY: flickable.contentY
+	// When the viewport last moved (touch, fling or a focus animation). Idle
+	// work such as rendering themed icons must not land in the middle of it.
+	property double lastViewMoveTime: 0
 	// True while the focus-driven scroll animation runs, so the scroll-follow
 	// logic can ignore the motion it causes.
 	property bool focusScrollAnimating: false
@@ -58,6 +101,13 @@ Item {
 	property var openMenu: null
 	property string returnFocusPath: ""
 	property string lastPath: ""
+	// Per-pane navigation history. Opening a folder appends; Back/Forward move
+	// the index and suppress recording for the path they restore.
+	property var historyPaths: []
+	property int historyIndex: -1
+	property bool historyNavigating: false
+	readonly property bool canGoBack: historyIndex > 0
+	readonly property bool canGoForward: historyIndex >= 0 && historyIndex < historyPaths.length - 1
 	property int paneId: -1
 	property int paneCount: 1
 	property SelectionManager selectionManager: selectionManagerImpl
@@ -195,6 +245,41 @@ Item {
 
 
 
+	function recordHistory(path) {
+		if (path === "")
+			return;
+		if (folderView.historyIndex >= 0 && folderView.historyPaths[folderView.historyIndex] === path)
+			return;
+		const next = folderView.historyPaths.slice(0, folderView.historyIndex + 1);
+		next.push(path);
+		folderView.historyPaths = next;
+		folderView.historyIndex = next.length - 1;
+	}
+
+	function goBack() {
+		if (!folderView.canGoBack)
+			return false;
+		const target = folderView.historyPaths[folderView.historyIndex - 1];
+		if (!target)
+			return false;
+		folderView.historyIndex -= 1;
+		folderView.historyNavigating = true;
+		folderView.directory.path = target;
+		return true;
+	}
+
+	function goForward() {
+		if (!folderView.canGoForward)
+			return false;
+		const target = folderView.historyPaths[folderView.historyIndex + 1];
+		if (!target)
+			return false;
+		folderView.historyIndex += 1;
+		folderView.historyNavigating = true;
+		folderView.directory.path = target;
+		return true;
+	}
+
 	function updateFocusItems() {
 		const fm = folderView.focusManager;
 		if (!fm || !folderView.directory || folderView.paneId <= 0)
@@ -207,7 +292,7 @@ Item {
 		fm.set_pane_horizontal(folderView.paneId, folderView.horizontalScroll);
 		fm.set_pane_items(folderView.paneId, paths, folderView.gridStride);
 		const metrics = folderView.gridMetrics;
-		fm.set_pane_positions(folderView.paneId, metrics.free ? JSON.stringify(metrics.slots) : "");
+		fm.set_pane_positions(folderView.paneId, (metrics.free || metrics.grouped) ? JSON.stringify(metrics.slots) : "");
 		fm.set_pane_grid(folderView.paneId, metrics.columns, metrics.rows);
 		fm.set_pane_empty_slots(folderView.paneId, folderView.focusEmptySlots);
 		folderView.focusOwned = true;
@@ -291,6 +376,22 @@ Item {
 		if (Math.abs(targetY - flickable.contentY) < 1 && Math.abs(targetX - flickable.contentX) < 1)
 			return;
 
+		if (folderView.entryScrollReset) {
+			// The folder was just entered. Put the viewport at the target in one
+			// step: animating it while the delegates fill in is what made the
+			// screen chase the cursor during the open.
+			focusScrollY.stop();
+			focusScrollX.stop();
+			flickable.contentY = targetY;
+			flickable.contentX = targetX;
+			folderView.lastViewMoveTime = Date.now();
+			grid.lastScrollX = flickable.contentX;
+			grid.lastScrollY = flickable.contentY;
+			grid.scrollRemainderX = 0;
+			grid.scrollRemainderY = 0;
+			return;
+		}
+
 		if (cfg && cfg.smooth_scrolling) {
 			// Mark the motion as focus-driven so the scroll-follow logic leaves
 			// it alone while it runs.
@@ -315,13 +416,12 @@ Item {
 			folderView.rootWindow.actionManager.activatePath(String(fm.focused_path), grid.slotAt(fm.focused_index));
 	}
 
-	// Called on every scroll position change. Fires periodically during a
-	// continuous flick (60 ms after the first change and then again as more
-	// arrive), so the cursor tracks the viewport instead of only snapping once
-	// the motion stops.
+	// Called on every scroll position change. Restarted on each one, so the
+	// cursor settles once the motion stops. Letting it fire every 60 ms during
+	// a continuous flick moved the cursor (and wrote the focus file) in the
+	// middle of the gesture, which was visible as a stutter.
 	function scheduleFocusFollow() {
-		if (!focusFollowTimer.running)
-			focusFollowTimer.start();
+		focusFollowTimer.restart();
 	}
 
 	// Keeps the cursor on a fully visible item while the user scrolls, without
@@ -331,6 +431,10 @@ Item {
 	function keepFocusInView() {
 		const fm = folderView.focusManager;
 		if (!fm || !fm.focus_active || fm.current_pane !== folderView.paneId || !folderView.focusOwned)
+			return;
+		// The viewport is being placed for a folder entry; that is not a user
+		// scroll and must not move the cursor.
+		if (folderView.entryScrollReset)
 			return;
 		// Ignore the motion a focus-driven scroll is itself producing.
 		if (folderView.focusScrollAnimating)
@@ -417,6 +521,30 @@ Item {
 		onTriggered: folderView.keepFocusInView()
 	}
 
+	// Publish the focused item for the top screen after the cursor settles.
+	// The title/icon lookup and the tiny-file write are not needed on every
+	// step of a held direction; the top screen polls at 200 ms regardless.
+	Timer {
+		id: topScreenFocusTimer
+		interval: 60
+		repeat: false
+		onTriggered: {
+			const fm = folderView.focusManager;
+			if (fm)
+				fm.publish_focus_now();
+		}
+	}
+
+	// Persist the cursor after it settles. Saving on every step wrote the
+	// session file from the GUI thread on every key press.
+	Timer {
+		id: saveFocusTimer
+		interval: 250
+		repeat: false
+		onTriggered: if (folderView.focusManager)
+			folderView.focusManager.persist_focus()
+	}
+
 	// Enter / gamepad accept: toggle the focused item in selection mode, otherwise open it
 	function activateFocused() {
 		const fm = folderView.focusManager;
@@ -435,6 +563,7 @@ Item {
 	// it. The view has to own the keyboard first (which registers/activates the
 	// pane), then the pane's focus can be pointed at the clicked item.
 	function focusSlot(path, reveal) {
+		folderView.endEntry();
 		const fm = folderView.focusManager;
 		if (!fm || !folderView.directory)
 			return;
@@ -522,6 +651,7 @@ Item {
 				// The directory has already scanned its folder when the path was
 				// set; only the initial view state is set up here.
 				folderView.lastPath = String(folderView.directory.path);
+				folderView.recordHistory(folderView.lastPath);
 				folderView.updateFocusItems();
 			} else {
 				console.error("FolderView: missing directory or config.");
@@ -597,7 +727,7 @@ Item {
 		const fm = folderView.focusManager;
 		if (!fm || folderView.paneId <= 0)
 			return;
-		if (metrics.free)
+		if (metrics.free || metrics.grouped)
 			fm.set_pane_positions(folderView.paneId, JSON.stringify(metrics.slots));
 		fm.set_pane_grid(folderView.paneId, metrics.columns, metrics.rows);
 		fm.set_pane_empty_slots(folderView.paneId, folderView.focusEmptySlots);
@@ -621,17 +751,29 @@ Item {
 			// A focus sound on every cursor move, but only when the cursor really
 			// moved: focus_changed also fires for pane / active changes, and a
 			// scroll-follow cursor move should stay quiet.
-			if (fm && fm.current_pane === folderView.paneId) {
+			if (fm && fm.focus_active && fm.current_pane === folderView.paneId) {
 				const path = String(fm.focused_path);
 				if (path !== "" && path !== folderView.lastFocusSoundPath && !folderView.suppressFocusScroll
 					&& !folderView.suppressFocusSound) {
 					folderView.lastFocusSoundPath = path;
-					folderView.playSound("item-focus");
+					// A held direction can step faster than the sound device
+					// wants to open the PCM; keep one tick per 60 ms.
+					const now = Date.now();
+					if (now - folderView.lastFocusSoundTime >= 60) {
+						folderView.lastFocusSoundTime = now;
+						folderView.playSound("item-focus");
+					}
 				}
+				saveFocusTimer.restart();
 			}
+			topScreenFocusTimer.restart();
 			// Keep the window's item actions pointed at the pane holding the
 			// cursor, even when the keyboard sits elsewhere (popup, dialog).
-			if (fm && folderView.rootWindow && fm.current_pane === folderView.paneId)
+			// Assigning the same view again still emits a change and re-runs
+			// every action binding that follows the target, so only do it when
+			// the focused pane actually changed.
+			if (fm && folderView.rootWindow && fm.current_pane === folderView.paneId
+				&& folderView.rootWindow.focusedFolderView !== folderView)
 				folderView.rootWindow.focusedFolderView = folderView;
 			// Follow the cursor when it moves into this pane, but never take the
 			// keyboard back from an open popup or a dialog that has taken it.
@@ -674,6 +816,13 @@ Item {
 			if (folderView.focusOwned && folderView.focusManager.current_pane === folderView.paneId)
 				folderView.openDirectoryMenu();
 		}
+		function onQuit_requested() {
+			if (!folderView.focusOwned || folderView.focusManager.current_pane !== folderView.paneId)
+				return;
+			const am = folderView.rootWindow ? folderView.rootWindow.actionManager : null;
+			if (am && am.quitAction.enabled)
+				am.quitAction.trigger();
+		}
 		function onCancel_requested() {
 			if (folderView.rootWindow && folderView.rootWindow.sheetOpen)
 				return;
@@ -697,17 +846,23 @@ Item {
 				return;
 			}
 
-			// Back only sounds, and only goes up, when there is somewhere to go:
-			// at the root there is no back, and sounding anyway made every B press
-			// feel like an action.
-			const am = folderView.rootWindow ? folderView.rootWindow.actionManager : null;
-			if (am && am.goUpAction.enabled) {
+			// South is Back. It walks this pane's history rather than going to
+			// the parent; with nothing behind it, it is silent.
+			if (folderView.canGoBack && folderView.goBack())
 				folderView.playSound("return");
-				am.goUpAction.trigger();
-			}
 		}
 	}
 
+
+	// The scan runs on a worker; poll it quickly so the rows appear as soon as
+	// the card has answered, without a GUI-thread wait.
+	Timer {
+		interval: 30
+		repeat: true
+		running: folderView.directory ? folderView.directory.scanning : false
+		onTriggered: if (folderView.directory)
+			folderView.directory.poll_scan()
+	}
 
 	Timer {
 		interval: 400
@@ -729,7 +884,24 @@ Item {
 		// A rebuild re-resolves every icon to its plain MIME icon, so thumbnail
 		// requests must be re-issued for the visible items afterwards.
 		function onModelReset() {
+			// The worker scan can reorder the rows without changing the count
+			// (the placeholder pass sorts by name, the finished scan by the
+			// folder's sort mode). `onCountChanged` therefore does not fire;
+			// without this the pane kept the placeholder order and the D-pad
+			// index and the published focus path disagreed. Tap was correct
+			// because focusSlot refreshes the pane first.
+			folderView.updateFocusItems();
 			folderView.scheduleThumbnails();
+		}
+
+		function onScanning_changed() {
+			if (!folderView.directory || folderView.directory.scanning)
+				return;
+			if (!folderView.entryScanPending)
+				return;
+			folderView.entryScanPending = false;
+			folderView.resetEntryViewport();
+			Qt.callLater(() => folderView.ensureFocusVisible());
 		}
 
 		// Filtering swaps the visible rows; re-point the pane at them and put
@@ -746,7 +918,17 @@ Item {
 			const current = String(folderView.directory.path);
 			const previous = folderView.lastPath;
 			folderView.lastPath = current;
+			if (folderView.historyNavigating)
+				folderView.historyNavigating = false;
+			else
+				folderView.recordHistory(current);
 			folderView.returnFocusPath = previous;
+
+			// The scan now runs on a worker. Put the viewport at the top now,
+			// and do it again when the rows arrive so a cold scan cannot leave
+			// the view chasing the cursor.
+			folderView.entryScanPending = true;
+			folderView.resetEntryViewport();
 
 			// The directory has already scanned the new folder (and re-read its
 			// config) when the path was set, so only the view state is updated
@@ -776,7 +958,8 @@ Item {
 
 		function onItems_changed() {
 			// Only keys that change which files exist require a full re-scan.
-			folderView.directory.load_directory(folderView.directory.path, !folderView.config.stash_dotfiles);
+			const includeHidden = !folderView.config.stash_dotfiles || folderView.config.show_stash;
+			folderView.directory.load_directory(folderView.directory.path, includeHidden);
 			folderView.updateFocusItems();
 		}
 	}
@@ -1477,25 +1660,37 @@ Item {
 			folderView.folderNavPath = "";
 			if (path === "" || !folderView.directory)
 				return;
+
+			const navigate = function () {
+				if (!folderView.directory)
+					return;
+				folderView.playSound("window-new");
+				folderView.directory.open_path(path);
+			};
+
 			// In free placement the drag is an in-window reposition tracked by
 			// the slot; navigating would destroy it. Hand it to an OS drag (which
 			// lives on the window, not the slot) so it survives the folder change.
+			// The hand-off queues `navigate` inside QDrag::exec(), because that
+			// call does not return until the gesture ends. Opening the folder
+			// after it returned was why the hover never descended.
 			if (folderView.repositionDragActive) {
 				const handler = folderView.rootWindow ? folderView.rootWindow.dragDropHandler : null;
 				const mainPath = handler ? String(handler.drag_main_path) : "";
 				let source = null;
-				for (let i = 0; i < itemRepeater.count; ++i) {
-					const it = itemRepeater.itemAt(i);
+				for (let i = 0; i < grid.count; ++i) {
+					const it = grid.slotAt(i);
 					if (it && String(it.path) === mainPath) {
 						source = it;
 						break;
 					}
 				}
-				if (source && handler && typeof source.handOffRepositionDrag === 'function')
-					source.handOffRepositionDrag(handler.drag_cursor_x, handler.drag_cursor_y);
+				if (source && handler && typeof source.handOffRepositionDrag === 'function') {
+					source.handOffRepositionDrag(handler.drag_cursor_x, handler.drag_cursor_y, navigate);
+					return;
+				}
 			}
-			folderView.playSound("window-new");
-			folderView.directory.open_path(path);
+			navigate();
 		}
 	}
 
@@ -1573,6 +1768,7 @@ Item {
 		case Qt.Key_Right:
 		case Qt.Key_Up:
 		case Qt.Key_Down: {
+			folderView.endEntry();
 			const direction = event.key === Qt.Key_Left ? "left" : event.key === Qt.Key_Right ? "right" : event.key === Qt.Key_Up ? "up" : "down";
 			// Shift extends the selection with the item the cursor lands on;
 			// that gesture owns its sound, so the focus move stays quiet.
@@ -1587,10 +1783,12 @@ Item {
 			break;
 		}
 		case Qt.Key_Home:
+			folderView.endEntry();
 			fm.focus_first();
 			event.accepted = true;
 			break;
 		case Qt.Key_End:
+			folderView.endEntry();
 			fm.focus_last();
 			event.accepted = true;
 			break;
@@ -1737,7 +1935,14 @@ Item {
 		// Scrolling must not leave the cursor on a clipped item: the focus
 		// follows the viewport, moving to the nearest item that is fully in
 		// view. Throttled, so a fling does not walk the cursor for every pixel.
-		onViewportScrolled: folderView.scheduleFocusFollow()
+		onViewportScrolled: {
+			folderView.lastViewMoveTime = Date.now();
+			// Entry placement and a focus-driven reveal are programmatic; only
+			// a user gesture should move the cursor to follow the viewport.
+			if (folderView.entryScrollReset || folderView.focusScrollAnimating)
+				return;
+			folderView.scheduleFocusFollow();
+		}
 		// The gesture is over: settle the cursor now, so the border reappears
 		// on a fully visible item instead of flashing on a clipped one.
 		onScrollEnded: {

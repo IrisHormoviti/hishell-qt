@@ -436,6 +436,10 @@ RowLayout {
 				actionManager: pathBar.window.actionManager
 
 				is_dir: true
+				is_directory: true
+				control_kind: 0
+				toggle_on: false
+				number_value: ""
 				// The breadcrumb is not a model row; it has no size or times.
 				size_bytes: 0
 				modified_time: 0

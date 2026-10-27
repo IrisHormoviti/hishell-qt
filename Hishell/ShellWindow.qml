@@ -115,9 +115,10 @@ Kirigami.ApplicationWindow {
 		target: directory
 
 		// Navigation (and the initial path) re-points the window icon at the
-		// folder being viewed.
+		// folder being viewed. The existing one-second icon poll catches it;
+		// building the masked icon is not part of drawing the new folder, and
+		// the first one is built at startup before the window is shown.
 		function onPathChanged() {
-			Qt.callLater(() => root.refreshWindowIcon());
 		}
 	}
 
@@ -126,7 +127,6 @@ Kirigami.ApplicationWindow {
 	Connections {
 		target: directory.config
 		function onConfig_changed() {
-			Qt.callLater(() => root.refreshWindowIcon());
 			root.applyConfiguredScreen();
 		}
 	}
@@ -333,6 +333,17 @@ Kirigami.ApplicationWindow {
 
 	function requestLaunchConfirm(blockedItem, launchItem) {
 		launchConfirm.ask(blockedItem, launchItem);
+	}
+
+	// A `Type=Number` settings row opens this dialog instead of launching.
+	NumberDialog {
+		id: numberDialog
+		window: root
+		fileManager: root.fileManager
+	}
+
+	function requestNumberDialog(path) {
+		numberDialog.openFor(path);
 	}
 
 	// Delete is not one action for a settings section: the warning offers
@@ -575,6 +586,14 @@ Kirigami.ApplicationWindow {
 	onActiveChanged: Qt.callLater(() => root.ensureFolderViewFocus())
 	onActiveFocusItemChanged: Qt.callLater(() => root.ensureFolderViewFocus())
 
+	/// Show a short message in the banner at the top of the window. The banner
+	/// is reused for things that need attention but not a modal dialog.
+	function showNotice(text) {
+		root.dropDeclinedNames = [];
+		root.dropNoticeText = String(text);
+		dropNoticeTimer.restart();
+	}
+
 	function showDropDeclined(name) {
 		const names = root.dropDeclinedNames.concat([String(name)]);
 		root.dropDeclinedNames = names;
@@ -771,6 +790,40 @@ Kirigami.ApplicationWindow {
 				layoutString: String(directory.config.bottom_layout || "[]")
 				Layout.fillWidth: true
 			}
+		}
+	}
+
+	// Render themed icons a few at a time. The first request for an icon uses
+	// the themed fallback; the PNG is rendered here, away from scrolling and
+	// animation, and the slots switch to the cached image when icon_revision
+	// moves.
+	Timer {
+		id: iconRenderTimer
+		interval: 120
+		repeat: true
+		running: root.fileManager !== null
+		onTriggered: {
+			if (!root.fileManager || !root.fileManager.icons_pending())
+				return;
+			// Never render in the middle of a scroll or its fling; a QIcon
+			// render is a visible stall on this device.
+			if (root.primaryFolderView && Date.now() - root.primaryFolderView.lastViewMoveTime < 700)
+				return;
+			root.fileManager.render_icon_tick();
+		}
+	}
+
+	// Development benchmark (see PerfBench.qml). Inactive unless the shell was
+	// started with HISHELL_PERF set or /run/clam/perf exists.
+	Loader {
+		id: perfBenchLoader
+		property int perfMode: root.fileManager ? root.fileManager.perf_mode() : 0
+		active: perfMode > 0
+		source: "qrc:/Hishell/PerfBench.qml"
+		onLoaded: if (item) {
+			item.win = root;
+			item.mode = perfMode;
+			item.beginBench();
 		}
 	}
 }

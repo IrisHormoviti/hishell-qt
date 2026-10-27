@@ -1,7 +1,58 @@
 use crate::config_parser::{ConfigError, ConfigParser, ConfigValue, ParseOutput};
+use once_cell::sync::Lazy;
 use qmetaobject::prelude::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::UNIX_EPOCH;
+
+/// A desktop entry larger than this is not an entry: the spec's files are a few
+/// kilobytes, and the header sniff below has to open the file. Without a size
+/// gate, scanning a folder of ROMs opened every multi-megabyte file to read
+/// 512 bytes just to discover it is not a desktop entry.
+const MAX_ENTRY_SNIFF_LEN: u64 = 256 * 1024;
+
+/// A parsed desktop entry / folder config, keyed by the path it was loaded for.
+/// Every view asks the same entry for its type, icon and name several times per
+/// item (title, icon, control kind, ...); each ask used to re-read and re-parse
+/// the default config, the system config, the user config and the entry itself.
+/// A folder of a thousand files paid that thousands of times per scan and again
+/// for every delegate the view created.
+///
+/// The stamp is the item's own mtime/size (and a directory's `.directory`
+/// stamp), so an entry rewritten in place is picked up without an invalidation
+/// call. The map is small and bounded: entries are tiny, and a listing only
+/// holds a folder's worth at a time.
+type EntryStamp = (u64, u64, bool, u64, u64);
+static ENTRY_CACHE: Lazy<Mutex<HashMap<PathBuf, (EntryStamp, HashMap<String, ConfigValue>)>>> =
+	Lazy::new(|| Mutex::new(HashMap::new()));
+const ENTRY_CACHE_LIMIT: usize = 8192;
+
+fn file_stamp(path: &Path) -> (u64, u64, bool) {
+	match std::fs::metadata(path) {
+		Ok(meta) => {
+			let modified = meta
+				.modified()
+				.ok()
+				.and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+				.map(|duration| duration.as_nanos() as u64)
+				.unwrap_or(0);
+			(modified, meta.len(), meta.is_dir())
+		}
+		Err(_) => (0, 0, false),
+	}
+}
+
+fn entry_stamp(path: &Path) -> EntryStamp {
+	let (modified, len, is_dir) = file_stamp(path);
+	let (dir_modified, dir_len) = if is_dir {
+		let (modified, len, _) = file_stamp(&path.join(".directory"));
+		(modified, len)
+	} else {
+		(0, 0)
+	};
+	(modified, len, is_dir, dir_modified, dir_len)
+}
 
 /// Returns the config / desktop entry file associated with a given path.
 /// - For a directory, this is `<path>/.directory`.
@@ -42,7 +93,11 @@ pub fn entry_path(path: &Path) -> Option<PathBuf> {
 		.is_some_and(|n| n.eq_ignore_ascii_case(".directory"))
 	{
 		Some(path.to_path_buf())
-	} else if path.is_file() && has_desktop_entry_header(path) {
+	} else if path
+		.metadata()
+		.is_ok_and(|meta| meta.is_file() && meta.len() <= MAX_ENTRY_SNIFF_LEN)
+		&& has_desktop_entry_header(path)
+	{
 		Some(path.to_path_buf())
 	} else {
 		None
@@ -106,25 +161,102 @@ fn system_config_paths_from(dirs: &str) -> Vec<PathBuf> {
 	paths
 }
 
-fn load_with_override(override_path: &Path) -> ParseOutput {
-	let default_cfg = Path::new("config/default.cfg");
-	let global_cfg = dirs::config_dir()
+fn default_config_path() -> PathBuf {
+	PathBuf::from("config/default.cfg")
+}
+
+fn global_config_path() -> PathBuf {
+	dirs::config_dir()
 		.map(|mut p| {
 			p.push("hishell");
 			p.push("folder.cfg");
 			p
 		})
-		.unwrap_or_else(|| std::path::PathBuf::from("config/default.cfg"));
+		.unwrap_or_else(default_config_path)
+}
+
+/// The config files shared by every entry: the bundled defaults, the system
+/// policy and the user's global folder.cfg. They do not depend on the item
+/// being loaded, so parsing them once per entry re-read and re-parsed the same
+/// five kilobytes for every file in a folder. Cached with a stamp of their
+/// sizes and mtimes so an edit on disk is still seen.
+static BASE_CONFIG: Lazy<Mutex<Option<(u64, ParseOutput)>>> = Lazy::new(|| Mutex::new(None));
+
+fn base_config_stamp(paths: &[PathBuf]) -> u64 {
+	let mut stamp = 0u64;
+	for path in paths {
+		let (modified, len, _) = file_stamp(path);
+		stamp = stamp
+			.wrapping_mul(1099511628211)
+			.wrapping_add(modified ^ len.rotate_left(17));
+	}
+	stamp
+}
+
+fn base_config() -> ParseOutput {
+	let default_cfg = default_config_path();
+	let global_cfg = global_config_path();
 	let system_cfg = system_config_paths();
-	let mut paths: Vec<&Path> = Vec::with_capacity(3 + system_cfg.len());
+	let mut paths: Vec<PathBuf> = Vec::with_capacity(2 + system_cfg.len());
 	paths.push(default_cfg);
-	paths.extend(system_cfg.iter().map(PathBuf::as_path));
-	paths.push(global_cfg.as_path());
-	paths.push(override_path);
-	ConfigParser::parse_files(&paths)
+	paths.extend(system_cfg);
+	paths.push(global_cfg);
+
+	let stamp = base_config_stamp(&paths);
+	if let Ok(cache) = BASE_CONFIG.lock()
+		&& let Some((cached_stamp, output)) = cache.as_ref()
+		&& *cached_stamp == stamp
+	{
+		return output.clone();
+	}
+
+	let path_refs: Vec<&Path> = paths.iter().map(PathBuf::as_path).collect();
+	let output = ConfigParser::parse_files(&path_refs);
+	if let Ok(mut cache) = BASE_CONFIG.lock() {
+		*cache = Some((stamp, output.clone()));
+	}
+	output
+}
+
+fn load_with_override(override_path: &Path) -> ParseOutput {
+	let mut output = base_config();
+	let over = ConfigParser::parse_files(&[override_path]);
+	for (key, origin) in over.origins {
+		output.origins.insert(key, origin);
+	}
+	for (section, items) in over.sections {
+		for (key, value) in items {
+			output
+				.sections
+				.entry(section.clone())
+				.or_default()
+				.insert(key, value);
+		}
+	}
+	output.errors.extend(over.errors);
+	output
 }
 
 pub fn load_entry(path: &Path) -> HashMap<String, ConfigValue> {
+	let stamp = entry_stamp(path);
+	if let Ok(cache) = ENTRY_CACHE.lock()
+		&& let Some((cached_stamp, value)) = cache.get(path)
+		&& *cached_stamp == stamp
+	{
+		return value.clone();
+	}
+
+	let value = load_entry_uncached(path);
+	if let Ok(mut cache) = ENTRY_CACHE.lock() {
+		if cache.len() >= ENTRY_CACHE_LIMIT {
+			cache.clear();
+		}
+		cache.insert(path.to_path_buf(), (stamp, value.clone()));
+	}
+	value
+}
+
+fn load_entry_uncached(path: &Path) -> HashMap<String, ConfigValue> {
 	let mut load = load_path_checked(path);
 	let mut errors = std::mem::take(&mut load.errors);
 	errors.extend(validate_values(&load.sections, &load.origins));
@@ -267,6 +399,19 @@ const EXPECTED_KEYS: &[(&str, &str, ExpectedKind)] = &[
 		"SortAlphaMode",
 		ExpectedKind::StrEnum(&["TITLES", "FILENAMES"]),
 	),
+	// How the folder is divided into labelled sections. Custom groups are
+	// defined by the folder (and by each item's own Group= key), so the user
+	// cannot change that mode from the view controls.
+	(
+		"Folder View",
+		"Group",
+		ExpectedKind::StrEnum(&["NONE", "DATE", "LETTERS", "TYPE", "CUSTOM"]),
+	),
+	// Ordered custom groups:
+	// [{"name": "Clock", "files": ["datetime.desktop", "timezone"]}, ...]
+	("Folder View", "Groups", ExpectedKind::Array),
+	("Folder View", "ShowStash", ExpectedKind::Bool),
+	// Kept as an alias for older folder configs.
 	("Folder View", "StashShown", ExpectedKind::Bool),
 	("Folder View", "StashDotFiles", ExpectedKind::Bool),
 	("Folder View", "FreePlacementPositions", ExpectedKind::Dict),
@@ -489,6 +634,13 @@ pub struct Config {
 	pub sort: qt_property!(u8; NOTIFY config_changed),
 	pub sort_date_mode: qt_property!(u8; NOTIFY config_changed),
 	pub sort_alpha_mode: qt_property!(u8; NOTIFY config_changed),
+	// 0 = no grouping, 1 = date, 2 = first letter, 3 = type, 4 = custom.
+	pub group_mode: qt_property!(u8; NOTIFY config_changed),
+	// Ordered JSON array of custom group definitions.
+	pub groups: qt_property!(String; NOTIFY config_changed),
+	// Show normally hidden items in a final Stash group. `stash_shown` is the
+	// old name for the same switch.
+	pub show_stash: qt_property!(bool; NOTIFY config_changed),
 	pub stash_shown: qt_property!(bool; NOTIFY config_changed),
 	pub stash_dotfiles: qt_property!(bool; NOTIFY config_changed),
 	pub free_placement_positions: qt_property!(String; NOTIFY config_changed),
@@ -555,7 +707,13 @@ impl ChangedKeys {
 /// these requires a directory re-scan, so `items_changed` is emitted instead of
 /// a layout-only refresh.
 pub fn key_affects_items(section: &str, key: &str) -> bool {
-	matches!((section, key), ("Folder View", "StashDotFiles"))
+	matches!(
+		(section, key),
+		(
+			"Folder View",
+			"StashDotFiles" | "ShowStash" | "StashShown"
+		)
+	)
 }
 
 /// Keys whose value only reorders the existing items, so a write can update the
@@ -563,7 +721,10 @@ pub fn key_affects_items(section: &str, key: &str) -> bool {
 pub fn key_affects_order(section: &str, key: &str) -> bool {
 	matches!(
 		(section, key),
-		("Folder View", "Sort" | "SortDateMode" | "SortAlphaMode")
+		(
+			"Folder View",
+			"Sort" | "SortDateMode" | "SortAlphaMode" | "Group" | "Groups"
+		)
 	)
 }
 
@@ -778,8 +939,25 @@ impl Config {
 					_ => 0,
 				};
 		}
-		if changed!("Folder View", "StashShown") {
-			self.stash_shown = bool_value(get("Folder View", "StashShown"), false);
+		if changed!("Folder View", "Group") {
+			self.group_mode = match enum_value(get("Folder View", "Group"), "NONE").as_str() {
+				"DATE" => 1,
+				"LETTERS" => 2,
+				"TYPE" => 3,
+				"CUSTOM" => 4,
+				_ => 0,
+			};
+		}
+		if changed!("Folder View", "Groups") {
+			self.groups = json_value(get("Folder View", "Groups"), "[]").into();
+		}
+		if changed!("Folder View", "ShowStash") || changed!("Folder View", "StashShown") {
+			// ShowStash is the current key; StashShown is what older configs
+			// and the pre-grouping view controls wrote.
+			let value = get("Folder View", "ShowStash")
+				.or_else(|| get("Folder View", "StashShown"));
+			self.show_stash = bool_value(value, false);
+			self.stash_shown = self.show_stash;
 		}
 		if changed!("Folder View", "StashDotFiles") {
 			self.stash_dotfiles = bool_value(get("Folder View", "StashDotFiles"), true);

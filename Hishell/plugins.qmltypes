@@ -188,6 +188,9 @@ Module {
 		Property { name: "sort"; type: "u8"; isReadonly: true }
 		Property { name: "sort_date_mode"; type: "u8"; isReadonly: true }
 		Property { name: "sort_alpha_mode"; type: "u8"; isReadonly: true }
+		Property { name: "group_mode"; type: "u8"; isReadonly: true }
+		Property { name: "groups"; type: "string"; isReadonly: true }
+		Property { name: "show_stash"; type: "bool"; isReadonly: true }
 		Property { name: "stash_shown"; type: "bool"; isReadonly: true }
 		Property { name: "stash_dotfiles"; type: "bool"; isReadonly: true }
 		Property { name: "free_placement_positions"; type: "string"; isReadonly: true }
@@ -221,15 +224,32 @@ Module {
 		exportMetaObjectRevisions: [256]
 
 		Property { name: "config"; type: "QVariant"; isReadonly: true }
+		Property { name: "exposing"; type: "bool"; isReadonly: true }
+		Property { name: "scanning"; type: "bool"; isReadonly: true }
 		Property { name: "title"; type: "string"; isReadonly: true }
 		Property { name: "icon"; type: "string"; isReadonly: true }
 		Property { name: "has_meta"; type: "bool"; isReadonly: true }
 		Property { name: "path"; type: "string" }
 		Property { name: "filter"; type: "string"; isReadonly: true }
 		Signal { name: "config_changed" }
+		Signal { name: "exposure_changed" }
+		Signal { name: "scanning_changed" }
 		Signal { name: "path_changed" }
 		Signal { name: "filter_changed" }
 		Signal { name: "requestExecutePrompt" }
+		Method {
+			name: "poll_scan"
+			type: "void"
+		}
+		Method {
+			name: "expose_rows"
+			type: "void"
+		}
+		Method {
+			name: "expose_to"
+			type: "void"
+			Parameter { name: "row"; type: "int" }
+		}
 		Method {
 			name: "execute_file"
 			type: "string"
@@ -304,6 +324,11 @@ Module {
 			type: "void"
 		}
 		Method {
+			name: "request_descriptor"
+			type: "void"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
 			name: "request_thumbnail"
 			type: "void"
 			Parameter { name: "path"; type: "string" }
@@ -375,6 +400,19 @@ Module {
 			Parameter { name: "item_width"; type: "double" }
 			Parameter { name: "item_height"; type: "double" }
 			Parameter { name: "gap"; type: "double" }
+		}
+		Method {
+			name: "group_layout"
+			type: "string"
+			Parameter { name: "horizontal"; type: "bool" }
+			Parameter { name: "view_width"; type: "double" }
+			Parameter { name: "view_height"; type: "double" }
+			Parameter { name: "item_width"; type: "double" }
+			Parameter { name: "item_height"; type: "double" }
+			Parameter { name: "gap"; type: "double" }
+			Parameter { name: "header_size"; type: "double" }
+			Parameter { name: "lines"; type: "int" }
+			Parameter { name: "list_mode"; type: "bool" }
 		}
 		Method {
 			name: "load_directory"
@@ -462,7 +500,9 @@ Module {
 		exports: ["Hishell/FileManager 1.0"]
 		exportMetaObjectRevisions: [256]
 
+		Property { name: "icon_revision"; type: "int"; isReadonly: true }
 		Signal { name: "drop_declined" }
+		Signal { name: "icon_revision_changed" }
 		Method {
 			name: "copy_file"
 			type: "bool"
@@ -541,6 +581,27 @@ Module {
 			Parameter { name: "path"; type: "string" }
 		}
 		Method {
+			name: "request_text_entry"
+			type: "string"
+			Parameter { name: "prompt"; type: "string" }
+			Parameter { name: "text"; type: "string" }
+			Parameter { name: "cursor"; type: "string" }
+		}
+		Method {
+			name: "poll_text_entry"
+			type: "string"
+			Parameter { name: "id"; type: "string" }
+		}
+		Method {
+			name: "cancel_text_entry"
+			type: "void"
+			Parameter { name: "id"; type: "string" }
+		}
+		Method {
+			name: "keyboard_available"
+			type: "bool"
+		}
+		Method {
 			name: "rename_file"
 			type: "string"
 			Parameter { name: "path"; type: "string" }
@@ -609,6 +670,11 @@ Module {
 			type: "int"
 		}
 		Method {
+			name: "quit_active"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
 			name: "get_default_app"
 			type: "string"
 			Parameter { name: "path"; type: "string" }
@@ -660,6 +726,42 @@ Module {
 			Parameter { name: "path"; type: "string" }
 		}
 		Method {
+			name: "is_control"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "is_toggle"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "toggle_on"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "is_number"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "number_spec"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "run_toggle"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "run_number"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+			Parameter { name: "values"; type: "string" }
+		}
+		Method {
 			name: "set_icon_theme"
 			type: "bool"
 			Parameter { name: "theme"; type: "string" }
@@ -675,6 +777,23 @@ Module {
 			Parameter { name: "text_r"; type: "int" }
 			Parameter { name: "text_g"; type: "int" }
 			Parameter { name: "text_b"; type: "int" }
+		}
+		Method {
+			name: "perf_mode"
+			type: "int"
+		}
+		Method {
+			name: "perf_log"
+			type: "void"
+			Parameter { name: "message"; type: "string" }
+		}
+		Method {
+			name: "render_icon_tick"
+			type: "bool"
+		}
+		Method {
+			name: "icons_pending"
+			type: "bool"
 		}
 		Method {
 			name: "get_home_directory"
@@ -710,6 +829,7 @@ Module {
 		Signal { name: "menu_requested" }
 		Signal { name: "select_requested" }
 		Signal { name: "directory_menu_requested" }
+		Signal { name: "quit_requested" }
 		Method {
 			name: "register_pane"
 			type: "int"
@@ -776,6 +896,18 @@ Module {
 			name: "activate_pane"
 			type: "void"
 			Parameter { name: "id"; type: "int" }
+		}
+		Method {
+			name: "persist_focus"
+			type: "void"
+		}
+		Method {
+			name: "publish_focus_now"
+			type: "void"
+		}
+		Method {
+			name: "refresh_active_items"
+			type: "void"
 		}
 		Method {
 			name: "set_pane_focus_path"

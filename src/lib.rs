@@ -21,6 +21,7 @@ pub mod focus_manager;
 pub mod gamepad;
 pub mod image_utils;
 pub mod kde_bridge;
+pub mod keyboard;
 pub mod launch;
 pub mod path_utils;
 pub mod selection_manager;
@@ -97,6 +98,7 @@ pub fn install() {
 			"DestroyConfirmDialog.qml",
 			"ExecuteDialog.qml",
 			"FileSlot.qml",
+			"DeferredFileSlot.qml",
 			"FocusBorder.qml",
 			"FolderFilterBar.qml",
 			"FolderGrid.qml",
@@ -104,11 +106,14 @@ pub fn install() {
 			"FolderView.qml",
 			"LayoutEngine.qml",
 			"LaunchConfirmDialog.qml",
+			"NumberDialog.qml",
 			"OpenWithDialog.qml",
+			"PerfBench.qml",
 			"Recovery.qml",
 			"ShellContextMenu.qml",
 			"ShellWindow.qml",
 			"StyleThemeBridge.qml",
+			"ToggleSwitch.qml",
 			"WindowOverlay.qml",
 			"toolkit/qmldir" as "toolkit/qmldir",
 			"toolkit/MenuBar.qml" as "toolkit/MenuBar.qml",
@@ -137,6 +142,7 @@ pub fn setup_process() {
 	kde_bridge::hook_menu_key();
 	kde_bridge::suppress_touch_hover();
 	kde_bridge::warm_icons();
+	directory_descriptor::warm();
 	gamepad::init();
 }
 

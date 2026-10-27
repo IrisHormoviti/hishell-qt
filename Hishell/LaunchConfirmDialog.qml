@@ -56,6 +56,7 @@ Kirigami.OverlaySheet {
 				visible: parent.isThumbnail
 				fillMode: Image.PreserveAspectFit
 				asynchronous: true
+				smooth: parent.artSource.indexOf("/hishell/descriptors/") === -1
 				source: parent.isThumbnail ? parent.artSource : ""
 			}
 

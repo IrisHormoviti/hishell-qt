@@ -59,7 +59,7 @@ const COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Generators are mostly I/O: a small number of workers is plenty and keeps a
 /// folder scan from spawning one process per ROM at once.
-const MAX_WORKERS: usize = 2;
+const MAX_WORKERS: usize = 1;
 
 /// Pending jobs per folder. Every item's title and icon depend on this work, so
 /// the bound is generous; a folder bigger than this still gets the first items
@@ -424,7 +424,16 @@ fn wait_with_timeout(child: &mut Child, timeout: Duration) -> Option<ExitStatus>
 
 fn run_generator(exec: &str, src: &Path, out: &Path, mime: &str) -> bool {
 	let command_line = expand_exec(exec, src, out, mime);
-	let Ok(mut child) = Command::new("sh").arg("-c").arg(command_line).spawn() else {
+	// Descriptors are a background nicety; a generator must never compete with
+	// the shell for the CPU while the user is scrolling.
+	let Ok(mut child) = Command::new("nice")
+		.arg("-n")
+		.arg("10")
+		.arg("sh")
+		.arg("-c")
+		.arg(command_line)
+		.spawn()
+	else {
 		return false;
 	};
 	matches!(

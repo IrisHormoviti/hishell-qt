@@ -1,6 +1,7 @@
 use qmetaobject::{QVariantList, prelude::*};
 use serde_json;
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 #[derive(QObject, Default)]
 pub struct SelectionManager {
@@ -8,6 +9,11 @@ pub struct SelectionManager {
 
 	selection_active: qt_property!(bool; NOTIFY selection_changed),
 	selected_paths: qt_property!(String; NOTIFY selection_changed),
+	// The selection in the form the slots ask for it. Every visible delegate
+	// used to re-parse `selected_paths` JSON per query, so one selection change
+	// in a folder of a hundred items parsed the same JSON a hundred times (and
+	// `update_status` did it again). Kept in sync by `store_selection`.
+	selected_cache: Mutex<HashMap<String, bool>>,
 	selected_count: qt_property!(i32; NOTIFY selection_changed),
 	last_selected_index: qt_property!(i32; NOTIFY selection_changed),
 	// NEW PROPERTY: Consolidated status for QML binding
@@ -33,6 +39,7 @@ pub struct SelectionManager {
 				self.selection_active = false;
 				self.selected_paths = String::new();
 				self.selected_count = 0;
+				self.selected_cache.lock().unwrap().clear();
 				self.last_selected_index = -1;
 				// Update status when exiting selection mode
 				self.update_status();
@@ -52,8 +59,7 @@ pub struct SelectionManager {
 			} else {
 				sel.insert(path, true);
 			}
-			self.selected_count = sel.len() as i32;
-			self.selected_paths = serde_json::to_string(&sel).unwrap_or_default();
+			self.store_selection(sel);
 			self.last_selected_index = idx;
 			// Update status after changing selection
 			self.update_status();
@@ -84,8 +90,7 @@ pub struct SelectionManager {
 					sel.insert(path_str, true);
 				}
 			}
-			self.selected_count = sel.len() as i32;
-			self.selected_paths = serde_json::to_string(&sel).unwrap_or_default();
+			self.store_selection(sel);
 			self.update_status();
 			self.selection_changed();
 		}
@@ -112,7 +117,7 @@ pub struct SelectionManager {
 	// re-parse the whole selection JSON once per slot on every change.
 	is_selected: qt_method!(
 		fn is_selected(&self, path: String) -> bool {
-			self.get_selected_paths().contains_key(&path)
+			self.selected_cache.lock().unwrap().contains_key(&path)
 		}
 	),
 
@@ -124,8 +129,17 @@ pub struct SelectionManager {
 }
 
 impl SelectionManager {
+	/// Replace the selection and keep the parsed form in step with the JSON
+	/// property the QML exposes.
+	fn store_selection(&mut self, selection: HashMap<String, bool>) {
+		self.selected_count = selection.len() as i32;
+		self.selected_paths = serde_json::to_string(&selection).unwrap_or_default();
+		*self.selected_cache.lock().unwrap() = selection;
+	}
+
 	// Helper function to generate the consolidated status JSON
 	fn update_status(&mut self) {
+		let selected = self.get_selected_paths();
 		let mut status = HashMap::new();
 		status.insert(
 			"count".to_string(),
@@ -133,21 +147,13 @@ impl SelectionManager {
 		);
 		status.insert(
 			"paths".to_string(),
-			serde_json::Value::from(
-				self.get_selected_paths()
-					.keys()
-					.cloned()
-					.collect::<Vec<String>>(),
-			),
+			serde_json::Value::from(selected.keys().cloned().collect::<Vec<String>>()),
 		);
 		// This new property will hold the consolidated status JSON string
 		self.selection_status = serde_json::to_string(&status).unwrap_or_default();
 	}
 
 	fn get_selected_paths(&self) -> HashMap<String, bool> {
-		if self.selected_paths.is_empty() {
-			return HashMap::new();
-		}
-		serde_json::from_str(&self.selected_paths).unwrap_or_default()
+		self.selected_cache.lock().unwrap().clone()
 	}
 }

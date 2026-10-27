@@ -110,7 +110,7 @@ Item {
 							asynchronous: true
 							cache: false
 							fillMode: Image.PreserveAspectFit
-							smooth: true
+							smooth: previewItem.slotIcon.indexOf("/hishell/descriptors/") === -1
 							clip: true
 						}
 					}

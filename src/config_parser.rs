@@ -49,6 +49,7 @@ pub struct ConfigError {
 	pub message: String,
 }
 
+#[derive(Clone)]
 pub struct ParseOutput {
 	pub sections: HashMap<String, HashMap<String, ConfigValue>>,
 	pub origins: HashMap<(String, String), String>,

@@ -40,6 +40,59 @@ QtObject {
 
 	readonly property real desktopHeaderHeight: Math.max(48, Kirigami.Units.gridUnit * 3)
 
+	// The four faces a file label can use. A folder's delegates all share the
+	// same font; measuring the italic face once here (Qt resolves it at a
+	// slightly smaller metric on this device, so the symlink label needs
+	// scaling) keeps two FontMetrics and a QFont construction out of every
+	// slot.
+	readonly property real labelBasePixelSize: Qt.application.font.pixelSize
+	property FontMetrics labelRegularMetrics: FontMetrics {
+		font: Qt.font({
+			family: Qt.application.font.family,
+			pixelSize: coreTheme.labelBasePixelSize,
+			italic: false
+		})
+	}
+	property FontMetrics labelItalicMetrics: FontMetrics {
+		font: Qt.font({
+			family: Qt.application.font.family,
+			pixelSize: coreTheme.labelBasePixelSize,
+			italic: true
+		})
+	}
+	readonly property real labelItalicScale: coreTheme.labelItalicMetrics.height > 0
+		? coreTheme.labelRegularMetrics.height / coreTheme.labelItalicMetrics.height
+		: 1.0
+	readonly property int labelItalicPixelSize: Math.round(coreTheme.labelBasePixelSize * coreTheme.labelItalicScale)
+	readonly property font labelFont: Qt.font({
+		family: Qt.application.font.family,
+		pixelSize: coreTheme.labelBasePixelSize,
+		weight: Qt.application.font.weight,
+		italic: false,
+		bold: false
+	})
+	readonly property font labelFontBold: Qt.font({
+		family: Qt.application.font.family,
+		pixelSize: coreTheme.labelBasePixelSize,
+		weight: Qt.application.font.weight,
+		italic: false,
+		bold: true
+	})
+	readonly property font labelFontItalic: Qt.font({
+		family: Qt.application.font.family,
+		pixelSize: coreTheme.labelItalicPixelSize,
+		weight: Qt.application.font.weight,
+		italic: true,
+		bold: false
+	})
+	readonly property font labelFontItalicBold: Qt.font({
+		family: Qt.application.font.family,
+		pixelSize: coreTheme.labelItalicPixelSize,
+		weight: Qt.application.font.weight,
+		italic: true,
+		bold: true
+	})
+
 	readonly property string configDir: coreTheme.localPath(StandardPaths.writableLocation(StandardPaths.GenericConfigLocation))
 	readonly property string dataDir: coreTheme.localPath(StandardPaths.writableLocation(StandardPaths.GenericDataLocation))
 	readonly property string themeIniPath: coreTheme.configDir + "/clam/theme.ini"

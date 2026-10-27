@@ -79,6 +79,13 @@ Item {
 	// A list is a single column of full-width rows. It keeps the grid's focus,
 	// selection and drag interaction but replaces the cell maths with rows.
 	readonly property bool listMode: grid.config ? grid.config.view_mode === 1 : false
+	// Grouped folders use an explicit layout: a section header is not item
+	// sized, and a GridView cannot reserve a row for one. Free placement is
+	// never grouped.
+	readonly property bool grouped: grid.config
+		? (!grid.freeGrid && (grid.config.group_mode > 0 || grid.config.show_stash))
+		: false
+	readonly property real groupHeaderSize: Math.max(Kirigami.Units.gridUnit * 1.45, 20)
 	readonly property real listRowHeight: Math.max(Kirigami.Units.gridUnit * 2.6, 44)
 	readonly property real listIconSize: Math.max(16, Math.min(28, grid.listRowHeight - Kirigami.Units.largeSpacing))
 	readonly property real listPadding: Kirigami.Units.smallSpacing * 2
@@ -174,12 +181,18 @@ Item {
 		return cfg.grid_labels_beside_icons || cfg.grid_size < 32;
 	}
 
-	// The view actually in charge; free placement, the list and the normal grid
-	// never share one, so scroll and focus code goes through this.
-	readonly property var flickable: grid.freeGrid ? freeFlickable : (grid.listMode ? listView : gridView)
+	// The view actually in charge; free placement, grouping, the list and the
+	// normal grid never share one, so scroll and focus code goes through this.
+	readonly property var flickable: grid.freeGrid
+		? freeFlickable
+		: (grid.grouped ? groupedFlickable : (grid.listMode ? listView : gridView))
 	// Content item the drop handling maps coordinates into.
-	readonly property var gridContent: grid.freeGrid ? freeGridContent : (grid.listMode ? listView.contentItem : gridView.contentItem)
-	readonly property int count: grid.freeGrid ? freeRepeater.count : (grid.listMode ? listView.count : gridView.count)
+	readonly property var gridContent: grid.freeGrid
+		? freeGridContent
+		: (grid.grouped ? groupedContent : (grid.listMode ? listView.contentItem : gridView.contentItem))
+	readonly property int count: grid.freeGrid
+		? freeRepeater.count
+		: (grid.grouped ? groupedRepeater.count : (grid.listMode ? listView.count : gridView.count))
 	readonly property int gridStride: grid.gridMetrics.stride
 	// Width of the vertical scrollbar in the active view, for the pane's fixed
 	// grid width.
@@ -232,9 +245,56 @@ Item {
 			}
 		}
 
+		function measureGrouped(insetX, insetY) {
+			const list = grid.listMode;
+			const tableInset = list && grid.listHeaderVisible ? grid.listHeaderHeight : 0;
+			const width = list
+				? Math.max(1, viewWidth - grid.listBarInset)
+				: Math.max(1, viewWidth - insetX);
+			const height = Math.max(1, viewHeight - insetY - tableInset);
+			const rowWidth = Math.max(1, viewWidth - grid.listBarInset);
+			const json = grid.directory.group_layout(
+				horizontal,
+				width,
+				height,
+				list ? rowWidth : itemWidth,
+				list ? grid.listRowHeight : itemHeight,
+				gap,
+				grid.groupHeaderSize,
+				cfg ? cfg.grid_lines : 0,
+				list
+			);
+			let parsed = null;
+			try {
+				parsed = JSON.parse(json);
+			} catch (e) {
+				parsed = null;
+			}
+			if (!parsed)
+				parsed = { stride: 1, columns: 1, rows: 0, slots: [], groups: [], naturalWidth: 0, naturalHeight: 0 };
+			return {
+				width: width,
+				height: height,
+				stride: parsed.stride,
+				columns: parsed.columns,
+				rows: parsed.rows,
+				itemWidth: list ? rowWidth : itemWidth,
+				itemHeight: list ? grid.listRowHeight : itemHeight,
+				naturalWidth: parsed.naturalWidth,
+				naturalHeight: parsed.naturalHeight,
+				slots: parsed.slots || [],
+				groups: parsed.groups || [],
+				grouped: true,
+				free: false
+			};
+		}
+
 		function measure(insetX, insetY) {
 			const width = viewWidth - insetX;
 			const height = viewHeight - insetY;
+			if (grid.grouped) {
+				return measureGrouped(insetX, insetY);
+			}
 			if (cfg && cfg.sort === 3 && cfg.view_mode === 0) {
 				const free = computeFreeLayout(width, height);
 				return {
@@ -285,7 +345,11 @@ Item {
 				offsetX: 0,
 				offsetY: 0,
 				contentWidth: viewWidth,
-				contentHeight: viewHeight
+				contentHeight: viewHeight,
+				free: false,
+				grouped: false,
+				slots: [],
+				groups: []
 			};
 		}
 
@@ -340,9 +404,11 @@ Item {
 			offsetX: alignOffset(cfg ? cfg.grid_horizontal_align : 0, metrics.width, metrics.naturalWidth),
 			offsetY: alignOffset(cfg ? cfg.grid_vertical_align : 0, metrics.height, metrics.naturalHeight),
 			contentWidth: Math.max(viewWidth, metrics.naturalWidth + insetX),
-			contentHeight: Math.max(viewHeight, metrics.naturalHeight + insetY),
+			contentHeight: Math.max(metrics.grouped ? metrics.height : viewHeight, metrics.naturalHeight + insetY),
 			free: metrics.free === true,
-			slots: metrics.slots ? metrics.slots : []
+			grouped: metrics.grouped === true,
+			slots: metrics.slots ? metrics.slots : [],
+			groups: metrics.groups ? metrics.groups : []
 		};
 	}
 
@@ -360,8 +426,11 @@ Item {
 
 	function gridSlotX(index) {
 		const metrics = grid.gridMetrics;
-		if (metrics.free && metrics.slots && metrics.slots[index]) {
-			return metrics.offsetX + metrics.slots[index].c * (metrics.itemWidth + metrics.gap);
+		const slot = metrics.slots ? metrics.slots[index] : null;
+		if ((metrics.free || metrics.grouped) && slot) {
+			if (slot.x !== undefined)
+				return metrics.offsetX + slot.x;
+			return metrics.offsetX + slot.c * (metrics.itemWidth + metrics.gap);
 		}
 		const column = metrics.horizontal ? Math.floor(index / metrics.rows) : index % metrics.columns;
 		return metrics.offsetX + column * (metrics.itemWidth + metrics.gap);
@@ -369,8 +438,11 @@ Item {
 
 	function gridSlotY(index) {
 		const metrics = grid.gridMetrics;
-		if (metrics.free && metrics.slots && metrics.slots[index]) {
-			return metrics.offsetY + metrics.slots[index].r * (metrics.itemHeight + metrics.gap);
+		const slot = metrics.slots ? metrics.slots[index] : null;
+		if ((metrics.free || metrics.grouped) && slot) {
+			if (slot.y !== undefined)
+				return metrics.offsetY + slot.y;
+			return metrics.offsetY + slot.r * (metrics.itemHeight + metrics.gap);
 		}
 		const row = metrics.horizontal ? index % metrics.rows : Math.floor(index / metrics.columns);
 		return metrics.offsetY + row * (metrics.itemHeight + metrics.gap);
@@ -381,7 +453,92 @@ Item {
 	function slotAt(index) {
 		if (grid.freeGrid)
 			return freeRepeater.itemAt(index);
+		if (grid.grouped)
+			return groupedRepeater.itemAt(index);
 		return grid.listMode ? listView.itemAtIndex(index) : gridView.itemAtIndex(index);
+	}
+
+	// ── Progressive delegate fill ──
+	// The model exposes the whole listing so scroll geometry is final, but a
+	// delegate starts as an empty slot at its final size. This timer fills the
+	// slots that are on screen with a small per-frame budget. Its work is
+	// bounded by the viewport (plus a row of prefetch), not by folder size, so
+	// a thousand-item folder costs the same as a ten-item one.
+	function schedulePopulate() {
+		if (!populateTimer.running)
+			populateTimer.start();
+	}
+
+	function populateSome() {
+		const started = Date.now();
+		if (grid.freeGrid || grid.grouped) {
+			// Free placement and grouped folders lay every item out
+			// explicitly, but only the ones near the viewport need their
+			// content yet.
+			const view = grid.flickable;
+			const repeater = grid.freeGrid ? freeRepeater : groupedRepeater;
+			const count = repeater.count;
+			const margin = grid.gridMetrics.itemWidth;
+			const left = view.contentX - margin;
+			const top = view.contentY - margin;
+			const right = view.contentX + view.width + margin;
+			const bottom = view.contentY + view.height + margin;
+			let filled = 0;
+			for (let i = 0; i < count; i++) {
+				const slot = repeater.itemAt(i);
+				if (!slot || slot.populateReady !== false)
+					continue;
+				if (slot.x + slot.width < left || slot.x > right
+					|| slot.y + slot.height < top || slot.y > bottom)
+					continue;
+				slot.populateReady = true;
+				filled++;
+				if (Date.now() - started >= 5)
+					break;
+			}
+			if (filled > 0 && grid.window && grid.window.fileManager && grid.window.fileManager.perf_mode() > 0)
+				grid.window.fileManager.perf_log("populate " + filled + " slots in " + (Date.now() - started) + "ms");
+			if (filled === 0)
+				populateTimer.stop();
+			return;
+		}
+		const view = grid.listMode ? listView : gridView;
+		const content = view ? view.contentItem : null;
+		if (!content) {
+			populateTimer.stop();
+			return;
+		}
+		// Walk the live delegates instead of asking `indexAt()` for the range.
+		// The grid block is inset from the view's origin, so a corner probe can
+		// land in the margin and return -1 even though the screen is full of
+		// items; that left the slots empty forever. GridView only instantiates
+		// visible (and cache) delegates, so this loop is bounded by the screen,
+		// not by the folder size.
+		const children = content.children;
+		let filled = 0;
+		for (let i = 0; i < children.length; i++) {
+			const slot = children[i];
+			if (!slot || slot.populateReady !== false)
+				continue;
+			slot.populateReady = true;
+			filled++;
+			if (Date.now() - started >= 5)
+				break;
+		}
+		if (filled > 0 && grid.window && grid.window.fileManager && grid.window.fileManager.perf_mode() > 0)
+			grid.window.fileManager.perf_log("populate " + filled + " slots in " + (Date.now() - started) + "ms");
+		// The next viewport move or delegate completion asks again when more
+		// slots come into view.
+		if (filled === 0)
+			populateTimer.stop();
+	}
+
+	Timer {
+		id: populateTimer
+		interval: 12
+		repeat: true
+		running: false
+		onTriggered: grid.populateSome()
 	}
 
 	// ── Thumbnails ──
@@ -421,8 +578,23 @@ Item {
 		const left = view.contentX - margin;
 		const right = view.contentX + view.width + margin;
 
-		const count = grid.count;
-		for (let i = 0; i < count; i++) {
+		// Only the delegates around the viewport can have items. Asking
+		// `slotAt` for every index made a big folder pay for a thousand QML
+		// calls each time the view stopped moving; indexAt brackets the visible
+		// range so the loop is a screen's worth even for thousands of files.
+		let first = 0;
+		let last = grid.count - 1;
+		const flickable = view;
+		if (flickable && typeof flickable.indexAt === "function") {
+			const start = flickable.indexAt(flickable.contentX, flickable.contentY);
+			const end = flickable.indexAt(flickable.contentX + flickable.width - 1,
+				flickable.contentY + flickable.height - 1);
+			if (start >= 0) {
+				first = Math.max(0, Math.min(start, end >= 0 ? end : start) - 4);
+				last = Math.min(grid.count - 1, Math.max(start, end >= 0 ? end : start) + 4);
+			}
+		}
+		for (let i = first; i <= last; i++) {
 			const item = grid.slotAt(i);
 			if (!item || !item.path || requested[item.path])
 				continue;
@@ -430,6 +602,9 @@ Item {
 				continue;
 			requested[item.path] = true;
 			dir.request_thumbnail(item.path, bucket);
+			// Descriptors (a ROM's title and artwork) are generated for what
+			// the user can see, not for a whole folder at once.
+			dir.request_descriptor(item.path);
 		}
 	}
 
@@ -451,10 +626,17 @@ Item {
 			grid.thumbRequested = ({});
 			grid.thumbRequestKey = "";
 			grid.scheduleThumbnails();
+			grid.schedulePopulate();
 			grid.lastScrollX = grid.flickable.contentX;
 			grid.lastScrollY = grid.flickable.contentY;
 			grid.scrollRemainderX = 0;
 			grid.scrollRemainderY = 0;
+		}
+
+		// A newly opened folder exposes its rows a few at a time; ask for the
+		// thumbnails and descriptors of each batch as it appears.
+		function onRowsInserted() {
+			grid.scheduleThumbnails();
 		}
 	}
 
@@ -484,7 +666,7 @@ Item {
 	readonly property int scrollSoundInterval: 90
 	property double lastScrollSoundTime: 0
 
-	function updateScrollEdges() {
+	function updateScrollEdges(userGesture) {
 		const view = grid.flickable;
 		if (!view)
 			return;
@@ -504,8 +686,10 @@ Item {
 		const wasAtEnd = grid.atScrollEnd;
 		grid.atScrollStart = pos <= 1;
 		grid.atScrollEnd = pos >= max - 1;
-		// Announce only when a real end is *reached*: the start is where the view
-		// rests, so arriving back there is not an "edge" event.
+		// Announce only when a real end is *reached* by the user. Entry and
+		// focus-driven scrolls change contentY too, and they must stay silent.
+		if (!userGesture)
+			return;
 		if (grid.atScrollEnd && !wasAtEnd)
 			grid.playSound("scroll-edge");
 		else if (grid.atScrollStart && !wasAtStart)
@@ -513,14 +697,16 @@ Item {
 	}
 
 	function tickAxis(axis) {
-		const step = axis === "x" ? grid.scrollStepX : grid.scrollStepY;
-		if (step <= 0)
-			return;
 		const view = grid.flickable;
 		if (!view)
 			return;
 		const pos = axis === "x" ? view.contentX : view.contentY;
 		const last = axis === "x" ? grid.lastScrollX : grid.lastScrollY;
+		if (pos === last)
+			return;
+		const step = axis === "x" ? grid.scrollStepX : grid.scrollStepY;
+		if (step <= 0)
+			return;
 		let remainder = (axis === "x" ? grid.scrollRemainderX : grid.scrollRemainderY) + (pos - last);
 		if (axis === "x")
 			grid.lastScrollX = pos;
@@ -532,7 +718,8 @@ Item {
 			// another. Two sounds total. Cap the rate: a fling crosses several
 			// items per frame, and each would otherwise be another queued tick.
 			const now = Date.now();
-			if (now - grid.lastScrollSoundTime >= grid.scrollSoundInterval) {
+			if (grid.userScrolling && !grid.focusScrollAnimating
+				&& now - grid.lastScrollSoundTime >= grid.scrollSoundInterval) {
 				grid.lastScrollSoundTime = now;
 				grid.playScrollSound(axis === "x" ? "scroll-left" : "scroll-up");
 			}
@@ -542,7 +729,6 @@ Item {
 			grid.scrollRemainderX = remainder;
 		else
 			grid.scrollRemainderY = remainder;
-		grid.updateScrollEdges();
 	}
 
 	function onMovementStarted() {
@@ -558,8 +744,12 @@ Item {
 
 	function onViewportMoved() {
 		grid.scheduleThumbnails();
+		grid.schedulePopulate();
 		grid.tickAxis("y");
 		grid.tickAxis("x");
+		// The ends only change when the position does; a fling asks this once
+		// per frame instead of once per axis.
+		grid.updateScrollEdges();
 		grid.viewportScrolled();
 	}
 
@@ -573,8 +763,8 @@ Item {
 		id: gridView
 		z: 1
 		clip: true
-		visible: !grid.freeGrid && !grid.listMode
-		model: (grid.freeGrid || grid.listMode) ? null : grid.directory
+		visible: !grid.freeGrid && !grid.listMode && !grid.grouped
+		model: (grid.freeGrid || grid.listMode || grid.grouped) ? null : grid.directory
 		anchors.top: parent.top
 		anchors.left: parent.left
 		anchors.right: parent.right
@@ -606,8 +796,15 @@ Item {
 		// keeps the incoming row ready.
 		cacheBuffer: Math.max(grid.gridMetrics.itemHeight, grid.gridMetrics.itemWidth) * 4
 
-		onHeightChanged: grid.scheduleThumbnails()
-		onWidthChanged: grid.scheduleThumbnails()
+		onHeightChanged: {
+			grid.scheduleThumbnails();
+			grid.schedulePopulate();
+		}
+		onWidthChanged: {
+			grid.scheduleThumbnails();
+			grid.schedulePopulate();
+		}
+		onCountChanged: grid.schedulePopulate()
 		onContentYChanged: grid.onViewportMoved()
 		onContentXChanged: grid.onViewportMoved()
 		onMovementStarted: {
@@ -616,7 +813,7 @@ Item {
 		}
 		onMovementEnded: {
 			grid.userScrolling = false;
-			grid.updateScrollEdges();
+			grid.updateScrollEdges(true);
 			// The fling's last position may have clipped the cursor after the
 			// throttled follow last ran; settle it once the view has stopped,
 			// before the border comes back.
@@ -649,7 +846,7 @@ Item {
 			onClicked: mouse => grid.backgroundClicked()
 		}
 
-		delegate: FileSlot {
+		delegate: DeferredFileSlot {
 			width: grid.gridMetrics.itemWidth
 			height: grid.gridMetrics.itemHeight
 			gridSize: grid.config ? grid.config.grid_size : 64
@@ -661,7 +858,6 @@ Item {
 			actionManager: grid.window ? grid.window.actionManager : null
 			fileManager: grid.window ? grid.window.fileManager : null
 			dragDropHandler: grid.window ? grid.window.dragDropHandler : null
-			isFocused: grid.focusManager ? (grid.focusManager.focus_active && String(grid.focusManager.focused_path) === String(path)) : false
 			isSelected: {
 				const mgr = grid.selectionManager;
 				if (!mgr)
@@ -674,6 +870,7 @@ Item {
 			onShiftSelected: idx => grid.itemShiftSelected(idx)
 			onPressHeld: (p, idx) => grid.itemPressHeld(p, idx)
 			onContextMenuRequested: (p, idx) => grid.itemContextMenuRequested(p, idx)
+			Component.onCompleted: grid.schedulePopulate()
 		}
 	}
 
@@ -723,8 +920,8 @@ Item {
 		id: listView
 		z: 1
 		clip: true
-		visible: grid.listMode
-		model: grid.listMode ? grid.directory : null
+		visible: grid.listMode && !grid.grouped
+		model: (grid.listMode && !grid.grouped) ? grid.directory : null
 		anchors.top: grid.listHeaderVisible ? listHeader.bottom : parent.top
 		anchors.left: parent.left
 		anchors.right: parent.right
@@ -734,8 +931,15 @@ Item {
 		// the grid, so a fling does not build while the finger is moving.
 		cacheBuffer: grid.listRowHeight * 4
 
-		onHeightChanged: grid.scheduleThumbnails()
-		onWidthChanged: grid.scheduleThumbnails()
+		onHeightChanged: {
+			grid.scheduleThumbnails();
+			grid.schedulePopulate();
+		}
+		onWidthChanged: {
+			grid.scheduleThumbnails();
+			grid.schedulePopulate();
+		}
+		onCountChanged: grid.schedulePopulate()
 		onContentYChanged: grid.onViewportMoved()
 		onMovementStarted: {
 			grid.userScrolling = true;
@@ -743,7 +947,7 @@ Item {
 		}
 		onMovementEnded: {
 			grid.userScrolling = false;
-			grid.updateScrollEdges();
+			grid.updateScrollEdges(true);
 			grid.viewportScrolled();
 			grid.scrollEnded();
 		}
@@ -766,7 +970,7 @@ Item {
 			onClicked: mouse => grid.backgroundClicked()
 		}
 
-		delegate: FileSlot {
+		delegate: DeferredFileSlot {
 			width: grid.gridMetrics.itemWidth
 			height: grid.gridMetrics.itemHeight
 			listMode: true
@@ -781,7 +985,6 @@ Item {
 			actionManager: grid.window ? grid.window.actionManager : null
 			fileManager: grid.window ? grid.window.fileManager : null
 			dragDropHandler: grid.window ? grid.window.dragDropHandler : null
-			isFocused: grid.focusManager ? (grid.focusManager.focus_active && String(grid.focusManager.focused_path) === String(path)) : false
 			isSelected: {
 				const mgr = grid.selectionManager;
 				if (!mgr)
@@ -794,6 +997,193 @@ Item {
 			onShiftSelected: idx => grid.itemShiftSelected(idx)
 			onPressHeld: (p, idx) => grid.itemPressHeld(p, idx)
 			onContextMenuRequested: (p, idx) => grid.itemContextMenuRequested(p, idx)
+			Component.onCompleted: grid.schedulePopulate()
+		}
+	}
+
+	// ── Grouped (headers + explicit item positions) ──
+	// A header is not item sized, so a GridView cannot reserve a row for it.
+	// This view lays every item out explicitly and draws the group labels in
+	// the same content item, which also gives horizontal folders their rotated
+	// labels.
+	Flickable {
+		id: groupedFlickable
+		z: 1
+		clip: true
+		visible: grid.grouped
+		anchors.top: grid.listMode && grid.listHeaderVisible ? listHeader.bottom : parent.top
+		anchors.left: parent.left
+		anchors.right: parent.right
+		anchors.bottom: parent.bottom
+		contentWidth: grid.gridMetrics.contentWidth
+		contentHeight: grid.gridMetrics.contentHeight
+
+		onHeightChanged: {
+			grid.scheduleThumbnails();
+			grid.schedulePopulate();
+		}
+		onWidthChanged: {
+			grid.scheduleThumbnails();
+			grid.schedulePopulate();
+		}
+		onContentYChanged: grid.onViewportMoved()
+		onContentXChanged: grid.onViewportMoved()
+		onMovementStarted: {
+			grid.userScrolling = true;
+			grid.onMovementStarted();
+		}
+		onMovementEnded: {
+			grid.userScrolling = false;
+			grid.updateScrollEdges(true);
+			grid.viewportScrolled();
+			grid.scrollEnded();
+		}
+
+		ScrollBar.vertical: ScrollBar {
+			id: groupedVerticalScrollBar
+			interactive: false
+			policy: grid.horizontalScroll ? ScrollBar.AlwaysOff : (size < 1.0 ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff)
+			z: 2
+		}
+
+		ScrollBar.horizontal: ScrollBar {
+			id: groupedHorizontalScrollBar
+			interactive: false
+			policy: grid.horizontalScroll ? (size < 1.0 ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff) : ScrollBar.AlwaysOff
+			z: 2
+		}
+
+		MouseArea {
+			width: groupedFlickable.contentWidth
+			height: groupedFlickable.contentHeight
+			z: 0
+			acceptedButtons: Qt.LeftButton
+			onClicked: mouse => grid.backgroundClicked()
+		}
+
+		Item {
+			id: groupedContent
+			z: 1
+			width: groupedFlickable.contentWidth
+			height: groupedFlickable.contentHeight
+
+			Repeater {
+				id: groupedHeaderRepeater
+				model: grid.grouped ? grid.gridMetrics.groups : []
+
+				delegate: groupHeaderComponent
+			}
+
+			Repeater {
+				id: groupedRepeater
+				model: grid.grouped ? grid.directory : null
+
+				delegate: DeferredFileSlot {
+					width: grid.gridMetrics.itemWidth
+					height: grid.gridMetrics.itemHeight
+					x: grid.gridSlotX(index)
+					y: grid.gridSlotY(index)
+					listMode: grid.listMode
+					listColumns: grid.listColumnSpecs
+					listIconSize: grid.listIconSize
+					gridSize: grid.config ? grid.config.grid_size : 64
+					showLabels: grid.listMode ? true : (grid.config ? grid.config.show_labels : true)
+					labelBesideIcon: grid.listMode ? true : grid.labelsBesideIcons
+					labelShowsFilename: grid.config ? grid.config.label_text === 1 : false
+					property SelectionManager selectionManager: grid.selectionManager
+					selectionActive: grid.selectionManager ? grid.selectionManager.selection_active : false
+					actionManager: grid.window ? grid.window.actionManager : null
+					fileManager: grid.window ? grid.window.fileManager : null
+					dragDropHandler: grid.window ? grid.window.dragDropHandler : null
+					isSelected: {
+						const mgr = grid.selectionManager;
+						if (!mgr)
+							return false;
+						mgr.selected_paths;
+						return mgr.is_selected(path);
+					}
+
+					onSelectionToggled: (p, idx) => grid.itemSelectionToggled(p, idx)
+					onShiftSelected: idx => grid.itemShiftSelected(idx)
+					onPressHeld: (p, idx) => grid.itemPressHeld(p, idx)
+					onContextMenuRequested: (p, idx) => grid.itemContextMenuRequested(p, idx)
+					Component.onCompleted: grid.schedulePopulate()
+				}
+			}
+		}
+	}
+
+	Component {
+		id: groupHeaderComponent
+
+		Item {
+			id: groupHeader
+			property var modelData
+			x: grid.gridMetrics.offsetX + (modelData ? modelData.x : 0)
+			y: grid.gridMetrics.offsetY + (modelData ? modelData.y : 0)
+			width: modelData ? modelData.width : 0
+			height: modelData ? modelData.height : 0
+			visible: modelData ? modelData.label !== "" : false
+			z: 2
+
+			Text {
+				id: verticalGroupLabel
+				visible: groupHeader.modelData ? !groupHeader.modelData.horizontal : false
+				text: groupHeader.modelData ? groupHeader.modelData.label : ""
+				width: Math.max(0, parent.width - Kirigami.Units.largeSpacing)
+				anchors.left: parent.left
+				anchors.verticalCenter: parent.verticalCenter
+				elide: Text.ElideRight
+				color: Kirigami.Theme.textColor
+				opacity: 0.75
+				font.bold: true
+				font.pixelSize: Math.max(12, Kirigami.Units.gridUnit * 0.85)
+			}
+
+			Rectangle {
+				visible: verticalGroupLabel.visible
+				height: 1
+				color: Qt.alpha(Kirigami.Theme.textColor, 0.22)
+				anchors.left: verticalGroupLabel.right
+				anchors.leftMargin: Kirigami.Units.mediumSpacing
+				anchors.right: parent.right
+				anchors.verticalCenter: parent.verticalCenter
+			}
+
+			Item {
+				id: horizontalGroupLabelBox
+				visible: groupHeader.modelData ? groupHeader.modelData.horizontal : false
+				width: parent.width
+				height: Math.min(parent.height, Kirigami.Units.gridUnit * 4)
+				anchors.top: parent.top
+
+				Text {
+					id: horizontalGroupLabel
+					text: groupHeader.modelData ? groupHeader.modelData.label : ""
+					color: Kirigami.Theme.textColor
+					opacity: 0.75
+					font.bold: true
+					font.pixelSize: Math.max(12, Kirigami.Units.gridUnit * 0.85)
+					rotation: -90
+					transformOrigin: Item.TopLeft
+					x: parent.width
+					y: parent.height
+					width: parent.height
+					height: parent.width
+					verticalAlignment: Text.AlignVCenter
+					horizontalAlignment: Text.AlignLeft
+					elide: Text.ElideRight
+				}
+			}
+
+			Rectangle {
+				visible: horizontalGroupLabelBox.visible
+				width: 1
+				color: Qt.alpha(Kirigami.Theme.textColor, 0.22)
+				anchors.horizontalCenter: parent.horizontalCenter
+				anchors.top: horizontalGroupLabelBox.bottom
+				anchors.bottom: parent.bottom
+			}
 		}
 	}
 
@@ -817,7 +1207,7 @@ Item {
 		}
 		onMovementEnded: {
 			grid.userScrolling = false;
-			grid.updateScrollEdges();
+			grid.updateScrollEdges(true);
 			// The fling's last position may have clipped the cursor after the
 			// throttled follow last ran; settle it once the view has stopped,
 			// before the border comes back.
@@ -857,7 +1247,7 @@ Item {
 				id: freeRepeater
 				model: grid.freeGrid ? grid.directory : null
 
-				delegate: FileSlot {
+				delegate: DeferredFileSlot {
 					width: grid.gridItemSize.width
 					height: grid.gridItemSize.height
 					x: grid.gridSlotX(index)
@@ -871,7 +1261,6 @@ Item {
 					actionManager: grid.window ? grid.window.actionManager : null
 					fileManager: grid.window ? grid.window.fileManager : null
 					dragDropHandler: grid.window ? grid.window.dragDropHandler : null
-					isFocused: grid.focusManager ? (grid.focusManager.focus_active && String(grid.focusManager.focused_path) === String(path)) : false
 					isSelected: {
 						const mgr = grid.selectionManager;
 						if (!mgr)
@@ -884,6 +1273,7 @@ Item {
 					onShiftSelected: idx => grid.itemShiftSelected(idx)
 					onPressHeld: (p, idx) => grid.itemPressHeld(p, idx)
 					onContextMenuRequested: (p, idx) => grid.itemContextMenuRequested(p, idx)
+					Component.onCompleted: grid.schedulePopulate()
 				}
 			}
 		}
@@ -912,7 +1302,9 @@ Item {
 	// x/y behaviours smooth the move between items.
 	Item {
 		id: focusBorderHost
-		parent: grid.freeGrid ? freeGridContent : (grid.listMode ? listView.contentItem : gridView.contentItem)
+		parent: grid.freeGrid
+			? freeGridContent
+			: (grid.grouped ? groupedContent : (grid.listMode ? listView.contentItem : gridView.contentItem))
 		z: 3
 		readonly property var fm: grid.focusManager
 		readonly property var metrics: grid.gridMetrics
@@ -926,8 +1318,8 @@ Item {
 		// The border lives in the view's content item, which sits at the view's
 		// origin. In a GridView that origin is the alignment offset, so subtract
 		// it to place the border on the slot's real position.
-		readonly property real originX: (grid.freeGrid || grid.listMode) ? 0 : focusBorderHost.metrics.offsetX
-		readonly property real originY: (grid.freeGrid || grid.listMode) ? 0 : focusBorderHost.metrics.offsetY
+		readonly property real originX: (grid.freeGrid || grid.listMode || grid.grouped) ? 0 : focusBorderHost.metrics.offsetX
+		readonly property real originY: (grid.freeGrid || grid.listMode || grid.grouped) ? 0 : focusBorderHost.metrics.offsetY
 		visible: (onEmpty || onItem) && !grid.userScrolling
 		width: focusBorderHost.metrics.itemWidth
 		height: focusBorderHost.metrics.itemHeight

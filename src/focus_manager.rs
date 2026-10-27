@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::Instant;
 
 const FOCUS_BORDER_SVG: &str = include_str!("../theme/default/focus-border.svg");
 
@@ -462,7 +463,7 @@ pub struct FocusManager {
 	focus_on_empty: qt_property!(bool; NOTIFY focus_changed),
 	focused_column: qt_property!(i32; NOTIFY focus_changed),
 	focused_row: qt_property!(i32; NOTIFY focus_changed),
-	focus_status: qt_property!(String; NOTIFY focus_changed),
+	focus_status: qt_property!(String; READ get_focus_status NOTIFY focus_changed),
 	window: qt_property!(QVariant),
 	view_focused: qt_property!(bool; NOTIFY focus_changed),
 	current_pane: qt_property!(i32; NOTIFY focus_changed),
@@ -491,6 +492,7 @@ pub struct FocusManager {
 	menu_requested: qt_signal!(),
 	select_requested: qt_signal!(),
 	directory_menu_requested: qt_signal!(),
+	quit_requested: qt_signal!(),
 
 	panes: Vec<(i32, Pane)>,
 	next_id: i32,
@@ -706,6 +708,34 @@ pub struct FocusManager {
 		}
 	),
 
+	/// Persist the cursor for the next start. Called after the cursor stops
+	/// moving, not on every step: the session file is a disk write.
+	persist_focus: qt_method!(
+		fn persist_focus(&self) {
+			crate::session::save_focus(&self.focused_path);
+		}
+	),
+
+	/// Publish the focused item for the top screen. Called a moment after the
+	/// cursor settles: the document needs the item's title and icon, which are
+	/// not free, and the top screen polls at 200 ms anyway.
+	publish_focus_now: qt_method!(
+		fn publish_focus_now(&mut self) {
+			self.publish_focus();
+		}
+	),
+
+	/// Re-read the wrapper's active/suspended items now. Used after Quit,
+	/// where the host's active-revision marker may not exist at all (a host
+	/// that only ever reports one set would otherwise keep the glow forever).
+	refresh_active_items: qt_method!(
+		fn refresh_active_items(&mut self) {
+			self.active_items = crate::launch::active_items();
+			self.active_revision = self.active_revision.wrapping_add(1);
+			self.suspended_changed();
+		}
+	),
+
 	set_pane_focus_path: qt_method!(
 		fn set_pane_focus_path(&mut self, id: i32, path: String) -> bool {
 			let found = self
@@ -867,6 +897,7 @@ pub struct FocusManager {
 				Input::Menu => self.menu_requested(),
 				Input::Select => self.select_requested(),
 				Input::Directory => self.directory_menu_requested(),
+				Input::Quit => self.quit_requested(),
 			}
 		}
 	),
@@ -970,9 +1001,16 @@ impl FocusManager {
 		self.current_pane = current;
 		self.view_focused = keyboard;
 
-		self.update_status();
+		let signal_start = Instant::now();
 		self.focus_changed();
-		self.publish_focus();
+		let signal_time = signal_start.elapsed();
+		if crate::file_manager::perf_mode() == 5 {
+			eprintln!(
+				"hishell-perf: sync signal {} path {}",
+				signal_time.as_micros(),
+				self.focused_path
+			);
+		}
 	}
 
 	/// Publishes the focused item for the top screen: title and icon, resolved
@@ -986,23 +1024,16 @@ impl FocusManager {
 		let (title, icon) = if path.is_empty() {
 			(String::new(), String::new())
 		} else {
-			// Thumbnails first, exactly like the model's visible items: a
-			// finished job (or a valid disk-cache entry, which `request`
-			// answers immediately) wins over the themed icon, so the top
-			// screen shows the same box art the file view shows. A miss
-			// queues the job; the next focus change picks the result up.
-			let thumbnail = crate::thumbnailer::result_for(&path).or_else(|| {
-				let folder = Path::new(&path).parent().map(Path::to_path_buf)?;
-				crate::thumbnailer::request(Path::new(&path), 128, &folder)
-			});
+			// Use a thumbnail that already exists (the file view requests the
+			// visible ones). Requesting one here queued a new job on every
+			// cursor move, which competed with the shell while the user was
+			// stepping through a folder; a miss keeps the themed icon.
+			let thumbnail = crate::thumbnailer::result_for(&path);
 			let icon = thumbnail.unwrap_or_else(|| crate::directory::get_icon(&path));
 			(crate::directory::get_item_title(Path::new(&path)), icon)
 		};
 		let document =
 			serde_json::json!({ "title": title, "icon": icon, "path": path }).to_string();
-		// Persist the cursor so returning from a guest — or any restart —
-		// lands on the same item. Empty focus keeps the previous one.
-		crate::session::save_focus(&path);
 		if document == self.published_focus {
 			return;
 		}
@@ -1261,33 +1292,19 @@ impl FocusManager {
 		true
 	}
 
-	fn update_status(&mut self) {
-		let mut status = HashMap::new();
-		status.insert(
-			"active".to_string(),
-			serde_json::Value::from(self.focus_active),
-		);
-		status.insert(
-			"index".to_string(),
-			serde_json::Value::from(self.focused_index),
-		);
-		status.insert(
-			"path".to_string(),
-			serde_json::Value::from(self.focused_path.as_str()),
-		);
-		status.insert(
-			"count".to_string(),
-			serde_json::Value::from(self.item_count),
-		);
-		status.insert(
-			"columns".to_string(),
-			serde_json::Value::from(self.grid_columns),
-		);
-		status.insert(
-			"pane".to_string(),
-			serde_json::Value::from(self.current_pane),
-		);
-		self.focus_status = serde_json::to_string(&status).unwrap_or_default();
+	fn get_focus_status(&self) -> String {
+		// Only read by external introspection; QML does not use it. Building
+		// this JSON on every cursor step was pure overhead, so it is built on
+		// demand instead.
+		let status = serde_json::json!({
+			"active": self.focus_active,
+			"index": self.focused_index,
+			"path": self.focused_path,
+			"count": self.item_count,
+			"columns": self.grid_columns,
+			"pane": self.current_pane,
+		});
+		serde_json::to_string(&status).unwrap_or_default()
 	}
 }
 
@@ -1376,7 +1393,7 @@ fn qt_key(input: Input) -> Option<i32> {
 		Input::Accept => Some(KEY_RETURN),
 		Input::Cancel => Some(KEY_ESCAPE),
 		Input::Select => Some(KEY_SPACE),
-		Input::Menu | Input::Directory => None,
+		Input::Menu | Input::Directory | Input::Quit => None,
 	}
 }
 

@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Window
 import org.kde.kirigami as Kirigami
 import Hishell
 
@@ -14,7 +15,17 @@ Item {
 	// Untyped to avoid the ShellWindow <-> FileSlot cyclic dependency; see
 	// ActionManager.qml for the explanation.
 	property var window: Window.window
-	property alias contentLayout: contentLayout
+	// The item for the active view mode (grid content or list row). Only one
+	// of the two is built per slot.
+	readonly property var contentLayout: modeLoader.item
+	// The layout inside the mode wrapper: the icon and label only, without the
+	// wrapper's cell-sized padding. Used for the suspended-app dot and the
+	// launch-animation grab.
+	readonly property var contentBody: modeLoader.item && modeLoader.item.children.length > 0
+		? modeLoader.item.children[0] : null
+	// The icon cell inside that layout, used to place the active-app glow.
+	readonly property var iconBody: fileSlot.contentBody && fileSlot.contentBody.children.length > 0
+		? fileSlot.contentBody.children[0] : null
 
 	property DragDropHandler dragDropHandler: window ? window.dragDropHandler : null
 	property ActionManager actionManager: window ? window.actionManager : null
@@ -41,12 +52,26 @@ Item {
 	// (Breeze draws their bodies with its ColorScheme-Accent class); anything
 	// else keeps the icon its resolver chose, and an icon that cannot be
 	// recoloured falls back to its plain name.
+	// Themed icons are rendered once to a cached PNG and then loaded by the
+	// asynchronous Image component, instead of a Kirigami.Icon (a synchronous
+	// QIcon decode) in every delegate. The PNG is rendered at the physical
+	// pixel size, so it stays sharp at the panel's scale.
+	readonly property int iconPixelSize: Math.round(fileSlot.iconDisplaySize * (Screen.devicePixelRatio || 1))
 	readonly property string displayIcon: {
-		if (!fileSlot.is_dir)
+		if (!fileSlot.icon || fileSlot.isToggle)
 			return fileSlot.icon;
-		const recoloured = CoreTheme.accentFolderIcon(fileManager, fileSlot.icon, fileSlot.iconDisplaySize);
+		if (fileSlot.icon.indexOf("file:") === 0 || fileSlot.icon.indexOf("/") === 0)
+			return fileSlot.icon;
+		// Re-resolve when an idle tick has rendered a queued icon.
+		if (fileSlot.fileManager)
+			fileSlot.fileManager.icon_revision;
+		const recoloured = CoreTheme.accentFolderIcon(fileManager, fileSlot.icon, fileSlot.iconPixelSize);
 		return recoloured.length > 0 ? recoloured : fileSlot.icon;
 	}
+	// Generated descriptor icons are a cartridge frame around a raster label.
+	// Qt's SVG renderer smooths that raster; disabling the final image
+	// smoothing keeps the label pixels crisp at the file view's icon sizes.
+	readonly property bool pixelatedIcon: fileSlot.displayIcon.indexOf("/hishell/descriptors/") !== -1
 	// With no label the icon takes over the whole slot, so the view reads as a gallery.
 	readonly property real iconDisplaySize: fileSlot.showLabels ? fileSlot.gridSize : Math.max(fileSlot.gridSize, Math.min(fileSlot.width, fileSlot.height) - Kirigami.Units.smallSpacing * 2)
 	// Whether the label shows the file name instead of the item's title.
@@ -55,17 +80,58 @@ Item {
 	property bool showIcon: icon !== ""
 	required property bool is_symlink
 	required property int index
-	// The delegate model does not hand the `is_dir` role to a same-named
-	// property, so derive it from the path. Views that know better (the path
-	// bar) can still override it.
-	property bool is_dir: fileManager ? fileManager.is_directory(String(fileSlot.path)) : false
+	// A directory's kind, control kind and control state arrive from the
+	// directory model as roles. They used to be five separate Rust calls per
+	// delegate (each one a stat and a path decode), on every slot in the
+	// folder. Views that are not a model row (the path bar) pass the same
+	// values explicitly.
+	required property bool is_directory
+	required property int control_kind
+	required property bool toggle_on
+	required property string number_value
+	property bool is_dir: is_directory
+	property int controlKind: control_kind
+	property bool toggleOn: toggle_on
+	property string numberValue: number_value
 
 	// A `Type=Button` entry is a control, not a thing to open (docs §2 of
 	// docs/settings-as-folders.md): it acts where it stands. Drawing it like the
 	// files and folders around it made the two read the same, so it is drawn as
 	// a button instead — a filled, rounded plate behind the icon and label,
 	// which is the shape every other control on the device already has.
-	readonly property bool isButton: fileManager ? fileManager.is_button(String(fileSlot.path)) : false
+	readonly property bool isButton: fileSlot.controlKind === 1
+	// The two settings controls.  A Toggle draws a switch as its icon; a
+	// Number opens the number dialog instead of launching anything.
+	readonly property bool isToggle: fileSlot.controlKind === 2
+	readonly property bool isNumber: fileSlot.controlKind === 3
+	readonly property bool isControl: fileSlot.controlKind !== 0
+	// A toggle is a switch in its own right, drawn by the QML style, so it sits
+	// on the folder background rather than on the button plate that a Button or
+	// Number uses.  A switch on top of a button read as an imitation of one.
+	readonly property bool hasControlPlate: fileSlot.isControl && !fileSlot.isToggle
+	// The current value, shown beside the label and in the list's Title
+	// column.  Toggles say On/Off; numbers join their fields.
+	readonly property string controlValue: {
+		if (fileSlot.isToggle)
+			return fileSlot.toggleOn ? qsTr("On") : qsTr("Off");
+		if (fileSlot.isNumber)
+			return fileSlot.numberValue;
+		return "";
+	}
+	readonly property string displayTitle: {
+		const base = fileSlot.title !== "" ? fileSlot.title : fileSlot.fileName;
+		return fileSlot.controlValue !== "" ? base + " · " + fileSlot.controlValue : base;
+	}
+
+	// Detailed performance mode logs one line per delegate so a scan can be
+	// attributed to file work or to building the visible items. Off in normal
+	// builds (FileManager.perf_mode() returns 0).
+	Component.onCompleted: {
+		const manager = fileSlot.fileManager;
+		if (manager && manager.perf_mode() === 2)
+			console.log("hishell-perf: delegate " + Date.now() + " "
+				+ (fileSlot.listMode ? "list" : "grid") + " " + fileSlot.path);
+	}
 
 	// Some slots represent the same path family without being a choice in the
 	// parent folder's radio group (path-bar breadcrumbs); they opt out here.
@@ -123,6 +189,9 @@ Item {
 	// Selection state passed from FolderView
 	property bool selectionActive: false
 	property bool isSelected: false
+	// Whether a drag is over this slot. The drop area only exists during a
+	// drag, so this reads through its loader.
+	readonly property bool dropHovered: dropAreaLoader.item ? dropAreaLoader.item.isHovered : false
 
 	// Used for when this item is open in another view
 	property bool isActive: false
@@ -133,10 +202,14 @@ Item {
 	property var pressHandler: null
 	property var clickHandler: null
 
-	// Focus state passed from FolderView (independent of selection). The border
-	// itself is drawn by the grid as one shared item (FocusBorder.qml), not per
-	// slot; only `isFocused` is needed here, for the click-to-open rule below.
-	property bool isFocused: false
+	// Focus state (independent of selection). The border itself is drawn by the
+	// grid as one shared item (FocusBorder.qml), not per slot. Asking on click
+	// instead of binding every delegate to the focus signal keeps a cursor move
+	// from re-evaluating a binding in the whole folder.
+	function cursorIsFocused() {
+		const fm = fileSlot.window ? fileSlot.window.focusManager : null;
+		return fm ? (fm.focus_active && String(fm.focused_path) === String(fileSlot.path)) : false;
+	}
 
 	// The last item this slot opened and when. One gesture produces several
 	// activation signals - a quick second tap is a double click to Qt, which
@@ -175,16 +248,13 @@ Item {
 	// A native drag is ended by the platform, so this slot's MouseArea never
 	// sees the release. The window clears internalDragInProcess when the drag
 	// finishes; drop the dragging state here so the slot is not left dimmed.
-	Connections {
-		target: fileSlot.window
-		function onInternalDragInProcessChanged() {
-			if (!fileSlot.isDraggingThisSlot)
-				return;
-			if (target && target.internalDragInProcess)
-				return;
-			mouseArea.dragStarted = false;
-			fileSlot.isDraggingThisSlot = false;
-		}
+	// A plain binding replaces a per-slot Connections object.
+	readonly property bool windowDragging: fileSlot.window ? !!fileSlot.window.internalDragInProcess : false
+	onWindowDraggingChanged: {
+		if (windowDragging || !fileSlot.isDraggingThisSlot)
+			return;
+		mouseArea.dragStarted = false;
+		fileSlot.isDraggingThisSlot = false;
 	}
 
 	// Emitted when toggling this item's selection
@@ -243,12 +313,12 @@ Item {
 		return menu;
 	}
 
-	implicitWidth: fileSlot.listMode
-		? listLayout.implicitWidth + Kirigami.Units.smallSpacing * 2
-		: contentLayout.implicitWidth + (fileSlot.labelBesideIcon && fileSlot.showIcon && fileSlot.showLabels ? Kirigami.Units.largeSpacing * 2 : Kirigami.Units.smallSpacing * 2)
-	implicitHeight: fileSlot.listMode
-		? listLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
-		: contentLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
+	readonly property var modeLayout: modeLoader.item
+	implicitWidth: !modeLayout ? 0
+		: (fileSlot.listMode
+			? modeLayout.implicitWidth + Kirigami.Units.smallSpacing * 2
+			: modeLayout.implicitWidth + (fileSlot.labelBesideIcon && fileSlot.showIcon && fileSlot.showLabels ? Kirigami.Units.largeSpacing * 2 : Kirigami.Units.smallSpacing * 2))
+	implicitHeight: !modeLayout ? 0 : modeLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
 	// The on-disk name, used by the FILENAME label mode and the tooltip.
 	readonly property string fileName: {
 		const path = fileSlot.path;
@@ -258,7 +328,11 @@ Item {
 	}
 
 	// The text the label shows; the other one is offered as a tooltip.
-	readonly property string labelText: fileSlot.labelShowsFilename || fileSlot.title === "" ? fileSlot.fileName : fileSlot.title
+	readonly property string labelText: {
+		if (fileSlot.labelShowsFilename || fileSlot.title === "")
+			return fileSlot.fileName;
+		return fileSlot.displayTitle;
+	}
 	readonly property string tooltipText: {
 		const alternate = fileSlot.labelShowsFilename ? fileSlot.title : fileSlot.fileName;
 		if (!fileSlot.showLabels)
@@ -312,7 +386,7 @@ Item {
 	function columnText(key) {
 		switch (String(key).toUpperCase()) {
 		case "TITLE":
-			return fileSlot.title !== "" ? fileSlot.title : fileSlot.fileName;
+			return fileSlot.displayTitle;
 		case "FILENAME":
 			return fileSlot.fileName;
 		case "SIZE":
@@ -332,7 +406,7 @@ Item {
 
 	// What the drag ghost and press-and-hold grab: the visible content of the
 	// slot, whichever layout is active.
-	readonly property var dragGrabItem: fileSlot.listMode ? listLayout : contentLayout
+	readonly property var dragGrabItem: fileSlot.contentBody ? fileSlot.contentBody : fileSlot.contentLayout
 	opacity: {
 		if (fileSlot.dragDropHandler && fileSlot.dragDropHandler.active_dragged_paths && fileSlot.dragDropHandler.active_dragged_paths.indexOf(fileSlot.path) !== -1)
 			return 0.2;
@@ -381,9 +455,22 @@ Item {
 	// comes free. The surface is a raised key: a shaded rim with a lighter face
 	// set into it, a top highlight, a bottom shade and a soft blurred drop
 	// shadow; pressing sinks the face into the shadow.
-	Item {
+	//
+	// Built only for a control: an ordinary item used to pay for the plate's
+	// shadow repeater and two shaded rectangles (with their gradient stops)
+	// even though it never showed them, which is most of a file slot's object
+	// count in a folder of files.
+	Loader {
+		id: buttonPlateLoader
+		anchors.fill: parent
+		active: fileSlot.hasControlPlate || fileSlot.isRadio
+		sourceComponent: fileSlot.hasControlPlate ? buttonPlateComponent : radioPlateComponent
+	}
+
+	Component {
+		id: buttonPlateComponent
+		Item {
 		id: buttonPlate
-		visible: fileSlot.isButton
 		anchors.fill: parent
 		anchors.margins: Kirigami.Units.smallSpacing
 
@@ -443,15 +530,17 @@ Item {
 				GradientStop { position: 1.0; color: buttonPlate.down ? Qt.darker(buttonPlate.body, 1.10) : Qt.darker(buttonPlate.body, 1.07) }
 			}
 		}
+		}
 	}
 
 	// ── Radio plate ──
 	// A child of a folder-owned radio group is a choice, not an app: a card
 	// behind it, and an accent border plus wash when it is the selected one.
 	// The parent folder owns the group and runs the apply command.
-	Rectangle {
+	Component {
+		id: radioPlateComponent
+		Rectangle {
 		id: radioPlate
-		visible: fileSlot.isRadio
 		anchors.fill: parent
 		anchors.margins: Kirigami.Units.smallSpacing
 		radius: Kirigami.Units.cornerRadius * 1.5
@@ -477,16 +566,31 @@ Item {
 		Behavior on opacity {
 			NumberAnimation { duration: fileSlot.animationDuration; easing.type: fileSlot.animationEase }
 		}
+		}
 	}
 
 	// ── Layout ──
 
+	// Only the layout of the active mode is built. Both used to exist in every
+	// slot: a grid item also built a whole list row (with its icon loader and
+	// column labels) that it never showed, and a list row built the grid.
+	Loader {
+		id: modeLoader
+		anchors.fill: parent
+		sourceComponent: fileSlot.listMode ? listComponent : gridComponent
+	}
+
 	// List row: icon, then the configured columns. Columns are passed in
 	// already normalised and ordered by the view; a name column (Title or File
 	// Name) is always present, so the row always has a label.
+	Component {
+		id: listComponent
+		Item {
+			id: listContent
+			implicitWidth: listLayout.implicitWidth
+			implicitHeight: listLayout.implicitHeight
 	RowLayout {
 		id: listLayout
-		visible: fileSlot.listMode
 		anchors.left: parent.left
 		anchors.right: parent.right
 		anchors.verticalCenter: parent.verticalCenter
@@ -502,8 +606,25 @@ Item {
 
 			Loader {
 				anchors.fill: parent
-				active: fileSlot.showIcon
-				sourceComponent: (fileSlot.displayIcon.startsWith("file://") || fileSlot.displayIcon.startsWith("/")) ? listThumbnailComponent : listIconComponent
+				// Only the layout of the active view builds its icon. Both
+				// loaders used to be live, so every list row decoded a second,
+				// larger icon for the invisible grid and vice versa.
+				active: fileSlot.listMode && fileSlot.showIcon
+				sourceComponent: fileSlot.isToggle
+					? listToggleComponent
+					: ((fileSlot.displayIcon.startsWith("file://") || fileSlot.displayIcon.startsWith("/")) ? listThumbnailComponent : listIconComponent)
+			}
+
+			Component {
+				id: listToggleComponent
+				Item {
+					ToggleSwitch {
+						anchors.centerIn: parent
+						width: parent.width
+						height: parent.height
+						on: fileSlot.toggleOn
+					}
+				}
 			}
 
 			Component {
@@ -513,7 +634,7 @@ Item {
 					asynchronous: true
 					cache: !fileSlot.displayIcon.endsWith(".svg")
 					fillMode: Image.PreserveAspectFit
-					smooth: true
+					smooth: !fileSlot.pixelatedIcon
 					anchors.fill: parent
 					clip: true
 				}
@@ -531,7 +652,7 @@ Item {
 		Repeater {
 			model: fileSlot.listColumns
 
-			delegate: Label {
+			delegate: Text {
 				required property var modelData
 				Layout.fillWidth: true
 				Layout.preferredWidth: modelData.weight
@@ -545,15 +666,26 @@ Item {
 				// Name columns use the grid label's resolved face so symlinks
 				// stay italic and the active/radio item stays bold. Metadata
 				// stays in the normal application face.
-				font: modelData.nameColumn ? labelItem.font : Qt.application.font
+				font: modelData.nameColumn
+					? (fileSlot.is_symlink
+						? (fileSlot.active ? CoreTheme.labelFontItalicBold : CoreTheme.labelFontItalic)
+						: (fileSlot.active ? CoreTheme.labelFontBold : CoreTheme.labelFont))
+					: Qt.application.font
 				opacity: modelData.nameColumn ? 1.0 : 0.85
 			}
 		}
 	}
+		}
+	}
 
+	Component {
+		id: gridComponent
+		Item {
+			id: gridContent
+			implicitWidth: contentLayout.implicitWidth
+			implicitHeight: contentLayout.implicitHeight
 	GridLayout {
 		id: contentLayout
-		visible: !fileSlot.listMode
 		anchors.verticalCenter: parent.verticalCenter
 		x: (fileSlot.labelBesideIcon && fileSlot.showIcon && fileSlot.showLabels) ? Kirigami.Units.largeSpacing : (parent.width - width) / 2
 		columns: (fileSlot.labelBesideIcon && fileSlot.showIcon && fileSlot.showLabels) ? 2 : 1
@@ -566,8 +698,22 @@ Item {
 
 			Loader {
 				anchors.fill: parent
-				active: fileSlot.showIcon
-				sourceComponent: (fileSlot.displayIcon.startsWith("file://") || fileSlot.displayIcon.startsWith("/")) ? thumbnailComponent : iconComponent
+				active: !fileSlot.listMode && fileSlot.showIcon
+				sourceComponent: fileSlot.isToggle
+					? toggleComponent
+					: ((fileSlot.displayIcon.startsWith("file://") || fileSlot.displayIcon.startsWith("/")) ? thumbnailComponent : iconComponent)
+			}
+
+			Component {
+				id: toggleComponent
+				Item {
+					ToggleSwitch {
+						anchors.centerIn: parent
+						width: parent.width
+						height: parent.height
+						on: fileSlot.toggleOn
+					}
+				}
 			}
 
 			Component {
@@ -581,7 +727,7 @@ Item {
 					// re-rasterising the same file on every repaint.
 					cache: !fileSlot.displayIcon.endsWith(".svg")
 					fillMode: Image.PreserveAspectFit
-					smooth: true
+					smooth: !fileSlot.pixelatedIcon
 					anchors.fill: parent
 					clip: true
 					anchors.centerIn: parent
@@ -600,79 +746,40 @@ Item {
 			}
 		}
 
-		Label {
+		Text {
 			id: labelItem
-			visible: fileSlot.showLabels
+			// The list has its own name column; the grid label must not lay
+			// text out behind a list row.
+			visible: fileSlot.showLabels && !fileSlot.listMode
 			Layout.alignment: fileSlot.labelBesideIcon ? Qt.AlignVCenter : Qt.AlignHCenter
 
-			text: {
-				let t = fileSlot.labelText;
-
-				let styled = t;
-				const idx = t.lastIndexOf('.');
-				if (idx > 0 && !(t.startsWith('.') && t.indexOf('.', 1) === -1)) {
-					const name = t.substring(0, idx);
-					const ext = t.substring(idx);
-					styled = name + '<font color="' + Kirigami.Theme.disabledTextColor + '">' + ext + '</font>';
-				}
-				return t;
-			}
-			textFormat: Text.StyledText
+			// Plain text, not StyledText: a name is not markup, and the styled
+			// layout builds a QTextDocument for every label in the folder. The
+			// grid is scrolled by creating delegates, so that cost lands
+			// straight in the frame time.
+			text: fileSlot.labelText
+			textFormat: Text.PlainText
 			color: Kirigami.Theme.textColor
 			wrapMode: Text.Wrap
 			maximumLineCount: 2
 
-			// Pin the font metrics so the italic face used for symlinks keeps
-			// the same size as the surrounding text.  Left to inherit, asking
-			// for italic can resolve to a fallback with a different point size
-			// (the "both point size and pixel size set" warning) and the
-			// symlink label renders smaller.
-			// Qt resolves the italic face of the default font at a smaller
-			// metric than the upright one on this device (the app font has both
-			// a point and a pixel size).  Measure both at the base size and
-			// scale the italic request up so the symlink label is the same
-			// height as the regular one.
-			readonly property real labelBasePixelSize: Qt.application.font.pixelSize
-
-			FontMetrics {
-				id: baseRegularFontMetrics
-				font: Qt.font({
-					family: Qt.application.font.family,
-					pixelSize: labelItem.labelBasePixelSize,
-					italic: false
-				})
-			}
-			FontMetrics {
-				id: baseItalicFontMetrics
-				font: Qt.font({
-					family: Qt.application.font.family,
-					pixelSize: labelItem.labelBasePixelSize,
-					italic: true
-				})
-			}
-			readonly property real labelItalicScale: baseItalicFontMetrics.height > 0
-				? baseRegularFontMetrics.height / baseItalicFontMetrics.height
-				: 1.0
-
-			font: Qt.font({
-				family: Qt.application.font.family,
-				pixelSize: fileSlot.is_symlink
-					? Math.round(labelItem.labelBasePixelSize * labelItem.labelItalicScale)
-					: labelItem.labelBasePixelSize,
-				weight: Qt.application.font.weight,
-				italic: fileSlot.is_symlink,
-				bold: fileSlot.active
-			})
+			// The four faces are measured once in CoreTheme. Building a pair of
+			// FontMetrics (and the QFont behind them) per delegate was paid by
+			// every item in the folder for the same two sizes.
+			font: fileSlot.is_symlink
+				? (fileSlot.active ? CoreTheme.labelFontItalicBold : CoreTheme.labelFontItalic)
+				: (fileSlot.active ? CoreTheme.labelFontBold : CoreTheme.labelFont)
 
 			elide: fileSlot.labelBesideIcon ? Text.ElideMiddle : Text.ElideMiddle
 			// A button's label is bounded by its plate; an ordinary item's by
-			// the grid cell it lives in.
-			Layout.maximumWidth: fileSlot.isButton
-				? buttonPlate.width - Kirigami.Units.largeSpacing * 2
-				: (fileSlot.isRadio
-					? radioPlate.width - Kirigami.Units.largeSpacing * 2
-					: (fileSlot.labelBesideIcon ? (fileSlot.fixedWidth ? fileSlot.width - fileSlot.gridSize - Kirigami.Units.gridUnit * 2 : 250) : fileSlot.gridSize + Kirigami.Units.gridUnit * 2))
+			// the grid cell it lives in.  A toggle has no plate even though it
+			// is a control, so it follows the ordinary bound.
+			Layout.maximumWidth: (fileSlot.hasControlPlate || fileSlot.isRadio)
+				? fileSlot.width - Kirigami.Units.smallSpacing * 2 - Kirigami.Units.largeSpacing * 2
+				: (fileSlot.labelBesideIcon ? (fileSlot.fixedWidth ? fileSlot.width - fileSlot.gridSize - Kirigami.Units.gridUnit * 2 : 250) : fileSlot.gridSize + Kirigami.Units.gridUnit * 2)
 			horizontalAlignment: fileSlot.labelBesideIcon ? Text.AlignLeft : Text.AlignHCenter
+		}
+	}
 		}
 	}
 
@@ -680,99 +787,32 @@ Item {
 	// A small accent dot under an item whose app is currently suspended, with a
 	// gentle blink so it reads as "still running". `active_revision` is read only
 	// to re-evaluate the binding when the set of suspended apps changes.
-	Rectangle {
-		id: activeDot
-		width: Kirigami.Units.smallSpacing * 2
-		height: width
-		radius: width / 2
-		color: Kirigami.Theme.highlightColor
-		anchors.horizontalCenter: contentLayout.horizontalCenter
-		anchors.top: contentLayout.bottom
-		anchors.topMargin: Kirigami.Units.smallSpacing
-		visible: {
-			if (fileSlot.listMode)
-				return false;
-			const fm = fileSlot.folderView ? fileSlot.folderView.focusManager : null;
-			if (!fm)
-				return false;
-			fm.active_revision; // dependency: re-check when the set changes
-			return fm.is_item_active(fileSlot.path);
-		}
-
-		SequentialAnimation on opacity {
-			running: activeDot.visible
-			loops: Animation.Infinite
-			NumberAnimation { to: 0.2; duration: 700; easing.type: Easing.InOutQuad }
-			NumberAnimation { to: 1.0; duration: 700; easing.type: Easing.InOutQuad }
-		}
+	readonly property bool hasActiveApp: {
+		const fm = fileSlot.folderView ? fileSlot.folderView.focusManager : null;
+		if (!fm)
+			return false;
+		fm.active_revision; // dependency: re-check when the set changes
+		return fm.is_item_active(fileSlot.path);
 	}
 
-	// ── Selection ──
-
-	Rectangle {
+	// The wash behind the active/radio choice and every selected item. It sits
+	// below the content, so it is loaded separately from the badges above it.
+	Loader {
+		id: selectionWashLoader
 		z: -1
 		anchors.fill: parent
-		anchors.margins: isSelected ? Kirigami.Units.smallSpacing : 0
-		radius: Kirigami.Units.cornerRadius
-		color: Kirigami.Theme.highlightColor
-		opacity: (fileSlot.isSelected ? 0.25 : 0.0) || (fileSlot.active ? 0.5 : 0.0)
-		Behavior on opacity {
-			NumberAnimation {
-				duration: fileSlot.animationDuration
-				easing.type: fileSlot.animationEase
-			}
-		}
+		active: fileSlot.isSelected || fileSlot.active
+		sourceComponent: selectionWashComponent
 	}
 
-	Rectangle {
-		anchors.fill: parent
-		anchors.margins: Kirigami.Units.smallSpacing
-		radius: Kirigami.Units.cornerRadius
-		color: "transparent"
-		border.color: Kirigami.Theme.highlightColor
-		border.width: 2
-		opacity: fileSlot.isSelected ? 1.0 : 0.0
-		Behavior on opacity {
-			NumberAnimation {
-				duration: fileSlot.animationDuration
-				easing.type: fileSlot.animationEase
-			}
-		}
-	}
-
-	// ── Focus ──
-	// The focus border is not drawn here: the grid owns one shared border that
-	// follows the cursor (FocusBorder.qml). Drawing it per slot meant loading
-	// four SVG documents for every item in the folder.
-
-	Rectangle {
-		Kirigami.Theme.colorSet: Kirigami.Theme.Selection
-		Kirigami.Theme.inherit: false
-
-		anchors.top: parent.top
-		anchors.right: parent.right
-		anchors.margins: Kirigami.Units.mediumSpacing
-		width: Kirigami.Units.iconSizes.small
-		height: Kirigami.Units.iconSizes.small
-		radius: Kirigami.Units.cornerRadius
-		border.width: 2
-		border.color: Kirigami.Theme.backgroundColor
-		color: fileSlot.isSelected ? Kirigami.Theme.backgroundColor : "transparent"
-		opacity: fileSlot.isSelected ? 1.0 : 0.4
-		visible: fileSlot.selectionActive
-		Behavior on color {
-			ColorAnimation {
-				duration: fileSlot.animationDuration
-				easing.type: fileSlot.animationEase
-			}
-		}
-
-		Kirigami.Icon {
+	Component {
+		id: selectionWashComponent
+		Rectangle {
 			anchors.fill: parent
-			anchors.margins: 2
-			source: "emblem-ok-symbolic"
-			opacity: fileSlot.isSelected ? 1.0 : 0
-
+			anchors.margins: fileSlot.isSelected ? Kirigami.Units.smallSpacing : 0
+			radius: Kirigami.Units.cornerRadius
+			color: Kirigami.Theme.highlightColor
+			opacity: (fileSlot.isSelected ? 0.25 : 0.0) || (fileSlot.active ? 0.5 : 0.0)
 			Behavior on opacity {
 				NumberAnimation {
 					duration: fileSlot.animationDuration
@@ -782,24 +822,147 @@ Item {
 		}
 	}
 
-	// ── Drop Target ───
-
-	Rectangle {
+	// ── Selection, focus and drag decorations ──
+	// One loader holds the check badge and the drop highlight, both absent
+	// while a folder is just being browsed. (The active-app glow lives in the
+	// icon cell itself, where its anchors stay local.)
+	Loader {
+		id: stateDecorationLoader
 		anchors.fill: parent
-		anchors.margins: 2
-		radius: Kirigami.Units.cornerRadius
-		color: Kirigami.Theme.focusColor
-		opacity: slotDropArea.isHovered ? 0.35 : 0.0
-		border.color: Kirigami.Theme.highlightColor
-		border.width: 2
-		Behavior on opacity {
-			NumberAnimation {
-				duration: fileSlot.animationDuration
-				easing.type: fileSlot.animationEase
+		active: fileSlot.selectionActive || fileSlot.hasActiveApp || fileSlot.dropHovered
+		sourceComponent: stateDecorationComponent
+	}
+
+	Component {
+		id: stateDecorationComponent
+		Item {
+			anchors.fill: parent
+
+			Rectangle {
+				visible: fileSlot.selectionActive
+				anchors.fill: parent
+				anchors.margins: Kirigami.Units.smallSpacing
+				radius: Kirigami.Units.cornerRadius
+				color: "transparent"
+				border.color: Kirigami.Theme.highlightColor
+				border.width: 2
+				opacity: fileSlot.isSelected ? 1.0 : 0.0
+				Behavior on opacity {
+					NumberAnimation {
+						duration: fileSlot.animationDuration
+						easing.type: fileSlot.animationEase
+					}
+				}
+			}
+
+			// ── Focus ──
+			// The focus border is not drawn here: the grid owns one shared
+			// border that follows the cursor (FocusBorder.qml). Drawing it per
+			// slot meant loading four SVG documents for every item in the
+			// folder.
+			Rectangle {
+				Kirigami.Theme.colorSet: Kirigami.Theme.Selection
+				Kirigami.Theme.inherit: false
+
+				visible: fileSlot.selectionActive
+				anchors.top: parent.top
+				anchors.right: parent.right
+				anchors.margins: Kirigami.Units.mediumSpacing
+				width: Kirigami.Units.iconSizes.small
+				height: Kirigami.Units.iconSizes.small
+				radius: Kirigami.Units.cornerRadius
+				border.width: 2
+				border.color: Kirigami.Theme.backgroundColor
+				color: fileSlot.isSelected ? Kirigami.Theme.backgroundColor : "transparent"
+				opacity: fileSlot.isSelected ? 1.0 : 0.4
+				Behavior on color {
+					ColorAnimation {
+						duration: fileSlot.animationDuration
+						easing.type: fileSlot.animationEase
+					}
+				}
+
+				Kirigami.Icon {
+					anchors.fill: parent
+					anchors.margins: 2
+					source: "emblem-ok-symbolic"
+					opacity: fileSlot.isSelected ? 1.0 : 0
+
+					Behavior on opacity {
+						NumberAnimation {
+							duration: fileSlot.animationDuration
+							easing.type: fileSlot.animationEase
+						}
+					}
+				}
+			}
+
+
+
+			// Active app: a soft accent glow under the icon. It is loaded only
+			// while the item is actually active, and its position is computed
+			// in this item's coordinates so it can cross the layout boundary
+			// without an illegal cross-parent anchor.
+			Item {
+				id: activeGlow
+				visible: fileSlot.hasActiveApp && fileSlot.iconBody !== null
+				width: fileSlot.iconBody ? Math.max(18, fileSlot.iconBody.width * 1.25) : 0
+				height: 12
+				readonly property point anchorPoint: fileSlot.iconBody
+					? fileSlot.iconBody.mapToItem(fileSlot, fileSlot.iconBody.width / 2, fileSlot.iconBody.height)
+					: Qt.point(fileSlot.width / 2, fileSlot.height / 2)
+				x: anchorPoint.x - width / 2
+				y: anchorPoint.y - height / 2
+
+				Rectangle {
+					anchors.fill: parent
+					radius: height / 2
+					color: Kirigami.Theme.highlightColor
+					opacity: 0.22
+				}
+				Rectangle {
+					anchors.horizontalCenter: parent.horizontalCenter
+					anchors.verticalCenter: parent.verticalCenter
+					width: parent.width * 0.7
+					height: Math.max(3, parent.height * 0.28)
+					radius: height / 2
+					color: Kirigami.Theme.highlightColor
+					opacity: 0.85
+				}
+				SequentialAnimation on opacity {
+					running: activeGlow.visible
+					loops: Animation.Infinite
+					NumberAnimation { to: 0.35; duration: 800; easing.type: Easing.InOutQuad }
+					NumberAnimation { to: 1.0; duration: 800; easing.type: Easing.InOutQuad }
+				}
+			}
+
+			// Drop highlight.
+			Rectangle {
+				visible: fileSlot.dropHovered
+				anchors.fill: parent
+				anchors.margins: 2
+				radius: Kirigami.Units.cornerRadius
+				color: Kirigami.Theme.focusColor
+				opacity: 0.35
+				border.color: Kirigami.Theme.highlightColor
+				border.width: 2
 			}
 		}
 	}
 
+	Loader {
+		id: dropAreaLoader
+		anchors.fill: parent
+		// A drop can only arrive while the window owns a drag. Building the
+		// area (and its drag handlers) for every item made a folder pay for
+		// drag support it was not using.
+		active: fileSlot.windowDragging
+		sourceComponent: dropAreaComponent
+	}
+
+	Component {
+		id: dropAreaComponent
 	DropArea {
 		id: slotDropArea
 		anchors.fill: parent
@@ -913,13 +1076,14 @@ Item {
 			}
 		}
 	}
+	}
 
 	Timer {
 		id: hoverNavTimer
 		interval: 600
 		repeat: false
 		onTriggered: {
-			if (slotDropArea.isHovered && fileSlot.is_dir) {
+			if (fileSlot.dropHovered && fileSlot.is_dir) {
 				const targetPath = fileSlot.path;
 				if (typeof fileSlot.dragDropHandler !== 'undefined')
 					fileSlot.dragDropHandler.tooltip_active = false;
@@ -952,8 +1116,8 @@ Item {
 
 	// Hand the in-window free-placement drag to the window's OS drag source.
 	// Wrapper so FolderView can call it on the slot (see MouseArea).
-	function handOffRepositionDrag(sceneX, sceneY) {
-		mouseArea.handOffRepositionDrag(sceneX, sceneY);
+	function handOffRepositionDrag(sceneX, sceneY, onStarted) {
+		mouseArea.handOffRepositionDrag(sceneX, sceneY, onStarted);
 	}
 
 	// What a plain left click on this item does. With OpenOnClick off, a click
@@ -962,7 +1126,7 @@ Item {
 	function activateOrFocus() {
 		if (!fileSlot.actionManager)
 			return;
-		if (fileSlot.openOnClick || fileSlot.isFocused) {
+		if (fileSlot.openOnClick || fileSlot.cursorIsFocused()) {
 			// Collapse the several activation signals one gesture produces into
 			// a single open. The same item opened again a moment later is a new
 			// gesture and is not affected.
@@ -1063,12 +1227,26 @@ Item {
 			fileSlot.isDraggingThisSlot = true;
 		}
 
-		function grabAndStartNativeDrag(wx, wy) {
+		function grabAndStartNativeDrag(wx, wy, onStarted) {
+			// `onStarted` must run *inside* the native drag's event loop. Starting
+			// an automatic drag calls QDrag::exec(), which does not return until
+			// the gesture ends, so a navigation queued after it would only happen
+			// after the user lets go. Queue it before `Drag.active` and the nested
+			// loop runs it while the drag is still alive.
+			const notify = function () {
+				if (onStarted)
+					Qt.callLater(onStarted);
+			};
 			const targetToGrab = fileSlot.dragGrabItem;
+			if (!targetToGrab) {
+				notify();
+				return;
+			}
 
 			// A drag ghost grabbed at press-and-hold is ready to use at once, so
 			// the drag keeps up with the finger instead of waiting on a render.
 			if (mouseArea.cachedDragImage !== "" && mouseArea.pointerDown && mouseArea.dragAllowed) {
+				notify();
 				mouseArea.startNativeDrag(mouseArea.cachedDragImage, targetToGrab.width, targetToGrab.height, wx, wy);
 				return;
 			}
@@ -1076,7 +1254,8 @@ Item {
 			targetToGrab.grabToImage(function (result) {
 				// The grab is asynchronous; the finger may be up by now, in which
 				// case starting the drag would leave it running with no button
-				// held. Drop it instead.
+				// held. Drop it instead, but still let the caller finish the
+				// navigation that the hand-off was for.
 				if (!mouseArea.pointerDown || !mouseArea.dragAllowed) {
 					if (typeof dragDropHandler !== 'undefined' && dragDropHandler) {
 						dragDropHandler.active_dragged_paths = [];
@@ -1085,9 +1264,15 @@ Item {
 					}
 					localDragTarget.Drag.active = false;
 					mouseArea.dragStarted = false;
+					mouseArea.cachedGrabResult = result;
+					mouseArea.cachedDragImage = result.url.toString();
+					notify();
 					return;
 				}
 
+				mouseArea.cachedGrabResult = result;
+				mouseArea.cachedDragImage = result.url.toString();
+				notify();
 				mouseArea.startNativeDrag(result.url, targetToGrab.width, targetToGrab.height, wx, wy);
 			});
 		}
@@ -1095,16 +1280,21 @@ Item {
 		// Turn the in-window free-placement drag into an OS drag, without
 		// waiting for a release. Spring-load navigation destroys this slot, so
 		// the payload has to move to the window's persistent drag source first.
-		function handOffRepositionDrag(sceneX, sceneY) {
-			if (!mouseArea.repositionDrag)
+		function handOffRepositionDrag(sceneX, sceneY, onStarted) {
+			// No custom drag to hand over. The caller still needs its navigation
+			// to happen, so run the continuation rather than dropping it.
+			if (!mouseArea.repositionDrag) {
+				if (onStarted)
+					onStarted();
 				return;
+			}
 			mouseArea.repositionDrag = false;
 			const fView = fileSlot.folderView;
 			if (fView && typeof fView.cancelRepositionDrag === 'function')
 				fView.cancelRepositionDrag();
 			if (typeof dragDropHandler !== 'undefined' && dragDropHandler)
 				dragDropHandler.reposition_active = false;
-			mouseArea.grabAndStartNativeDrag(sceneX, sceneY);
+			mouseArea.grabAndStartNativeDrag(sceneX, sceneY, onStarted);
 		}
 
 		function initiateDragPayload(mouse) {
@@ -1168,6 +1358,20 @@ Item {
 				mouseArea.repositionDrag = true;
 				if (typeof dragDropHandler !== 'undefined' && dragDropHandler)
 					dragDropHandler.tooltip_active = true;
+				// A spring-load hand-off may need the OS drag image hundreds of
+				// milliseconds later. Grab it now, while the source delegate is
+				// still alive, so the hand-off does not wait on a render after
+				// the folder has already changed.
+				if (mouseArea.cachedDragImage === "" && fileSlot.dragGrabItem) {
+					const grabItem = fileSlot.dragGrabItem;
+					grabItem.grabToImage(function (result) {
+						mouseArea.cachedGrabResult = result;
+						mouseArea.cachedDragImage = result.url.toString();
+						const win = fileSlot.window;
+						if (win && typeof win.preloadDragImage === 'function')
+							win.preloadDragImage(mouseArea.cachedDragImage);
+					});
+				}
 				return;
 			}
 
@@ -1328,7 +1532,10 @@ Item {
 			mouseArea.isPressAndHoldActive = true;
 			fileSlot.pressHeld(fileSlot.path, fileSlot.index);
 			// Grab the drag ghost now, while the finger is held, so a drag
-			// starting on the next move begins immediately.
+			// starting on the next move begins immediately. An empty slot has
+			// nothing to grab yet; the gesture can start once it fills.
+			if (!fileSlot.dragGrabItem)
+				return;
 			fileSlot.dragGrabItem.grabToImage(function (result) {
 				mouseArea.cachedGrabResult = result;
 				mouseArea.cachedDragImage = result.url.toString();
@@ -1380,6 +1587,7 @@ Item {
 			fileSlot.activateOrFocus();
 		}
 	}
+
 
 	// Hovering an item reveals the text its label is not showing.
 	ToolTip.visible: fileSlot.tooltipText !== "" && mouseArea.containsMouse && !fileSlot.isDraggingThisSlot && !(fileSlot.dragDropHandler && fileSlot.dragDropHandler.tooltip_active)
