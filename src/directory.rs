@@ -565,21 +565,22 @@ pub struct Directory {
 	/// visible ones, so scrolling to an item generated minutes ago still shows
 	/// its proper name; rows that are visible are repainted.
 	poll_descriptors: qt_method!(
-		pub fn poll_descriptors(&mut self) {
+		pub fn poll_descriptors(&mut self) -> bool {
 			let epoch = crate::descriptor_generator::results_epoch();
 			if epoch == self.last_descriptor_epoch {
-				return;
+				return false;
 			}
 			// Apply a folder's results only after its queue has drained: one
 			// repaint for the whole batch, rather than one per ROM while the
 			// workers are still producing them.
 			if crate::descriptor_generator::folder_busy(Path::new(&self.path_str)) {
-				return;
+				return false;
 			}
 			self.last_descriptor_epoch = epoch;
 			if !crate::descriptor_generator::has_results() {
-				return;
+				return false;
 			}
+			let mut applied = false;
 			for index in 0..self.items.len() {
 				let item = &self.items[index];
 				let Some(generated) = crate::descriptor_generator::result_for(&item.path) else {
@@ -590,16 +591,19 @@ pub struct Directory {
 					.filter(|name| !name.trim().is_empty())
 					.unwrap_or_else(|| item.title.clone());
 				let icon = generated.icon.unwrap_or_else(|| item.icon.clone());
-				if title == item.title && icon == item.icon {
-					continue;
-				}
+				// Do not skip an unchanged title/icon: a generator that was
+				// asked again may have rewritten the same image path after
+				// the file had disappeared, and the view needs a repaint to
+				// load it again.
 				self.items[index].title = title;
 				self.items[index].icon = icon;
+				applied = true;
 				if let Some(row) = self.visible.iter().position(|visible| *visible == index) {
 					let model_index = self.row_index(row as i32);
 					self.data_changed(model_index, model_index);
 				}
 			}
+			applied
 		}
 	),
 
@@ -665,10 +669,7 @@ pub struct Directory {
 			if self.path_str.is_empty() {
 				return;
 			}
-			crate::descriptor_generator::request(
-				Path::new(&path),
-				Path::new(&self.path_str),
-			);
+			crate::descriptor_generator::request(Path::new(&path), Path::new(&self.path_str));
 		}
 	),
 
@@ -1120,10 +1121,7 @@ impl Directory {
 						if name.is_empty() {
 							(UNTITLED_RANK, String::new())
 						} else {
-							let rank = match custom_names
-								.iter()
-								.position(|known| known == &name)
-							{
+							let rank = match custom_names.iter().position(|known| known == &name) {
 								Some(position) => position as i64,
 								None => {
 									custom_names.push(name.clone());
@@ -1473,8 +1471,7 @@ impl Directory {
 			let mut groups = Vec::new();
 			for (label, indices) in runs {
 				let has_header = !label.is_empty();
-				let item_columns =
-					((indices.len() as f64 / stride as f64).ceil() as i32).max(1);
+				let item_columns = ((indices.len() as f64 / stride as f64).ceil() as i32).max(1);
 				if has_header {
 					groups.push(serde_json::json!({
 						"label": label,
@@ -1781,10 +1778,7 @@ fn date_group_key(ms: u64, now: Option<&DateContext>) -> (i64, String) {
 	}
 	match ago {
 		1 => (1, "Yesterday".to_string()),
-		2..=6 => (
-			ago,
-			WEEKDAYS[(tm.tm_wday.clamp(0, 6)) as usize].to_string(),
-		),
+		2..=6 => (ago, WEEKDAYS[(tm.tm_wday.clamp(0, 6)) as usize].to_string()),
 		7..=13 => (7, "Last week".to_string()),
 		_ if tm.tm_year == now.tm.tm_year && tm.tm_mon == now.tm.tm_mon => {
 			(8, "This month".to_string())
@@ -1830,8 +1824,7 @@ fn type_group_key(item: &FileItem) -> (i64, String) {
 			.is_some_and(|extension| {
 				extension.eq_ignore_ascii_case("desktop")
 					|| extension.eq_ignore_ascii_case("appimage")
-			})
-	{
+			}) {
 		return (6, "Apps".to_string());
 	}
 	let mime = from_path(&item.path).first_or_octet_stream();
@@ -2093,6 +2086,37 @@ fn title_from_descriptor(path: &Path) -> String {
 		.unwrap_or_else(|| path.to_string_lossy().to_string())
 }
 
+/// The secondary `Comment=` line for an item, resolved the same way the file
+/// view resolves it: the item's own entry first, then its descriptor, then an
+/// AppImage's embedded entry. Empty means no comment.
+pub fn get_item_comment(path: &Path) -> String {
+	if directory_entry_allowed(path)
+		&& crate::config::entry_path(path).is_some_and(|entry| entry.is_file())
+	{
+		let entry = crate::desktop_entry::read(path);
+		if let Some(comment) = entry.comment.filter(|comment| !comment.trim().is_empty()) {
+			return comment;
+		}
+	}
+
+	if let Some(descriptor) = crate::directory_descriptor::lookup(path) {
+		if let Some(comment) = descriptor
+			.comment
+			.filter(|comment| !comment.trim().is_empty())
+		{
+			return comment;
+		}
+	}
+
+	if let Some(entry) = crate::appimage::desktop_entry(path) {
+		if let Some(comment) = entry.comment.filter(|comment| !comment.trim().is_empty()) {
+			return comment;
+		}
+	}
+
+	String::new()
+}
+
 pub fn get_icon(path: &str) -> String {
 	// An empty path would make `gio info` inspect the current working directory,
 	// so bail out before any filesystem or gio lookup can happen.
@@ -2197,6 +2221,13 @@ fn icon_source(icon: String, base: &Path) -> String {
 
 	match std::fs::canonicalize(&path) {
 		Ok(resolved) => format!("file://{}", resolved.to_string_lossy()),
+		// A descriptor may be written just before its image. Keep the
+		// source an absolute URL even when the image is not there yet:
+		// returning a bare `/path` makes QML resolve it against `qrc:`,
+		// so the icon can never appear once the image is written.
+		Err(_) if path.is_absolute() => {
+			format!("file://{}", path.to_string_lossy())
+		}
 		Err(_) => icon,
 	}
 }
@@ -2225,8 +2256,8 @@ static FOLDER_PLACES: Lazy<FolderPlaces> = Lazy::new(|| {
 	let dirs = candidates
 		.iter()
 		.filter_map(|(get_dir, fallback_name, icon)| {
-			let target = get_dir()
-				.or_else(|| home.as_ref().map(|home| home.join(fallback_name)))?;
+			let target =
+				get_dir().or_else(|| home.as_ref().map(|home| home.join(fallback_name)))?;
 			let target = std::fs::canonicalize(&target).unwrap_or(target);
 			Some((target, *icon))
 		})
@@ -2353,7 +2384,8 @@ mod tests {
 		directory.items = items;
 		directory.visible = (0..directory.items.len()).collect();
 
-		let json = directory.compute_group_layout(false, 300.0, 300.0, 50.0, 50.0, 10.0, 20.0, 0, false);
+		let json =
+			directory.compute_group_layout(false, 300.0, 300.0, 50.0, 50.0, 10.0, 20.0, 0, false);
 		let value: serde_json::Value = serde_json::from_str(&json).unwrap();
 		assert_eq!(value["groups"].as_array().unwrap().len(), 2);
 		assert_eq!(value["slots"].as_array().unwrap().len(), 3);
@@ -2421,8 +2453,8 @@ fn placeholder_items(path: &str, include_hidden: bool) -> Vec<FileItem> {
 		// directory would otherwise be a file to the view: no folder icon, no
 		// drop target and no spring-load. Follow only the links, keeping the
 		// ordinary entries on the cheap `file_type` path.
-		let is_dir = file_type.map(|t| t.is_dir()).unwrap_or(false)
-			|| (is_symlink && entry_path.is_dir());
+		let is_dir =
+			file_type.map(|t| t.is_dir()).unwrap_or(false) || (is_symlink && entry_path.is_dir());
 		let is_stashed = name.starts_with('.');
 		items.push(FileItem {
 			title: name.clone(),
@@ -2461,164 +2493,172 @@ fn scan_items(path: &str, include_hidden: bool) -> Vec<FileItem> {
 	let mut items = Vec::new();
 	let listing = fs::read_dir(path);
 
-		if let Ok(entries) = listing {
-			for entry in entries.flatten() {
-				let name = entry.file_name().to_string_lossy().to_string();
+	if let Ok(entries) = listing {
+		for entry in entries.flatten() {
+			let name = entry.file_name().to_string_lossy().to_string();
 
-				if name.starts_with('.') && !include_hidden {
-					continue;
-				}
+			if name.starts_with('.') && !include_hidden {
+				continue;
+			}
 
-				let entry_path = entry.path();
-				let is_dotfile = name.starts_with('.');
-				let file_type = entry.file_type().ok();
-				let is_symlink = file_type.map(|t| t.is_symlink()).unwrap_or(false);
-				// A link to a folder is a folder for icons, drops and
-				// spring-load, just like the target it opens. `file_type` sees
-				// only the link, so resolve exactly those entries.
-				let is_dir = file_type.map(|t| t.is_dir()).unwrap_or(false)
-					|| (is_symlink && entry_path.is_dir());
+			let entry_path = entry.path();
+			let is_dotfile = name.starts_with('.');
+			let file_type = entry.file_type().ok();
+			let is_symlink = file_type.map(|t| t.is_symlink()).unwrap_or(false);
+			// A link to a folder is a folder for icons, drops and
+			// spring-load, just like the target it opens. `file_type` sees
+			// only the link, so resolve exactly those entries.
+			let is_dir = file_type.map(|t| t.is_dir()).unwrap_or(false)
+				|| (is_symlink && entry_path.is_dir());
 
-				// Resolve the entry file once. For a directory that is its
-				// `.directory` and only when it exists: every directory used to
-				// look like an entry, so a scan of the SD card read and parsed
-				// the same missing file several times per folder.
-				let entry_file = if is_dir {
-					if directory_entry_allowed(&entry_path) {
-						let candidate = entry_path.join(".directory");
-						candidate.is_file().then_some(candidate)
-					} else {
-						None
-					}
-				} else {
-					crate::config::entry_path(&entry_path)
-				};
-				let entry_data = entry_file
-					.as_ref()
-					.map(|entry_file| crate::desktop_entry::read(entry_file));
-				// A desktop entry that asks not to be displayed is stashed like
-				// a dotfile: hidden while the stash is on, shown when it is off.
-				if !include_hidden
-					&& entry_data.as_ref().is_some_and(|entry| entry.no_display)
-				{
-					continue;
-				}
-				let is_entry = entry_data.is_some();
-				let p = entry_path.to_string_lossy().to_string();
-				// A descriptor can supply both the title and the secondary
-				// comment for a file the directory cannot describe itself (a
-				// ROM on a read-only card). It is a cached index lookup, and a
-				// desktop entry never needs it.
-				let descriptor = if entry_data.is_none() {
-					crate::directory_descriptor::lookup(&entry_path)
+			// Resolve the entry file once. For a directory that is its
+			// `.directory` and only when it exists: every directory used to
+			// look like an entry, so a scan of the SD card read and parsed
+			// the same missing file several times per folder.
+			let entry_file = if is_dir {
+				if directory_entry_allowed(&entry_path) {
+					let candidate = entry_path.join(".directory");
+					candidate.is_file().then_some(candidate)
 				} else {
 					None
-				};
-				let title = if let Some(name) = entry_data
-					.as_ref()
-					.and_then(|entry| entry.name.clone())
-					.filter(|name| !name.is_empty())
-				{
-					name
-				} else if is_dir {
-					let app_name = crate::appimage::desktop_entry(&entry_path)
-						.and_then(|entry| entry.name)
-						.filter(|name| !name.is_empty());
-					descriptor
-						.as_ref()
-						.and_then(|descriptor| descriptor.name.clone())
-						.or(app_name)
-						.unwrap_or_else(|| {
-							entry_path
-								.file_name()
-								.map(|name| name.to_string_lossy().to_string())
-								.unwrap_or_else(|| entry_path.to_string_lossy().to_string())
-						})
-				} else {
-					descriptor
-						.as_ref()
-						.and_then(|descriptor| descriptor.name.clone())
-						.unwrap_or_else(|| get_item_title(&entry_path))
-				};
-				let comment = entry_data
-					.as_ref()
-					.and_then(|entry| entry.comment.clone())
-					.or_else(|| descriptor.as_ref().and_then(|descriptor| descriptor.comment.clone()))
-					.unwrap_or_default();
-				let icon = entry_data
-					.as_ref()
-					.and_then(|entry| entry.icon.clone())
-					.filter(|icon| !icon.is_empty())
-					.map(|icon| icon_source(icon, crate::config::base_dir(&entry_path)))
-					.unwrap_or_else(|| {
-						if is_dir {
-							get_folder_icon(&p)
-						} else {
-							get_icon(&p)
-						}
-					});
-				let control_kind = match entry_data.as_ref().and_then(|entry| entry.entry_type.as_deref()) {
-					Some("Button") => 1,
-					Some("Toggle") => 2,
-					Some("Number") => 3,
-					_ => 0,
-				};
-				let toggle_on = entry_data.as_ref().and_then(|entry| entry.toggle).unwrap_or(false);
-				let number_value = entry_data
-					.as_ref()
-					.map(|entry| {
-						entry
-							.number
-							.iter()
-							.map(|field| field.value.to_string())
-							.collect::<Vec<_>>()
-							.join(" ")
-					})
-					.unwrap_or_default();
-
-				let metadata = entry.metadata().ok();
-				let (modified, created, accessed) = metadata
-					.as_ref()
-					.map(|meta| {
-						(
-							time_ms(meta.modified().ok()),
-							time_ms(meta.created().ok()),
-							time_ms(meta.accessed().ok()),
-						)
-					})
-					.unwrap_or((0, 0, 0));
-				let size = metadata.as_ref().map(|meta| meta.len()).unwrap_or(0);
-				let is_stashed =
-					is_dotfile || entry_data.as_ref().is_some_and(|entry| entry.no_display);
-				let custom_group = entry_data
-					.as_ref()
-					.and_then(|entry| entry.group.clone())
-					.unwrap_or_default();
-
-				items.push(FileItem {
-					name,
-					title,
-					comment,
-					path: p,
-					is_dir,
-					is_symlink,
-					is_dotfile,
-					icon,
-					is_entry,
-					control_kind,
-					toggle_on,
-					number_value,
-					size,
-					modified,
-					created,
-					accessed,
-					group: 0,
-					group_label: String::new(),
-					is_stashed,
-					custom_group,
-				});
+				}
+			} else {
+				crate::config::entry_path(&entry_path)
+			};
+			let entry_data = entry_file
+				.as_ref()
+				.map(|entry_file| crate::desktop_entry::read(entry_file));
+			// A desktop entry that asks not to be displayed is stashed like
+			// a dotfile: hidden while the stash is on, shown when it is off.
+			if !include_hidden && entry_data.as_ref().is_some_and(|entry| entry.no_display) {
+				continue;
 			}
+			let is_entry = entry_data.is_some();
+			let p = entry_path.to_string_lossy().to_string();
+			// A descriptor can supply both the title and the secondary
+			// comment for a file the directory cannot describe itself (a
+			// ROM on a read-only card). It is a cached index lookup, and a
+			// desktop entry never needs it.
+			let descriptor = if entry_data.is_none() {
+				crate::directory_descriptor::lookup(&entry_path)
+			} else {
+				None
+			};
+			let title = if let Some(name) = entry_data
+				.as_ref()
+				.and_then(|entry| entry.name.clone())
+				.filter(|name| !name.is_empty())
+			{
+				name
+			} else if is_dir {
+				let app_name = crate::appimage::desktop_entry(&entry_path)
+					.and_then(|entry| entry.name)
+					.filter(|name| !name.is_empty());
+				descriptor
+					.as_ref()
+					.and_then(|descriptor| descriptor.name.clone())
+					.or(app_name)
+					.unwrap_or_else(|| {
+						entry_path
+							.file_name()
+							.map(|name| name.to_string_lossy().to_string())
+							.unwrap_or_else(|| entry_path.to_string_lossy().to_string())
+					})
+			} else {
+				descriptor
+					.as_ref()
+					.and_then(|descriptor| descriptor.name.clone())
+					.unwrap_or_else(|| get_item_title(&entry_path))
+			};
+			let comment = entry_data
+				.as_ref()
+				.and_then(|entry| entry.comment.clone())
+				.or_else(|| {
+					descriptor
+						.as_ref()
+						.and_then(|descriptor| descriptor.comment.clone())
+				})
+				.unwrap_or_default();
+			let icon = entry_data
+				.as_ref()
+				.and_then(|entry| entry.icon.clone())
+				.filter(|icon| !icon.is_empty())
+				.map(|icon| icon_source(icon, crate::config::base_dir(&entry_path)))
+				.unwrap_or_else(|| {
+					if is_dir {
+						get_folder_icon(&p)
+					} else {
+						get_icon(&p)
+					}
+				});
+			let control_kind = match entry_data
+				.as_ref()
+				.and_then(|entry| entry.entry_type.as_deref())
+			{
+				Some("Button") => 1,
+				Some("Toggle") => 2,
+				Some("Number") => 3,
+				_ => 0,
+			};
+			let toggle_on = entry_data
+				.as_ref()
+				.and_then(|entry| entry.toggle)
+				.unwrap_or(false);
+			let number_value = entry_data
+				.as_ref()
+				.map(|entry| {
+					entry
+						.number
+						.iter()
+						.map(|field| field.value.to_string())
+						.collect::<Vec<_>>()
+						.join(" ")
+				})
+				.unwrap_or_default();
+
+			let metadata = entry.metadata().ok();
+			let (modified, created, accessed) = metadata
+				.as_ref()
+				.map(|meta| {
+					(
+						time_ms(meta.modified().ok()),
+						time_ms(meta.created().ok()),
+						time_ms(meta.accessed().ok()),
+					)
+				})
+				.unwrap_or((0, 0, 0));
+			let size = metadata.as_ref().map(|meta| meta.len()).unwrap_or(0);
+			let is_stashed =
+				is_dotfile || entry_data.as_ref().is_some_and(|entry| entry.no_display);
+			let custom_group = entry_data
+				.as_ref()
+				.and_then(|entry| entry.group.clone())
+				.unwrap_or_default();
+
+			items.push(FileItem {
+				name,
+				title,
+				comment,
+				path: p,
+				is_dir,
+				is_symlink,
+				is_dotfile,
+				icon,
+				is_entry,
+				control_kind,
+				toggle_on,
+				number_value,
+				size,
+				modified,
+				created,
+				accessed,
+				group: 0,
+				group_label: String::new(),
+				is_stashed,
+				custom_group,
+			});
 		}
+	}
 
 	if crate::file_manager::perf_mode() > 0 {
 		eprintln!(

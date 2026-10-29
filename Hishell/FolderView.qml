@@ -535,6 +535,22 @@ Item {
 		}
 	}
 
+	// A generated descriptor reaches the index on a worker after the cursor
+	// has settled, and its icon file appears beside it. Re-publish the focus
+	// on a slow timer so the top screen picks up the generated title, comment
+	// and 3D banner without a cursor move; `publish_focus` compares the whole
+	// document and only writes when something changed.
+	Timer {
+		interval: 2000
+		repeat: true
+		running: folderView.visible
+		onTriggered: {
+			const fm = folderView.focusManager;
+			if (fm)
+				fm.publish_focus_now();
+		}
+	}
+
 	// Persist the cursor after it settles. Saving on every step wrote the
 	// session file from the GUI thread on every key press.
 	Timer {
@@ -871,7 +887,11 @@ Item {
 		onTriggered: {
 			if (folderView.directory) {
 				folderView.directory.poll_thumbnails();
-				folderView.directory.poll_descriptors();
+				// A new descriptor changes the focused item's title/icon
+				// without moving the cursor. Publish it again so the top
+				// screen uses the generated art and name immediately.
+				if (folderView.directory.poll_descriptors())
+					topScreenFocusTimer.restart();
 				folderView.directory.poll_changes();
 			}
 		}

@@ -67,6 +67,10 @@ pub struct Descriptor {
 	/// so trashing the link would not stick; the warning offers this instead
 	/// (`docs/clam-configd.md` §5.5).
 	pub unmount: Option<String>,
+	/// The entry this descriptor was read from, so a caller that needs another
+	/// group from it (the top screen's `[Topscreen]` banner) does not have to
+	/// rebuild the index or guess the file name.
+	pub source: PathBuf,
 }
 
 static CACHE: Lazy<Mutex<Option<(Instant, HashMap<PathBuf, Descriptor>)>>> =
@@ -170,6 +174,7 @@ fn read_descriptor(file: &Path) -> Option<(PathBuf, Descriptor)> {
 		icon: string(section, "Icon").filter(|icon| !icon.trim().is_empty()),
 		comment: string(section, "Comment").filter(|comment| !comment.trim().is_empty()),
 		unmount: string(section, "Unmount").filter(|command| !command.trim().is_empty()),
+		source: file.to_path_buf(),
 	};
 	Some((target, descriptor))
 }

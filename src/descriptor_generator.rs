@@ -70,6 +70,11 @@ const MAX_PENDING_PER_FOLDER: usize = 1024;
 /// them up, then dropped.
 const RESULT_TTL: Duration = Duration::from_secs(120);
 
+/// Bump when a generator's output changes in a way the source fingerprint
+/// cannot see (a new descriptor group, a different icon). Old stamps have no
+/// version and are regenerated once.
+const CACHE_VERSION: u32 = 3;
+
 #[derive(Clone, Debug)]
 struct Generator {
 	mime_types: Vec<String>,
@@ -316,12 +321,36 @@ fn stamp_path(src: &Path) -> PathBuf {
 	cache_path(src).with_extension("stamp")
 }
 
-fn stamp(src: &Path) -> Option<(u64, u64)> {
+fn stamp(src: &Path) -> Option<(u64, u64, u32)> {
 	let value = fs::read_to_string(stamp_path(src)).ok()?;
 	let mut parts = value.split_whitespace();
 	let mtime = parts.next()?.parse().ok()?;
 	let size = parts.next()?.parse().ok()?;
-	Some((mtime, size))
+	let version = parts.next()?.parse().ok()?;
+	Some((mtime, size, version))
+}
+
+/// Whether the entry's own image file still exists. A themed icon name needs
+/// no file; an absolute or relative path does. Without this check a deleted
+/// SVG made `cached()` accept the entry forever, so the ROM kept the
+/// placeholder and the generator was never asked to write the image again.
+fn icon_file_present(descriptor: &Path, entry: &DesktopEntry) -> bool {
+	let Some(icon) = entry.icon.as_deref() else {
+		return true;
+	};
+	if icon.trim().is_empty() {
+		return true;
+	}
+	if icon.starts_with('/') {
+		return Path::new(icon).is_file();
+	}
+	if icon.contains('/') || icon.starts_with('.') {
+		return descriptor
+			.parent()
+			.map(|parent| parent.join(icon).is_file())
+			.unwrap_or(false);
+	}
+	true
 }
 
 /// Whether the cached entry still describes this exact version of the file.
@@ -331,7 +360,11 @@ fn cached(src: &Path) -> Option<PathBuf> {
 		return None;
 	}
 	let (mtime, size) = source_fingerprint(src)?;
-	if stamp(src)? != (mtime, size) {
+	if stamp(src)? != (mtime, size, CACHE_VERSION) {
+		return None;
+	}
+	let entry = desktop_entry::read(&out);
+	if !icon_file_present(&out, &entry) {
 		return None;
 	}
 	Some(out)
@@ -341,7 +374,8 @@ fn write_stamp(src: &Path) -> Result<(), String> {
 	let path = stamp_path(src);
 	let (mtime, size) = source_fingerprint(src).ok_or("cannot stat source")?;
 	let tmp = path.with_extension(format!("stamp.tmp{}", std::process::id()));
-	fs::write(&tmp, format!("{mtime} {size}\n")).map_err(|error| error.to_string())?;
+	fs::write(&tmp, format!("{mtime} {size} {CACHE_VERSION}\n"))
+		.map_err(|error| error.to_string())?;
 	fs::rename(&tmp, &path).map_err(|error| {
 		let _ = fs::remove_file(&tmp);
 		error.to_string()
@@ -663,7 +697,9 @@ pub fn invalidate(src: &Path) {
 
 #[cfg(test)]
 mod tests {
-	use super::{expand_exec, mime_matches, parse_generator};
+	use super::{expand_exec, icon_file_present, mime_matches, parse_generator};
+	use crate::desktop_entry::DesktopEntry;
+	use std::fs;
 	use std::path::Path;
 
 	#[test]
@@ -698,6 +734,33 @@ mod tests {
 		assert!(mime_matches("image/*", "image/png"));
 		assert!(!mime_matches("image/*", "video/mp4"));
 		assert!(!mime_matches("image/png", "image/jpeg"));
+	}
+
+	#[test]
+	fn a_missing_generated_icon_invalidates_the_entry() {
+		let dir = std::env::temp_dir().join(format!(
+			"hishell-descriptor-icon-{}",
+			std::process::id()
+		));
+		fs::create_dir_all(&dir).unwrap();
+		let descriptor = dir.join("game.desktop");
+		let icon = dir.join("game.svg");
+		let entry = DesktopEntry {
+			icon: Some(icon.to_string_lossy().to_string()),
+			..DesktopEntry::default()
+		};
+
+		assert!(!icon_file_present(&descriptor, &entry));
+		fs::write(&icon, b"<svg/>").unwrap();
+		assert!(icon_file_present(&descriptor, &entry));
+
+		let themed = DesktopEntry {
+			icon: Some("application-x-test-rom".to_string()),
+			..DesktopEntry::default()
+		};
+		assert!(icon_file_present(&descriptor, &themed));
+
+		fs::remove_dir_all(dir).unwrap();
 	}
 
 	#[test]

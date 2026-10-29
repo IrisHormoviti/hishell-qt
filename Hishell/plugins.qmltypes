@@ -317,7 +317,7 @@ Module {
 		}
 		Method {
 			name: "poll_descriptors"
-			type: "void"
+			type: "bool"
 		}
 		Method {
 			name: "poll_changes"

@@ -33,25 +33,53 @@ Item {
 	// Driven 0 -> 1 -> -1 by the pulse below.
 	property real pulse: 0.0
 
+	// Changes whenever the border lands on a different slot. The breath runs
+	// after that, then rests: an endlessly animating border kept the panel
+	// rendering at the display rate while the shell was otherwise idle.
+	property string pulseKey: ""
+
 	readonly property real cornerSize: Math.max(10, Math.round(Math.min(width, height) * 0.3))
 	readonly property real travel: Math.min(8, Math.min(width, height) * focusBorder.movement)
 
 	opacity: 0.95 - focusBorder.pulse * 0.35
 
-	SequentialAnimation on pulse {
-		running: focusBorder.visible
-		loops: Animation.Infinite
+	// Two breaths per move, then a short settle back to rest. Starting from
+	// rest means the border is static (and the panel idle) between moves.
+	SequentialAnimation {
+		id: breathe
+		loops: 2
+		running: false
 		NumberAnimation {
+			target: focusBorder
+			property: "pulse"
 			to: 1.0
 			duration: focusBorder.duration * 4
 			easing.type: Easing.InOutQuad
 		}
 		NumberAnimation {
+			target: focusBorder
+			property: "pulse"
 			to: -1.0
 			duration: focusBorder.duration * 2
 			easing.type: Easing.InOutQuad
 		}
 	}
+	NumberAnimation {
+		id: settle
+		target: focusBorder
+		property: "pulse"
+		to: 0.0
+		duration: focusBorder.duration * 2
+		easing.type: Easing.InOutQuad
+		running: false
+	}
+	Connections {
+		target: breathe
+		function onFinished() { settle.restart() }
+	}
+
+	onVisibleChanged: if (visible) breathe.restart()
+	onPulseKeyChanged: if (visible) breathe.restart()
 
 	Image {
 		anchors.left: parent.left

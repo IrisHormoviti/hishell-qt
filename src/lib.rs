@@ -29,6 +29,7 @@ pub mod session;
 pub mod sound;
 pub mod squashfs;
 pub mod thumbnailer;
+pub mod topscreen;
 
 use qmetaobject::prelude::*;
 use std::ffi::CStr;

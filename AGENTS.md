@@ -43,6 +43,9 @@
 
 - No unit or integration tests exist in this repo.
 - Verify by running the app with a target directory and inspecting behavior (drag-and-drop, views, layouts).
+- On the device, never leave test files in the home directory root. Use
+  `/home/.scratch/<task>/` (dot-prefixed so the file manager does not list it),
+  or `/tmp` for files that do not need to survive a reboot. Clean up afterwards.
 
 ## Dependencies
 

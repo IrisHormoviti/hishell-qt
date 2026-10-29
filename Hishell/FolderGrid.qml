@@ -603,9 +603,25 @@ Item {
 				continue;
 			requested[item.path] = true;
 			dir.request_thumbnail(item.path, bucket);
-			// Descriptors (a ROM's title and artwork) are generated for what
-			// the user can see, not for a whole folder at once.
-			dir.request_descriptor(item.path);
+		}
+
+		// Descriptors (a ROM's title and artwork) are generated for what the
+		// user can see, not for a whole folder at once. Walk the instantiated
+		// delegates rather than the `indexAt` range: indexAt can return the
+		// same index for both corners on some Qt builds, which requested only
+		// the first row and left everything below it on the MIME placeholder.
+		// Asking every pass is cheap (`request_descriptor` returns immediately
+		// when cached) and lets the timer retry a failed generator.
+		const content = view.contentItem;
+		if (content) {
+			for (let i = 0; i < content.children.length; i++) {
+				const item = content.children[i];
+				if (!item || !item.path)
+					continue;
+				if (item.y + item.height < top || item.y > bottom || item.x + item.width < left || item.x > right)
+					continue;
+				dir.request_descriptor(item.path);
+			}
 		}
 	}
 
@@ -614,6 +630,17 @@ Item {
 		interval: 120
 		repeat: false
 		onTriggered: grid.requestVisibleThumbnails()
+	}
+
+	// The first request can race the view's layout (or a generator can fail
+	// once), leaving a visible ROM on its MIME placeholder until a scroll.
+	// Re-ask for the visible items on a slow timer; the request path is a
+	// cheap cache check and deduplicates anything still queued.
+	Timer {
+		interval: 2500
+		repeat: true
+		running: grid.count > 0
+		onTriggered: grid.scheduleThumbnails()
 	}
 
 	Connections {
@@ -1360,6 +1387,13 @@ Item {
 		FocusBorder {
 			anchors.fill: parent
 			source: grid.focusBorderSource
+			// Breathe when the cursor lands on a different slot (or switches
+			// pane), not continuously.
+			pulseKey: focusBorderHost.fm
+				? String(focusBorderHost.fm.current_pane) + ":"
+					+ String(focusBorderHost.fm.focused_index) + ":"
+					+ String(focusBorderHost.fm.focus_on_empty)
+				: ""
 		}
 	}
 }

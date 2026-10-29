@@ -5,6 +5,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
 import org.kde.kirigami as Kirigami
+import QtQuick.Shapes
 import Hishell
 
 Item {
@@ -695,6 +696,7 @@ Item {
 			Layout.alignment: (fileSlot.labelBesideIcon && fileSlot.showIcon) ? Qt.AlignVCenter : Qt.AlignHCenter
 			Layout.preferredWidth: fileSlot.iconDisplaySize
 			Layout.preferredHeight: fileSlot.iconDisplaySize
+			clip: false
 
 			Loader {
 				anchors.fill: parent
@@ -742,6 +744,46 @@ Item {
 					Layout.preferredHeight: fileSlot.gridSize
 					Layout.fillWidth: false
 					Layout.fillHeight: false
+				}
+			}
+
+			// Active glow when the app this item is attached to is running
+			Shape {
+				id: activeGlow
+				visible: fileSlot.hasActiveApp && fileSlot.iconBody !== null
+				z: -1
+				width: parent.width
+				height: parent.height
+				anchors.centerIn: parent
+
+				ShapePath {
+					strokeColor: "transparent"
+
+					PathRectangle {
+						width: activeGlow.width
+						height: activeGlow.height
+						x: 0; y: 0
+					}
+
+
+					fillGradient: RadialGradient {
+						centerX: activeGlow.width / 2
+						centerY: activeGlow.height / 2
+						centerRadius: Math.min(activeGlow.width, activeGlow.height) / 2
+						focalX: centerX
+						focalY: centerY
+						focalRadius: 0
+
+						GradientStop { position: 1.0; color: "transparent" }
+						GradientStop { position: 0.0; color: Kirigami.Theme.highlightColor }
+					}
+				}
+
+				SequentialAnimation on opacity {
+					running: activeGlow.visible
+					loops: Animation.Infinite
+					NumberAnimation { to: 0.35; duration: 1000; easing.type: Easing.InOutQuad }
+					NumberAnimation { to: 1.0; duration: 1000; easing.type: Easing.InOutQuad }
 				}
 			}
 		}
@@ -897,45 +939,6 @@ Item {
 				}
 			}
 
-
-
-			// Active app: a soft accent glow under the icon. It is loaded only
-			// while the item is actually active, and its position is computed
-			// in this item's coordinates so it can cross the layout boundary
-			// without an illegal cross-parent anchor.
-			Item {
-				id: activeGlow
-				visible: fileSlot.hasActiveApp && fileSlot.iconBody !== null
-				width: fileSlot.iconBody ? Math.max(18, fileSlot.iconBody.width * 1.25) : 0
-				height: 12
-				readonly property point anchorPoint: fileSlot.iconBody
-					? fileSlot.iconBody.mapToItem(fileSlot, fileSlot.iconBody.width / 2, fileSlot.iconBody.height)
-					: Qt.point(fileSlot.width / 2, fileSlot.height / 2)
-				x: anchorPoint.x - width / 2
-				y: anchorPoint.y - height / 2
-
-				Rectangle {
-					anchors.fill: parent
-					radius: height / 2
-					color: Kirigami.Theme.highlightColor
-					opacity: 0.22
-				}
-				Rectangle {
-					anchors.horizontalCenter: parent.horizontalCenter
-					anchors.verticalCenter: parent.verticalCenter
-					width: parent.width * 0.7
-					height: Math.max(3, parent.height * 0.28)
-					radius: height / 2
-					color: Kirigami.Theme.highlightColor
-					opacity: 0.85
-				}
-				SequentialAnimation on opacity {
-					running: activeGlow.visible
-					loops: Animation.Infinite
-					NumberAnimation { to: 0.35; duration: 800; easing.type: Easing.InOutQuad }
-					NumberAnimation { to: 1.0; duration: 800; easing.type: Easing.InOutQuad }
-				}
-			}
 
 			// Drop highlight.
 			Rectangle {

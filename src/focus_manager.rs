@@ -1021,8 +1021,8 @@ impl FocusManager {
 	/// focus publishes empty fields, which the top screen shows as no card.
 	fn publish_focus(&mut self) {
 		let path = self.focused_path.clone();
-		let (title, icon) = if path.is_empty() {
-			(String::new(), String::new())
+		let (title, icon, comment, banner) = if path.is_empty() {
+			(String::new(), String::new(), String::new(), None)
 		} else {
 			// Use a thumbnail that already exists (the file view requests the
 			// visible ones). Requesting one here queued a new job on every
@@ -1030,10 +1030,32 @@ impl FocusManager {
 			// stepping through a folder; a miss keeps the themed icon.
 			let thumbnail = crate::thumbnailer::result_for(&path);
 			let icon = thumbnail.unwrap_or_else(|| crate::directory::get_icon(&path));
-			(crate::directory::get_item_title(Path::new(&path)), icon)
+			let banner = crate::topscreen::banner_for(Path::new(&path), &icon);
+			(
+				crate::directory::get_item_title(Path::new(&path)),
+				icon,
+				crate::directory::get_item_comment(Path::new(&path)),
+				banner,
+			)
 		};
-		let document =
-			serde_json::json!({ "title": title, "icon": icon, "path": path }).to_string();
+		let document = serde_json::json!({
+			"title": title,
+			"comment": comment,
+			"icon": icon,
+			"path": path,
+			"model": banner.as_ref().map(|banner| banner.model.as_str()).unwrap_or(""),
+			"model_icon_texture": banner
+				.as_ref()
+				.and_then(|banner| banner.icon_texture.as_deref())
+				.unwrap_or(""),
+			"model_icon": banner
+				.as_ref()
+				.and_then(|banner| banner.icon_art.as_deref())
+				.unwrap_or(""),
+			"model_scale": banner.as_ref().map_or(1.0, |banner| banner.scale),
+			"model_animate": banner.as_ref().map_or(true, |banner| banner.animate),
+		})
+		.to_string();
 		if document == self.published_focus {
 			return;
 		}
