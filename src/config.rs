@@ -610,53 +610,67 @@ pub struct Config {
 	// the launcher.
 	pub maximized: qt_property!(bool; NOTIFY config_changed),
 
-	pub grid_size: qt_property!(u16; NOTIFY config_changed),
-	pub grid_horizontal_align: qt_property!(u8; NOTIFY config_changed),
-	pub grid_vertical_align: qt_property!(u8; NOTIFY config_changed),
-	pub grid_lines: qt_property!(i32; NOTIFY config_changed),
-	pub scroll_horizontal: qt_property!(bool; NOTIFY config_changed),
-	pub center_focus: qt_property!(bool; NOTIFY config_changed),
-	pub smooth_scrolling: qt_property!(bool; NOTIFY config_changed),
+	pub grid_size: qt_property!(u16; NOTIFY view_changed),
+	pub grid_horizontal_align: qt_property!(u8; NOTIFY view_changed),
+	pub grid_vertical_align: qt_property!(u8; NOTIFY view_changed),
+	pub grid_lines: qt_property!(i32; NOTIFY view_changed),
+	pub scroll_horizontal: qt_property!(bool; NOTIFY view_changed),
+	pub center_focus: qt_property!(bool; NOTIFY view_changed),
+	pub smooth_scrolling: qt_property!(bool; NOTIFY view_changed),
 	// Whether a click/tap on an item opens it. When false the first click only
 	// focuses the item and a second click (while it is focused) opens it.
-	pub open_on_click: qt_property!(bool; NOTIFY config_changed),
+	pub open_on_click: qt_property!(bool; NOTIFY view_changed),
 	// Whether the cursor may rest on an empty grid cell. Empty cells only exist
 	// in free placement, so this has no effect elsewhere.
-	pub focus_empty_slots: qt_property!(bool; NOTIFY config_changed),
-	pub show_labels: qt_property!(bool; NOTIFY config_changed),
-	pub grid_labels_beside_icons: qt_property!(bool; NOTIFY config_changed),
-	pub label_text: qt_property!(u8; NOTIFY config_changed),
-	pub view_mode: qt_property!(u8; NOTIFY config_changed),
+	pub focus_empty_slots: qt_property!(bool; NOTIFY view_changed),
+	pub show_labels: qt_property!(bool; NOTIFY view_changed),
+	pub grid_labels_beside_icons: qt_property!(bool; NOTIFY view_changed),
+	pub label_text: qt_property!(u8; NOTIFY view_changed),
+	pub view_mode: qt_property!(u8; NOTIFY view_changed),
 	// JSON array of list columns, in display order.
-	pub list_columns: qt_property!(String; NOTIFY config_changed),
+	pub list_columns: qt_property!(String; NOTIFY view_changed),
 	// Whether the list view draws its sticky column header.
-	pub list_header: qt_property!(bool; NOTIFY config_changed),
-	pub sort: qt_property!(u8; NOTIFY config_changed),
-	pub sort_date_mode: qt_property!(u8; NOTIFY config_changed),
-	pub sort_alpha_mode: qt_property!(u8; NOTIFY config_changed),
+	pub list_header: qt_property!(bool; NOTIFY view_changed),
+	pub sort: qt_property!(u8; NOTIFY view_changed),
+	pub sort_date_mode: qt_property!(u8; NOTIFY view_changed),
+	pub sort_alpha_mode: qt_property!(u8; NOTIFY view_changed),
 	// 0 = no grouping, 1 = date, 2 = first letter, 3 = type, 4 = custom.
-	pub group_mode: qt_property!(u8; NOTIFY config_changed),
+	pub group_mode: qt_property!(u8; NOTIFY view_changed),
 	// Ordered JSON array of custom group definitions.
-	pub groups: qt_property!(String; NOTIFY config_changed),
+	pub groups: qt_property!(String; NOTIFY view_changed),
 	// Show normally hidden items in a final Stash group. `stash_shown` is the
 	// old name for the same switch.
-	pub show_stash: qt_property!(bool; NOTIFY config_changed),
-	pub stash_shown: qt_property!(bool; NOTIFY config_changed),
-	pub stash_dotfiles: qt_property!(bool; NOTIFY config_changed),
-	pub free_placement_positions: qt_property!(String; NOTIFY config_changed),
+	pub show_stash: qt_property!(bool; NOTIFY view_changed),
+	pub stash_shown: qt_property!(bool; NOTIFY view_changed),
+	pub stash_dotfiles: qt_property!(bool; NOTIFY view_changed),
+	pub free_placement_positions: qt_property!(String; NOTIFY view_changed),
 
 	// Parent-owned radio group ([Radio] in this folder's .directory).  Children
 	// are selected by name and the parent `Exec` runs on a change.
-	pub radio_enabled: qt_property!(bool; NOTIFY config_changed),
+	pub radio_enabled: qt_property!(bool; NOTIFY view_changed),
 	// 0 = all children, 1 = directories only, 2 = files only.
-	pub radio_only: qt_property!(u8; NOTIFY config_changed),
-	pub radio_selected: qt_property!(String; NOTIFY config_changed),
-	pub radio_exec: qt_property!(String; NOTIFY config_changed),
+	pub radio_only: qt_property!(u8; NOTIFY view_changed),
+	pub radio_selected: qt_property!(String; NOTIFY view_changed),
+	pub radio_exec: qt_property!(String; NOTIFY view_changed),
 
 	pub error: qt_property!(String; NOTIFY config_changed),
 	pub error_file: qt_property!(String; NOTIFY config_changed),
 
 	config_changed: qt_signal!(),
+	// View/layout settings. A folder change only needs this half: the window,
+	// title, icon and toolbar bindings listen to `config_changed`, which is
+	// emitted only when those meta values really changed. One signal shared by
+	// both groups woke the whole shell on every navigation.
+	view_changed: qt_signal!(),
+	// Set when the quiet load also changed a meta value; `_notify` replays it.
+	pending_meta: bool,
+
+	// Set while a path change applies the new folder's config. The values are
+	// stored silently and the view is notified after the model has been
+	// replaced: every property shares `config_changed`, so notifying with the
+	// old delegates still alive re-evaluated every slot's bindings (resizing
+	// and reloading each icon) before the folder was even swapped in.
+	quiet: bool,
 
 	/// Emitted instead of `config_changed` when a written key changes which
 	/// files the folder contains (e.g. toggling dotfile stashing). Listeners use
@@ -667,6 +681,14 @@ pub struct Config {
 	load: qt_method!(
 		pub fn load(&mut self, path: String) {
 			self._load(Path::new(&path));
+		}
+	),
+
+	/// Send the notification held back by `load_quiet`, once the view has let
+	/// go of the delegates of the folder being left.
+	notify_loaded: qt_method!(
+		fn notify_loaded(&mut self) {
+			self._notify();
 		}
 	),
 
@@ -691,6 +713,40 @@ pub struct Config {
 enum ChangedKeys {
 	All,
 	Only(String, String),
+}
+
+/// The window/meta half of a config, as one comparable string. Used to decide
+/// whether `config_changed` has to be emitted at all after a folder load.
+fn meta_fingerprint(config: &Config) -> String {
+	[
+		config.title.clone(),
+		config.icon.clone(),
+		config.wallpaper.clone(),
+		config.top_layout.clone(),
+		config.middle_layout.clone(),
+		config.bottom_layout.clone(),
+		config.header_layout.clone(),
+		(config.native_menubar as u8).to_string(),
+		(config.native_menus as u8).to_string(),
+		(config.native_titlebar as u8).to_string(),
+		(config.native_drag as u8).to_string(),
+		(config.show_shortcuts as u8).to_string(),
+		config.execution_wrapper.clone(),
+		config.screen_name.clone(),
+		(config.maximized as u8).to_string(),
+		config.error.clone(),
+		config.error_file.clone(),
+	]
+	.join("\u{1}")
+}
+
+/// Whether a config key belongs to the view/layout half (`view_changed`) and
+/// not to the window/meta half (`config_changed`).
+fn is_view_key(section: &str, key: &str) -> bool {
+	if section == "Folder View" {
+		return key != "Wallpaper";
+	}
+	section == "Folder Navigation" || section == "Radio"
 }
 
 impl ChangedKeys {
@@ -738,6 +794,7 @@ impl Config {
 	/// properties are recomputed, letting view-only changes (grid size, sorting,
 	/// free placement, ...) skip the expensive directory reload entirely.
 	fn _apply(&mut self, path: &Path, changed: ChangedKeys) {
+		let old_meta = meta_fingerprint(self);
 		let load = load_path_checked(path);
 		let mut errors = load.errors;
 		errors.extend(validate_values(&load.sections, &load.origins));
@@ -845,7 +902,7 @@ impl Config {
 		}
 
 		if changed!("Folder View", "GridSize") {
-			self.grid_size = num_value(get("Folder View", "GridSize"), 64).max(0) as u16;
+			self.grid_size = num_value(get("Folder View", "GridSize"), 72).max(0) as u16;
 		}
 		if changed!("Folder View", "Maximized") {
 			self.maximized = bool_value(get("Folder View", "Maximized"), false);
@@ -992,7 +1049,46 @@ impl Config {
 			.into();
 		}
 
-		self.config_changed();
+		let meta_changed = meta_fingerprint(self) != old_meta;
+		if self.quiet {
+			self.pending_meta = self.pending_meta || meta_changed;
+			return;
+		}
+		match &changed {
+			ChangedKeys::All => {
+				self.view_changed();
+				if meta_changed {
+					self.config_changed();
+				}
+			}
+			ChangedKeys::Only(section, key) => {
+				if is_view_key(section, key) {
+					self.view_changed();
+				} else {
+					self.config_changed();
+				}
+			}
+		}
+	}
+
+	/// Load a folder's config without notifying the view yet. Used when the
+	/// path changes: the model is swapped while the old delegates are still
+	/// alive, and the single notification is sent afterwards
+	/// (`notify_loaded`), when only the new rows exist.
+	pub fn load_quiet(&mut self, path: &Path) {
+		self.quiet = true;
+		self._apply(path, ChangedKeys::All);
+		self.quiet = false;
+	}
+
+	/// Send the notification held back by `load_quiet`. Rust callers use this
+	/// directly; QML calls the `notify_loaded` method.
+	pub fn _notify(&mut self) {
+		let meta = std::mem::take(&mut self.pending_meta);
+		self.view_changed();
+		if meta {
+			self.config_changed();
+		}
 	}
 
 	pub fn _set(&mut self, path: &Path, section: &str, key: &str, value: &str, local: bool) {

@@ -3,7 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import org.kde.kirigami as Kirigami
+import Hishell.Theme
 
 // Floating ghost of a free-placement reposition drag. It mirrors the selection
 // in its original arrangement, anchored so the grabbed item stays under the
@@ -34,7 +34,7 @@ Item {
 	}
 
 	// Slot sizing mirrors FileSlot so the ghost looks identical to the real icons.
-	readonly property real iconSize: parsed && parsed.gridSize ? parsed.gridSize : 64
+	readonly property real iconSize: parsed && parsed.gridSize ? parsed.gridSize : 72
 	readonly property bool showLabels: parsed ? parsed.showLabels !== false : true
 	readonly property bool labelsBeside: parsed ? parsed.labelsBeside === true : false
 
@@ -80,12 +80,12 @@ Item {
 			readonly property bool hasIcon: slotIcon !== ""
 			readonly property bool labelBeside: dragPreview.labelsBeside && hasIcon
 			// Mirrors FileSlot: without a label the icon fills the slot.
-			readonly property real iconDisplaySize: dragPreview.showLabels ? dragPreview.iconSize : Math.max(dragPreview.iconSize, Math.min(previewItem.width, previewItem.height) - Kirigami.Units.smallSpacing * 2)
+			readonly property real iconDisplaySize: dragPreview.showLabels ? dragPreview.iconSize : Math.max(dragPreview.iconSize, Math.min(previewItem.width, previewItem.height) - Units.smallSpacing * 2)
 
 			GridLayout {
 				id: contentLayout
 				anchors.verticalCenter: parent.verticalCenter
-				x: previewItem.labelBeside ? Kirigami.Units.largeSpacing : (parent.width - width) / 2
+				x: previewItem.labelBeside ? Units.largeSpacing : (parent.width - width) / 2
 				columns: previewItem.labelBeside ? 2 : 1
 
 				Item {
@@ -118,7 +118,7 @@ Item {
 					Component {
 						id: iconComponent
 
-						Kirigami.Icon {
+						Icon {
 							anchors.fill: parent
 							source: previewItem.slotIcon
 						}
@@ -128,16 +128,16 @@ Item {
 				Label {
 					visible: dragPreview.showLabels
 					Layout.alignment: previewItem.labelBeside ? Qt.AlignVCenter : Qt.AlignHCenter
-					Layout.maximumWidth: previewItem.labelBeside ? previewItem.width - dragPreview.iconSize - Kirigami.Units.gridUnit * 2 : dragPreview.iconSize + Kirigami.Units.gridUnit * 2
+					Layout.maximumWidth: previewItem.labelBeside ? previewItem.width - dragPreview.iconSize - Units.gridUnit * 2 : dragPreview.iconSize + Units.gridUnit * 2
 					text: {
 						const t = previewItem.slotTitle;
 						const idx = t.lastIndexOf('.');
 						if (idx > 0 && !(t.startsWith('.') && t.indexOf('.', 1) === -1))
-							return t.substring(0, idx) + '<font color="' + Kirigami.Theme.disabledTextColor + '">' + t.substring(idx) + '</font>';
+							return t.substring(0, idx) + '<font color="' + Theme.disabledTextColor + '">' + t.substring(idx) + '</font>';
 						return t;
 					}
 					textFormat: Text.StyledText
-					color: Kirigami.Theme.textColor
+					color: Theme.textColor
 					wrapMode: Text.Wrap
 					maximumLineCount: 2
 					elide: Text.ElideMiddle

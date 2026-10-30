@@ -8,6 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -16,6 +17,18 @@ use crate::config::Config;
 use crate::thumbnailer;
 
 static ICON_CACHE: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+
+// Diagnostic counters for the free-placement layout, which the view can call
+// many times while a config change settles.
+static FREE_LAYOUT_CALLS: AtomicU64 = AtomicU64::new(0);
+static FREE_LAYOUT_US: AtomicU64 = AtomicU64::new(0);
+
+// Releases the delegates a model reset has queued for deletion; see
+// `set_path`, which announces the new folder's config only after they are
+// gone. Implemented in kde_bridge.cpp.
+unsafe extern "C" {
+	fn hishell_flush_deferred_deletes();
+}
 
 /// How often the change poll may re-read desktop entries. The folder mtime check
 /// runs at the timer's rate; re-resolving icons is throttled to this.
@@ -247,6 +260,10 @@ pub struct FileItem {
 	pub is_stashed: bool,
 	/// `Group=` from the item's own desktop entry, for custom grouping.
 	pub custom_group: String,
+	/// False for the name-only rows shown while the worker scan runs. The view
+	/// keeps their icon area empty instead of flashing the generic folder /
+	/// text placeholder and then replacing it with the real icon.
+	pub icon_ready: bool,
 }
 
 #[derive(QObject, Default)]
@@ -267,6 +284,13 @@ pub struct Directory {
 	// rebuild an unchanged icon.
 	last_window_icon: String,
 
+	// Rows of folders visited recently, with their resolved icons/titles. Coming
+	// back (the parent after closing a child, or Back) installs them at once
+	// instead of showing the name-only placeholders and reloading every icon
+	// behind the transition. The worker scan still runs and reconciles in
+	// place. Small folders only; the list is capped.
+	recent: Vec<(String, Vec<FileItem>)>,
+
 	// How many of `visible` the model exposes to the view yet. A new folder
 	// opens with a couple of rows and grows over the next frames: the view
 	// builds a delegate per exposed item, and building a whole screen at once
@@ -282,6 +306,49 @@ pub struct Directory {
 	scanning_changed: qt_signal!(),
 	scan_rx: Option<mpsc::Receiver<(u64, String, Vec<FileItem>)>>,
 	scan_generation: u64,
+	// A path change on a view that asked for deferred loading: the config is
+	// announced and the folder read one event loop turn later, once the
+	// previous folder's delegates are really gone (see `set_path`).
+	deferred: bool,
+	pending_load: Option<(String, bool)>,
+	// Emitted after a finished scan is installed without a model reset, so the
+	// view can re-point its focus pane at the same (possibly reordered) rows.
+	scan_applied: qt_signal!(),
+	set_deferred: qt_method!(
+		fn set_deferred(&mut self, on: bool) {
+			self.deferred = on;
+		}
+	),
+	finish_path_change: qt_method!(
+		fn finish_path_change(&mut self) {
+			let Some((path, include_hidden)) = self.pending_load.take() else {
+				return;
+			};
+			// The views release the previous folder's delegates on the event
+			// loop turn that just ran; process those deletions before the new
+			// config is announced, so the announcement has nothing to
+			// re-layout (destroying a screen of FileSlots is the expensive
+			// part, and it used to happen inside the notification).
+			unsafe {
+				hishell_flush_deferred_deletes();
+			}
+			// With the old rows already gone, this only updates view state.
+			FREE_LAYOUT_CALLS.store(0, Ordering::Relaxed);
+			FREE_LAYOUT_US.store(0, Ordering::Relaxed);
+			let notify_started = Instant::now();
+			self.config.pinned().borrow_mut()._notify();
+			let notify_ms = notify_started.elapsed().as_millis();
+			if crate::file_manager::perf_mode() > 0 {
+				eprintln!(
+					"hishell-perf: notify {}ms freelayout calls={} us={}",
+					notify_ms,
+					FREE_LAYOUT_CALLS.load(Ordering::Relaxed),
+					FREE_LAYOUT_US.load(Ordering::Relaxed)
+				);
+			}
+			self.load_directory(path, include_hidden);
+		}
+	),
 
 	// The folder's own mtime at the last scan, and when icons were last
 	// re-resolved: the state the periodic change poll compares against.
@@ -783,7 +850,10 @@ pub struct Directory {
 				let config = config.borrow();
 				!config.stash_dotfiles || config.show_stash
 			};
-			self.load_directory(path, include_hidden);
+			// Keep the rows the view already has while the worker re-reads the
+			// folder. Rebuilding the model here blanked every delegate for a
+			// moment, so a refresh made the whole grid flash.
+			self.start_scan(path, include_hidden);
 			self.path_changed();
 		}
 	),
@@ -840,7 +910,8 @@ pub struct Directory {
 				.iter()
 				.filter_map(|index| self.items.get(*index))
 				.collect();
-			Self::compute_free_layout(
+			let started = Instant::now();
+			let result = Self::compute_free_layout(
 				&items,
 				&positions_json,
 				lines,
@@ -850,7 +921,10 @@ pub struct Directory {
 				item_width,
 				item_height,
 				gap,
-			)
+			);
+			FREE_LAYOUT_CALLS.fetch_add(1, Ordering::Relaxed);
+			FREE_LAYOUT_US.fetch_add(started.elapsed().as_micros() as u64, Ordering::Relaxed);
+			result
 		}
 	),
 
@@ -899,13 +973,26 @@ pub struct Directory {
 
 impl Directory {
 	pub fn new(&mut self, path: String, include_hidden: bool) {
+		// A recently visited folder comes back with the rows (and icons) it had
+		// when it was left; only a folder seen for the first time uses the
+		// name-only pass. The worker scan below reconciles either way.
+		let cached = self
+			.recent
+			.iter()
+			.find(|(known, _)| known == &path)
+			.map(|(_, items)| items.clone());
+		let from_cache = cached.is_some();
 		// First pass: names and kinds only. It is the cheap half of the scan
 		// (readdir already has the names), and it lets the view reserve every
 		// cell at once instead of showing an empty folder while the worker
 		// reads metadata from a cold card.
 		let placeholder_start = Instant::now();
-		let placeholders = placeholder_items(&path, include_hidden);
+		let placeholders = match cached {
+			Some(items) => items,
+			None => placeholder_items(&path, include_hidden),
+		};
 		let placeholder_ms = placeholder_start.elapsed().as_millis();
+		let reset_started = Instant::now();
 		self.begin_reset_model();
 		self.items = placeholders;
 		self.sort_items();
@@ -913,13 +1000,16 @@ impl Directory {
 		self.exposed = self.visible.len();
 		self.exposing = false;
 		self.end_reset_model();
+		let reset_ms = reset_started.elapsed().as_millis();
 		self.exposure_changed();
 		if crate::file_manager::perf_mode() > 0 {
 			eprintln!(
-				"hishell-perf: placeholders {} items from {} in {} ms",
+				"hishell-perf: placeholders {} items from {} in {} ms (reset {} ms){}",
 				self.items.len(),
 				self.path_str,
-				placeholder_ms
+				placeholder_ms,
+				reset_ms,
+				if from_cache { " (cached)" } else { "" }
 			);
 		}
 
@@ -945,12 +1035,39 @@ impl Directory {
 		}
 	}
 
-	/// Install a finished worker scan on the GUI thread. The placeholder pass
-	/// already put every path in the model; if the final sort keeps that order,
-	/// only the row data changes, so the scroll position and delegates survive.
+	/// Start a worker scan without touching the rows on screen. Used by a
+	/// refresh: the view keeps its delegates (and their icons) while the
+	/// folder is re-read, and the result is reconciled in place afterwards.
+	fn start_scan(&mut self, path: String, include_hidden: bool) {
+		self.scan_generation = self.scan_generation.wrapping_add(1);
+		let generation = self.scan_generation;
+		self.scanning = true;
+		self.scanning_changed();
+		self.dir_modified = folder_modified(&self.path_str);
+
+		let (tx, rx) = mpsc::channel();
+		self.scan_rx = Some(rx);
+		let scan_path = path.clone();
+		let spawned = std::thread::Builder::new()
+			.name("directory-scan".into())
+			.spawn(move || {
+				let items = scan_items(&scan_path, include_hidden);
+				let _ = tx.send((generation, scan_path, items));
+			});
+		if spawned.is_err() {
+			self.scan_rx = None;
+			self.scanning = false;
+			self.scanning_changed();
+		}
+	}
+
+	/// Install a finished worker scan on the GUI thread. The model is updated
+	/// row by row: removals, insertions and moves instead of a reset. A reset
+	/// destroys every delegate, so re-reading a folder used to make all of its
+	/// icons disappear and come back.
 	fn apply_scan(&mut self, items: Vec<FileItem>) {
-		let reset_start = Instant::now();
-		let old_visible: Vec<String> = self
+		let scan_start = Instant::now();
+		let old_paths: Vec<String> = self
 			.visible
 			.iter()
 			.filter_map(|index| self.items.get(*index))
@@ -959,12 +1076,19 @@ impl Directory {
 		self.items = items;
 		self.sort_items();
 		self.apply_filter();
-		let same_order = self.visible.len() == old_visible.len()
-			&& self
-				.visible
+
+		// The final row order, as indices into the new items.
+		let new_order = self.visible.clone();
+		let index_of: HashMap<String, usize> = self
+			.visible
+			.iter()
+			.map(|index| (self.items[*index].path.clone(), *index))
+			.collect();
+		let same_order = old_paths.len() == new_order.len()
+			&& old_paths
 				.iter()
-				.zip(old_visible.iter())
-				.all(|(index, path)| self.items[*index].path == *path);
+				.zip(new_order.iter())
+				.all(|(path, index)| *path == self.items[*index].path);
 		if same_order {
 			self.exposed = self.visible.len();
 			self.exposing = false;
@@ -973,22 +1097,100 @@ impl Directory {
 				self.data_changed(self.row_index(0), self.row_index(last));
 			}
 		} else {
-			self.begin_reset_model();
-			self.start_exposure();
-			self.end_reset_model();
+			self.reconcile_rows(&old_paths, &new_order, &index_of);
 		}
 		self.scanning = false;
 		self.scanning_changed();
 		self.exposure_changed();
+		self.scan_applied();
 		self.dir_modified = folder_modified(&self.path_str);
 		if crate::file_manager::perf_mode() > 0 {
 			eprintln!(
-				"hishell-perf: reset {} items from {} in {} ms{}",
+				"hishell-perf: scan-applied {} items from {} in {} ms{}",
 				self.items.len(),
 				self.path_str,
-				reset_start.elapsed().as_millis(),
+				scan_start.elapsed().as_millis(),
 				if same_order { " (data)" } else { "" }
 			);
+		}
+	}
+
+	/// Bring the model rows from their previous order to `new_order` with
+	/// insert/remove/move signals. Nothing that survives the scan is rebuilt,
+	/// so a refresh cannot flash the grid.
+	fn reconcile_rows(
+		&mut self,
+		old_paths: &[String],
+		new_order: &[usize],
+		index_of: &HashMap<String, usize>,
+	) {
+		// A row per old path, mapped to the new item when the path survived.
+		let mut rows: Vec<Option<usize>> =
+			old_paths.iter().map(|path| index_of.get(path).copied()).collect();
+
+		self.visible = rows.iter().flatten().copied().collect();
+		self.exposed = self.visible.len();
+
+		// Rows whose path is gone go from the end, so the indices of the rows
+		// still to be removed stay valid.
+		for row in (0..rows.len()).rev() {
+			if rows[row].is_some() {
+				continue;
+			}
+			self.begin_remove_rows(row as i32, row as i32);
+			rows.remove(row);
+			self.visible = rows.iter().flatten().copied().collect();
+			self.exposed = self.visible.len();
+			self.end_remove_rows();
+		}
+
+		// Paths that appeared get a row at the end; the move pass below puts
+		// them where the sort wants them.
+		let old_set: std::collections::HashSet<&str> =
+			old_paths.iter().map(String::as_str).collect();
+		for index in new_order {
+			if old_set.contains(self.items[*index].path.as_str()) {
+				continue;
+			}
+			let row = rows.len();
+			self.begin_insert_rows(row as i32, row as i32);
+			rows.push(Some(*index));
+			self.visible = rows.iter().flatten().copied().collect();
+			self.exposed = self.visible.len();
+			self.end_insert_rows();
+		}
+
+		// Move the survivors into the sorted order.
+		for target in 0..new_order.len() {
+			let wanted = new_order[target];
+			if rows.get(target) == Some(&Some(wanted)) {
+				continue;
+			}
+			let Some(from) = rows
+				.iter()
+				.skip(target)
+				.position(|row| *row == Some(wanted))
+				.map(|offset| offset + target)
+			else {
+				continue;
+			};
+			self.begin_move_rows(
+				QModelIndex::default(),
+				from as i32,
+				from as i32,
+				QModelIndex::default(),
+				target as i32,
+			);
+			let value = rows.remove(from);
+			rows.insert(target, value);
+			self.visible = rows.iter().flatten().copied().collect();
+			self.end_move_rows();
+		}
+
+		self.exposing = false;
+		if !self.visible.is_empty() {
+			let last = self.visible.len() as i32 - 1;
+			self.data_changed(self.row_index(0), self.row_index(last));
 		}
 	}
 
@@ -1307,9 +1509,21 @@ impl Directory {
 		if path == "." || path == "./" || path == "/./" {
 			return;
 		}
+		let set_path_started = Instant::now();
 
+		let early_started = Instant::now();
 		let path_buf = Path::new(&path);
 		let abs_path = normalize_path(path_buf, &self.path_str);
+		if !self.path_str.is_empty() && abs_path.to_string_lossy() != self.path_str
+			&& !self.items.is_empty() && self.items.len() <= 512
+			&& self.items.iter().any(|item| item.icon_ready)
+		{
+			let old = self.path_str.clone();
+			let items = self.items.clone();
+			self.recent.retain(|(known, _)| known != &old);
+			self.recent.insert(0, (old, items));
+			self.recent.truncate(6);
+		}
 		let abs_str = abs_path.to_string_lossy().to_string();
 		let entered = self.path_str != abs_str;
 
@@ -1317,6 +1531,7 @@ impl Directory {
 			crate::thumbnailer::cancel_folder(Path::new(&self.path_str));
 			crate::descriptor_generator::cancel_folder(Path::new(&self.path_str));
 		}
+		let cancel_ms = early_started.elapsed();
 
 		// Navigating to a different folder drops the type-to-filter text.
 		if self.path_str != abs_str && !self.filter.is_empty() {
@@ -1325,7 +1540,9 @@ impl Directory {
 		}
 
 		self.path_str = abs_str.clone();
+		let session_started = Instant::now();
 		crate::session::save_path(&abs_str);
+		let session_ms = session_started.elapsed();
 
 		let load_path = if abs_path.is_file() {
 			abs_path
@@ -1338,7 +1555,9 @@ impl Directory {
 
 		// The config decides whether dotfiles are listed, so it has to be read
 		// before the directory; otherwise the folder gets scanned twice.
-		self.config.pinned().borrow_mut().load(load_path.clone());
+		let config_started = Instant::now();
+		self.config.pinned().borrow_mut().load_quiet(Path::new(&load_path));
+		let config_ms = config_started.elapsed();
 		let include_hidden = {
 			let config = self.config.pinned();
 			let config = config.borrow();
@@ -1350,10 +1569,56 @@ impl Directory {
 		if entered {
 			self.run_refresh_if_configured();
 		}
-		self.load_directory(load_path, include_hidden);
-
+		// Empty the model before announcing the new config. The view mode
+		// (grid, list, free placement, grouped) can change between folders, and
+		// switching it while the old rows were still in the model built a whole
+		// extra screen of delegates that the reset then threw away again.
+		let clear_started = Instant::now();
+		self.begin_reset_model();
+		self.items.clear();
+		self.visible.clear();
+		self.exposed = 0;
+		self.exposing = false;
+		self.end_reset_model();
+		self.exposure_changed();
+		let clear_ms = clear_started.elapsed();
+		// The views queue released delegates for deletion; process that now,
+		// before the config notification, so it only re-evaluates the view
+		// state instead of resizing and re-rendering every icon of a folder
+		// that is already off screen.
+		unsafe {
+			hishell_flush_deferred_deletes();
+		}
+		// With no rows alive, loading the new folder only reserves its cells;
+		// when the view asked for deferred loading the config notification and
+		// the read are left to it, one event loop turn later (see
+		// `finish_path_change`). This call stack still has the old delegates
+		// marked for deletion but alive, and announcing the new config here
+		// made every one of them re-layout and re-render its icon.
+		let load_started = Instant::now();
+		if self.deferred {
+			self.pending_load = Some((load_path.clone(), include_hidden));
+		} else {
+			self.config.pinned().borrow_mut()._notify();
+			self.load_directory(load_path.clone(), include_hidden);
+		}
+		let load_ms = load_started.elapsed();
+		let signals_started = Instant::now();
 		self.path_changed();
 		self.config_changed();
+		if crate::file_manager::perf_mode() > 0 {
+			eprintln!(
+				"hishell-perf: setpath {} config={}ms clear={}ms load={}ms signals={}ms cancel={}ms session={}ms total={}ms",
+				load_path,
+				config_ms.as_millis(),
+				clear_ms.as_millis(),
+				load_ms.as_millis(),
+				signals_started.elapsed().as_millis(),
+				cancel_ms.as_millis(),
+				session_ms.as_millis(),
+				set_path_started.elapsed().as_millis()
+			);
+		}
 	}
 
 	pub fn get_title(&self) -> String {
@@ -1997,6 +2262,7 @@ impl QAbstractListModel for Directory {
 			0x010e => QString::from(item.group_label.as_str()).into(),
 			0x010f => item.is_stashed.into(),
 			0x0110 => QString::from(item.comment.as_str()).into(),
+			0x0111 => item.icon_ready.into(),
 			_ => QVariant::default(),
 		}
 	}
@@ -2020,6 +2286,7 @@ impl QAbstractListModel for Directory {
 		map.insert(0x010e, "group_label".into());
 		map.insert(0x010f, "is_stashed".into());
 		map.insert(0x0110, "comment".into());
+		map.insert(0x0111, "icon_ready".into());
 		map
 	}
 }
@@ -2481,6 +2748,7 @@ fn placeholder_items(path: &str, include_hidden: bool) -> Vec<FileItem> {
 			group_label: String::new(),
 			is_stashed,
 			custom_group: String::new(),
+			icon_ready: false,
 		});
 	}
 	items
@@ -2656,6 +2924,7 @@ fn scan_items(path: &str, include_hidden: bool) -> Vec<FileItem> {
 				group_label: String::new(),
 				is_stashed,
 				custom_group,
+				icon_ready: true,
 			});
 		}
 	}

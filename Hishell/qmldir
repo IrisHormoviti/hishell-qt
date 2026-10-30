@@ -12,6 +12,7 @@ FocusBorder FocusBorder.qml
 FolderFilterBar FolderFilterBar.qml
 FolderGrid FolderGrid.qml
 FolderSelectionBar FolderSelectionBar.qml
+FolderTransition FolderTransition.qml
 FolderView FolderView.qml
 LayoutEngine LayoutEngine.qml
 ShellWindow ShellWindow.qml
@@ -24,3 +25,5 @@ LaunchConfirmDialog LaunchConfirmDialog.qml
 NumberDialog NumberDialog.qml
 OpenWithDialog OpenWithDialog.qml
 ToggleSwitch ToggleSwitch.qml
+Sheet Sheet.qml
+SegmentedButtons SegmentedButtons.qml

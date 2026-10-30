@@ -36,6 +36,19 @@ pub fn perf_mode() -> i32 {
 			if config.join("clam/perf-focus").exists() {
 				return 5;
 			}
+			// Animated navigation comparison: top-level folders against the
+			// folders under /home (see PerfBench.qml, mode 6).
+			if config.join("clam/perf-nav").exists() {
+				return 6;
+			}
+			// Per-setting cost of a view-config change (PerfBench.qml, mode 7).
+			if config.join("clam/perf-cfg").exists() {
+				return 7;
+			}
+			// Launch-transition screenshot test (PerfBench.qml, mode 8).
+			if config.join("clam/perf-anim").exists() {
+				return 8;
+			}
 			if config.join("clam/perf-grab").exists() {
 				return 4;
 			}

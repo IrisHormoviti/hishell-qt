@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import org.kde.kirigami as Kirigami
+import Hishell.Theme
 import Hishell
 
 Dialog {
@@ -38,9 +38,9 @@ Dialog {
 	}
 
 	ColumnLayout {
-		spacing: Kirigami.Units.largeSpacing
+		spacing: Units.largeSpacing
 
-		Kirigami.Icon {
+		Icon {
 			source: execDialog.fileManager ? execDialog.fileManager.get_icon(execDialog.filePath) : ""
 			Layout.alignment: Qt.AlignHCenter
 		}

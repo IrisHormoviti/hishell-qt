@@ -4,7 +4,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
-import org.kde.kirigami as Kirigami
+import Hishell.Theme
 
 
 Menu {
@@ -181,13 +181,13 @@ Menu {
 		onTriggered: viewActions.setListColumnVisible(listColumnItem.columnKey, !listColumnItem.shown)
 
 		contentItem: RowLayout {
-			spacing: Kirigami.Units.smallSpacing
+			spacing: Units.smallSpacing
 
 			Label {
-				Layout.preferredWidth: Kirigami.Units.gridUnit
+				Layout.preferredWidth: Units.gridUnit
 				horizontalAlignment: Text.AlignHCenter
 				text: listColumnItem.shown ? "\u2713" : ""
-				color: Kirigami.Theme.highlightColor
+				color: Theme.highlightColor
 				font.bold: true
 			}
 			Label {
@@ -239,26 +239,32 @@ Menu {
 		}
 	}
 
-	MenuSeparator {}
-
 	MenuItem {
-		id: iconSizeItem
 		visible: !viewActions.isListView
 		height: visible ? implicitHeight : 0
 		contentItem: RowLayout {
 			Label {
-				text: qsTr("Icon Size")
+				text: viewActions.lineCountLabel
 			}
 			ViewSlider {
-				id: gridSizeSlider
-				boundValue: viewMenu.config ? viewMenu.config.grid_size : 64
-				from: 16
-				to: 256
-				stepSize: 12
-				onMovedTo: value => viewMenu.setConfigSilent("GridSize", value.toString())
+				id: linesSlider
+				boundValue: viewActions.lineCount
+				from: viewActions.lineCountMin
+				to: viewActions.lineCountMax
+				stepSize: 1
+				onMovedTo: value => viewMenu.setConfigSilent("Lines", String(value))
 				onDragStarted: viewActions.playSound("button-pressed")
 				onStepped: viewActions.playSound("slider-tick")
 				onReachedEdge: viewActions.playSound("scroll-edge")
+			}
+			TextMetrics {
+				id: autoMetrics
+				text: "88"
+			}
+			Label {
+				text: linesSlider.value
+				Layout.preferredWidth: autoMetrics.width
+				horizontalAlignment: Text.AlignHCenter
 			}
 		}
 	}
@@ -270,7 +276,10 @@ Menu {
 		text: qsTr("Zoom In")
 		enabled: !viewActions.isListView
 		shortcut: viewMenu.showShortcuts ? "Ctrl+=" : ""
-		onTriggered: viewMenu.setConfig("GridSize", String(Math.min(gridSizeSlider.value + 12, gridSizeSlider.to)))
+		onTriggered: {
+			viewActions.nudgeLineCount(-1);
+			viewMenu.decideSound();
+		}
 	}
 
 	Action {
@@ -278,7 +287,10 @@ Menu {
 		text: qsTr("Zoom Out")
 		enabled: !viewActions.isListView
 		shortcut: viewMenu.showShortcuts ? "Ctrl+-" : ""
-		onTriggered: viewMenu.setConfig("GridSize", String(Math.max(gridSizeSlider.value - 12, gridSizeSlider.from)))
+		onTriggered: {
+			viewActions.nudgeLineCount(1);
+			viewMenu.decideSound();
+		}
 	}
 
 	MenuSeparator {
@@ -548,31 +560,6 @@ Menu {
 		popupType: viewMenu.menuPopupType
 		onOpened: viewActions.playSound("menu-open")
 		onClosed: viewActions.playSound("menu-close")
-
-		MenuItem {
-			contentItem: RowLayout {
-				Label {
-					text: qsTr("Lines")
-				}
-				ViewSlider {
-					id: linesSlider
-					boundValue: viewMenu.config ? viewMenu.config.grid_lines : 0
-					from: 0
-					to: 10
-					stepSize: 1
-					onMovedTo: value => viewMenu.setConfig("Lines", value.toString())
-				}
-				TextMetrics {
-					id: autoMetrics
-					text: qsTr("Auto")
-				}
-				Label {
-					text: linesSlider.value === 0 ? qsTr("Auto") : linesSlider.value
-					Layout.preferredWidth: autoMetrics.width
-					horizontalAlignment: Text.AlignHCenter
-				}
-			}
-		}
 
 		Menu {
 			title: qsTr("Scroll Direction")

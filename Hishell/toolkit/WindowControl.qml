@@ -1,17 +1,17 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import org.kde.kirigami as Kirigami
+import Hishell.Theme
 import Hishell
 
 Button {
 	id: control
 	Layout.alignment: Qt.AlignRight
-	Layout.preferredWidth: Kirigami.Units.iconSizes.small
-	Layout.preferredHeight: Kirigami.Units.iconSizes.small
+	Layout.preferredWidth: Units.iconSizes.small
+	Layout.preferredHeight: Units.iconSizes.small
 
-	Layout.rightMargin: Kirigami.Units.largeSpacing
-	Layout.leftMargin: Kirigami.Units.largeSpacing
+	Layout.rightMargin: Units.largeSpacing
+	Layout.leftMargin: Units.largeSpacing
 
 	property Directory directory
 
@@ -25,10 +25,10 @@ Button {
 	}
 
 	background: Rectangle {
-		color: control.hovered ? Kirigami.Theme.highlightColor : Kirigami.Theme.textColor
+		color: control.hovered ? Theme.highlightColor : Theme.textColor
 		radius: width / 2
 
-		Kirigami.Icon {
+		Icon {
 			source: "xsi-window-close-symbolic"
 			visible: control.hovered
 			anchors.fill: parent

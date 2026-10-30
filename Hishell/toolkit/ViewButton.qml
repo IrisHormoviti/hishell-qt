@@ -3,7 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import org.kde.kirigami as Kirigami
+import Hishell.Theme
 import Hishell
 
 ToolButton {
@@ -49,15 +49,15 @@ ToolButton {
 	}
 
 	Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
-	Layout.preferredWidth: Kirigami.Units.gridUnit * 2
-	Layout.preferredHeight: Kirigami.Units.gridUnit * 2
-	Layout.leftMargin: Kirigami.Units.smallSpacing
-	Layout.rightMargin: Kirigami.Units.smallSpacing
+	Layout.preferredWidth: Units.gridUnit * 2
+	Layout.preferredHeight: Units.gridUnit * 2
+	Layout.leftMargin: Units.smallSpacing
+	Layout.rightMargin: Units.smallSpacing
 
 	display: AbstractButton.IconOnly
 	icon.name: viewButton.viewActions.viewModeIcon
-	icon.width: Kirigami.Units.iconSizes.medium
-	icon.height: Kirigami.Units.iconSizes.medium
+	icon.width: Units.iconSizes.medium
+	icon.height: Units.iconSizes.medium
 
 	ToolTip.text: viewButton.viewActions.isListView ? qsTr("View options (list)") : qsTr("View options (grid)")
 	ToolTip.visible: hovered

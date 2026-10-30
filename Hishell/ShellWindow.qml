@@ -2,11 +2,11 @@ import QtQuick
 import QtQuick.Window
 import QtQuick.Controls
 import QtQuick.Layouts
-import org.kde.kirigami as Kirigami
+import Hishell.Theme
 import Hishell
 import Hishell.toolkit
 
-Kirigami.ApplicationWindow {
+ApplicationWindow {
 	id: root
 	width: 800
 	height: 600
@@ -109,6 +109,12 @@ Kirigami.ApplicationWindow {
 
 	Directory {
 		id: directory
+
+		// The window's view announces the new folder's config and reads it one
+		// event loop turn after the path changes, when the previous folder's
+		// delegates have been released (FolderView.applyPathConfig). Pinned
+		// directories created by the layout engine keep the synchronous path.
+		Component.onCompleted: directory.set_deferred(true)
 	}
 
 	Connections {
@@ -611,7 +617,7 @@ Kirigami.ApplicationWindow {
 		// The page itself holds focus when nothing else does; a file view or
 		// anything the user focused deliberately is left alone.
 		const item = root.activeFocusItem;
-		if (item && item !== root.pageStack.currentItem)
+		if (item && item !== root.contentItem)
 			return;
 		root.primaryFolderView.forceActiveFocus();
 	}
@@ -625,171 +631,160 @@ Kirigami.ApplicationWindow {
 		directory: root.directory
 	}
 
-	pageStack.initialPage: Kirigami.Page {
-		padding: 0
-		topPadding: 0
-		leftPadding: 0
-		rightPadding: 0
-		bottomPadding: 0
+	ColumnLayout {
+		anchors.fill: parent
+		spacing: 0
 
-		globalToolBarStyle: Kirigami.ApplicationHeaderStyle.Breadcrumb
+		// Header bar
+		Item {
+			Layout.fillWidth: true
 
-		ColumnLayout {
-			anchors.fill: parent
-			spacing: 0
+			// The bar height is a Clam theme metric; the header content
+			// (breadcrumb, view button, window control) keeps its own size
+			// and stays vertically centred inside the taller strip.
+			Layout.preferredHeight: CoreTheme.headerHeight
+			Layout.minimumHeight: CoreTheme.headerHeight
+			Layout.maximumHeight: CoreTheme.headerHeight
 
-			// Header bar
-			Kirigami.AbstractApplicationHeader {
-				Layout.fillWidth: true
-				Kirigami.Theme.colorSet: Kirigami.Theme.Header
+			z: 1
 
-				// The bar height is a Clam theme metric; the header content
-				// (breadcrumb, view button, window control) keeps its own size
-				// and stays vertically centred inside the taller strip.
-				minimumHeight: CoreTheme.headerHeight
-				preferredHeight: CoreTheme.headerHeight
-				maximumHeight: CoreTheme.headerHeight
-
-				z: 1
-
-				Rectangle {
-					anchors.fill: parent
-					z: -1
-					color: Kirigami.Theme.backgroundColor
-				}
-
-				RowLayout {
-					anchors.fill: parent
-
-					Layout.fillWidth: true
-					Layout.preferredHeight: 44
-					Layout.margins: 0
-					spacing: Kirigami.Units.smallSpacing
-
-					// Make it draggable
-					DragHandler {
-						target: null
-						onActiveChanged: if (active)
-							root.startSystemMove()
-					}
-
-					LayoutEngine {
-						id: headerLayoutEngine
-						directory: directory
-						window: root
-						layoutString: String(directory.config.header_layout || "[]")
-						Layout.fillWidth: true
-					}
-				}
-			}
-
-			// Folder config load error banner
 			Rectangle {
-				id: configErrorBanner
-				property string dismissedError: ""
-
-				visible: directory.config.error.length > 0 && directory.config.error !== configErrorBanner.dismissedError
-				Layout.fillWidth: true
-				Layout.preferredHeight: configErrorRow.implicitHeight + Kirigami.Units.largeSpacing * 2
-				color: Kirigami.Theme.negativeBackgroundColor
-
-				RowLayout {
-					id: configErrorRow
-					anchors.horizontalCenter: parent.horizontalCenter
-					anchors.verticalCenter: parent.verticalCenter
-					width: parent.width - Kirigami.Units.largeSpacing * 2
-					spacing: Kirigami.Units.largeSpacing
-
-					Label {
-						Layout.fillWidth: true
-						text: directory.config.error
-						color: Kirigami.Theme.negativeTextColor
-						wrapMode: Text.WordWrap
-					}
-
-					Button {
-						visible: directory.config.error_file.length > 0
-						text: "Open Config"
-						onClicked: {
-							const warning = String(fileManager.open_file(directory.config.error_file));
-							if (warning !== "")
-								root.requestLaunchConfirm(warning, directory.config.error_file);
-						}
-					}
-
-					ToolButton {
-						icon.name: "dialog-close"
-						onClicked: configErrorBanner.dismissedError = directory.config.error
-					}
-				}
+				anchors.fill: parent
+				z: -1
+				color: Theme.backgroundColor
 			}
 
-			// A dropped file the virtual folder did not keep.
-			Rectangle {
-				id: dropNoticeBanner
-				visible: root.dropNoticeText.length > 0
-				Layout.fillWidth: true
-				Layout.preferredHeight: dropNoticeRow.implicitHeight + Kirigami.Units.largeSpacing * 2
-				color: Kirigami.Theme.neutralBackgroundColor
-
-				RowLayout {
-					id: dropNoticeRow
-					anchors.horizontalCenter: parent.horizontalCenter
-					anchors.verticalCenter: parent.verticalCenter
-					width: parent.width - Kirigami.Units.largeSpacing * 2
-					spacing: Kirigami.Units.largeSpacing
-
-					Label {
-						Layout.fillWidth: true
-						text: root.dropNoticeText
-						color: Kirigami.Theme.neutralTextColor
-						wrapMode: Text.WordWrap
-					}
-
-					ToolButton {
-						icon.name: "dialog-close"
-						onClicked: {
-							root.dropNoticeText = "";
-							root.dropDeclinedNames = [];
-							dropNoticeTimer.stop();
-						}
-					}
-				}
-			}
-
-			// Top Layout area
-			LayoutEngine {
-				id: topLayoutEngine
-				directory: directory
-				window: root
-				layoutString: String(directory.config.top_layout || "[]")
-				Layout.fillWidth: true
-			}
-
-			// Main content area
 			RowLayout {
+				anchors.fill: parent
+
 				Layout.fillWidth: true
-				Layout.fillHeight: true
-				spacing: 0
+				Layout.preferredHeight: 44
+				Layout.margins: 0
+				spacing: Units.smallSpacing
+
+				// Make it draggable
+				DragHandler {
+					target: null
+					onActiveChanged: if (active)
+						root.startSystemMove()
+				}
 
 				LayoutEngine {
-					id: middleLayoutEngine
+					id: headerLayoutEngine
 					directory: directory
 					window: root
-					layoutString: String(directory.config.middle_layout || "[]")
-					Layout.fillHeight: true
+					layoutString: String(directory.config.header_layout || "[]")
 					Layout.fillWidth: true
 				}
 			}
+		}
 
-			// Bottom Layout area
+		// Folder config load error banner
+		Rectangle {
+			id: configErrorBanner
+			property string dismissedError: ""
+
+			visible: directory.config.error.length > 0 && directory.config.error !== configErrorBanner.dismissedError
+			Layout.fillWidth: true
+			Layout.preferredHeight: configErrorRow.implicitHeight + Units.largeSpacing * 2
+			color: Theme.negativeBackgroundColor
+
+			RowLayout {
+				id: configErrorRow
+				anchors.horizontalCenter: parent.horizontalCenter
+				anchors.verticalCenter: parent.verticalCenter
+				width: parent.width - Units.largeSpacing * 2
+				spacing: Units.largeSpacing
+
+				Label {
+					Layout.fillWidth: true
+					text: directory.config.error
+					color: Theme.negativeTextColor
+					wrapMode: Text.WordWrap
+				}
+
+				Button {
+					visible: directory.config.error_file.length > 0
+					text: "Open Config"
+					onClicked: {
+						const warning = String(fileManager.open_file(directory.config.error_file));
+						if (warning !== "")
+							root.requestLaunchConfirm(warning, directory.config.error_file);
+					}
+				}
+
+				ToolButton {
+					icon.name: "dialog-close"
+					onClicked: configErrorBanner.dismissedError = directory.config.error
+				}
+			}
+		}
+
+		// A dropped file the virtual folder did not keep.
+		Rectangle {
+			id: dropNoticeBanner
+			visible: root.dropNoticeText.length > 0
+			Layout.fillWidth: true
+			Layout.preferredHeight: dropNoticeRow.implicitHeight + Units.largeSpacing * 2
+			color: Theme.neutralBackgroundColor
+
+			RowLayout {
+				id: dropNoticeRow
+				anchors.horizontalCenter: parent.horizontalCenter
+				anchors.verticalCenter: parent.verticalCenter
+				width: parent.width - Units.largeSpacing * 2
+				spacing: Units.largeSpacing
+
+				Label {
+					Layout.fillWidth: true
+					text: root.dropNoticeText
+					color: Theme.neutralTextColor
+					wrapMode: Text.WordWrap
+				}
+
+				ToolButton {
+					icon.name: "dialog-close"
+					onClicked: {
+						root.dropNoticeText = "";
+						root.dropDeclinedNames = [];
+						dropNoticeTimer.stop();
+					}
+				}
+			}
+		}
+
+		// Top Layout area
+		LayoutEngine {
+			id: topLayoutEngine
+			directory: directory
+			window: root
+			layoutString: String(directory.config.top_layout || "[]")
+			Layout.fillWidth: true
+		}
+
+		// Main content area
+		RowLayout {
+			Layout.fillWidth: true
+			Layout.fillHeight: true
+			spacing: 0
+
 			LayoutEngine {
-				id: bottomLayoutEngine
+				id: middleLayoutEngine
 				directory: directory
 				window: root
-				layoutString: String(directory.config.bottom_layout || "[]")
+				layoutString: String(directory.config.middle_layout || "[]")
+				Layout.fillHeight: true
 				Layout.fillWidth: true
 			}
+		}
+
+		// Bottom Layout area
+		LayoutEngine {
+			id: bottomLayoutEngine
+			directory: directory
+			window: root
+			layoutString: String(directory.config.bottom_layout || "[]")
+			Layout.fillWidth: true
 		}
 	}
 

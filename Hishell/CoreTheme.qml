@@ -17,7 +17,7 @@ pragma Singleton
 
 import QtQuick
 import QtCore
-import org.kde.kirigami as Kirigami
+import Hishell.Theme
 
 QtObject {
 	id: coreTheme
@@ -35,10 +35,10 @@ QtObject {
 
 	// Accent colours for recolouring folder icons, matching what KDE apps get
 	// from the same colour scheme.
-	readonly property color accentColor: Kirigami.Theme.highlightColor
-	readonly property color accentTextColor: Kirigami.Theme.textColor
+	readonly property color accentColor: Theme.highlightColor
+	readonly property color accentTextColor: Theme.textColor
 
-	readonly property real desktopHeaderHeight: Math.max(48, Kirigami.Units.gridUnit * 3)
+	readonly property real desktopHeaderHeight: Math.max(48, Units.gridUnit * 3)
 
 	// The four faces a file label can use. A folder's delegates all share the
 	// same font; measuring the italic face once here (Qt resolves it at a

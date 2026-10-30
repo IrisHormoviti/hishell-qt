@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import org.kde.kirigami as Kirigami
+import Hishell.Theme
 
 // The editor for a `Type=Number` settings control.
 //
@@ -96,7 +96,7 @@ Dialog {
 	contentItem: ColumnLayout {
 		id: content
 		focus: true
-		spacing: Kirigami.Units.largeSpacing
+		spacing: Units.largeSpacing
 
 		Keys.onReturnPressed: numberDialog.apply()
 		Keys.onEnterPressed: numberDialog.apply()
@@ -105,7 +105,7 @@ Dialog {
 		RowLayout {
 			Layout.fillWidth: true
 			Layout.alignment: Qt.AlignHCenter
-			spacing: Kirigami.Units.largeSpacing
+			spacing: Units.largeSpacing
 
 			Repeater {
 				model: numberDialog.spec.fields || []
@@ -114,32 +114,32 @@ Dialog {
 					required property var modelData
 					required property int index
 					Layout.alignment: Qt.AlignVCenter
-					spacing: Kirigami.Units.smallSpacing
+					spacing: Units.smallSpacing
 
 					Button {
 						Layout.alignment: Qt.AlignHCenter
-						Layout.preferredWidth: Kirigami.Units.gridUnit * 3
-						Layout.preferredHeight: Kirigami.Units.gridUnit * 2
+						Layout.preferredWidth: Units.gridUnit * 3
+						Layout.preferredHeight: Units.gridUnit * 2
 						text: "▲"
-						font.pixelSize: Kirigami.Units.gridUnit
+						font.pixelSize: Units.gridUnit
 						onPressed: numberDialog.playSound("button-pressed")
 						onClicked: numberDialog.bump(index, 1)
 					}
 
 					Rectangle {
 						Layout.alignment: Qt.AlignHCenter
-						Layout.preferredWidth: Math.max(Kirigami.Units.gridUnit * 4,
-							Kirigami.Units.gridUnit * (String(modelData.max).length + 1))
-						Layout.preferredHeight: Kirigami.Units.gridUnit * 2.4
-						radius: Kirigami.Units.cornerRadius
-						color: Kirigami.Theme.backgroundColor
+						Layout.preferredWidth: Math.max(Units.gridUnit * 4,
+							Units.gridUnit * (String(modelData.max).length + 1))
+						Layout.preferredHeight: Units.gridUnit * 2.4
+						radius: Units.cornerRadius
+						color: Theme.backgroundColor
 						border.width: 1
-						border.color: Kirigami.Theme.disabledTextColor
+						border.color: Theme.disabledTextColor
 
 						Label {
 							anchors.centerIn: parent
 							text: String(numberDialog.values[index])
-							font.pixelSize: Kirigami.Units.gridUnit * 1.4
+							font.pixelSize: Units.gridUnit * 1.4
 							font.bold: true
 							horizontalAlignment: Text.AlignHCenter
 						}
@@ -147,10 +147,10 @@ Dialog {
 
 					Button {
 						Layout.alignment: Qt.AlignHCenter
-						Layout.preferredWidth: Kirigami.Units.gridUnit * 3
-						Layout.preferredHeight: Kirigami.Units.gridUnit * 2
+						Layout.preferredWidth: Units.gridUnit * 3
+						Layout.preferredHeight: Units.gridUnit * 2
 						text: "▼"
-						font.pixelSize: Kirigami.Units.gridUnit
+						font.pixelSize: Units.gridUnit
 						onPressed: numberDialog.playSound("button-pressed")
 						onClicked: numberDialog.bump(index, -1)
 					}

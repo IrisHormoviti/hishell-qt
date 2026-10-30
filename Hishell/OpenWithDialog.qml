@@ -3,7 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import org.kde.kirigami as Kirigami
+import Hishell.Theme
 import Hishell
 
 // Touch-friendly application picker for "Open With", presented as a bottom
@@ -11,7 +11,7 @@ import Hishell
 // one surface and dismisses with a swipe or a tap on the dimmed area. Rows are
 // finger-sized tap targets and a single tap opens, while a "Set as default"
 // box applies the same choice as the handler for the file's type going forward.
-Kirigami.OverlaySheet {
+Sheet {
 	id: openWithDialog
 	property string filePath: ""
 	property string mime: ""
@@ -21,7 +21,7 @@ Kirigami.OverlaySheet {
 	property var window
 
 	title: qsTr("Open With")
-	implicitWidth: Kirigami.Units.gridUnit * 20
+	implicitWidth: Units.gridUnit * 20
 
 	// Escape (the controller's cancel button maps to it) and a tap outside both
 	// dismiss the sheet.
@@ -70,22 +70,24 @@ Kirigami.OverlaySheet {
 	// Pinned header: what is being opened, and the association choice. It sits
 	// outside the scrolling list, so the box is always reachable.
 	header: ColumnLayout {
-		spacing: Kirigami.Units.smallSpacing
+		spacing: Units.smallSpacing
 
-		Kirigami.Heading {
+		Label {
 			Layout.fillWidth: true
-			level: 2
 			text: openWithDialog.title
+			font.bold: true
+			font.pixelSize: Math.round(Units.gridUnit * 0.9)
+			elide: Text.ElideRight
 		}
 
 		RowLayout {
 			Layout.fillWidth: true
-			spacing: Kirigami.Units.largeSpacing
+			spacing: Units.largeSpacing
 
-			Kirigami.Icon {
+			Icon {
 				source: openWithDialog.fileManager.get_icon(openWithDialog.filePath)
-				implicitWidth: Kirigami.Units.iconSizes.medium
-				implicitHeight: Kirigami.Units.iconSizes.medium
+				implicitWidth: Units.iconSizes.medium
+				implicitHeight: Units.iconSizes.medium
 			}
 
 			ColumnLayout {
@@ -105,7 +107,7 @@ Kirigami.OverlaySheet {
 					text: openWithDialog.mimeDescription
 					elide: Text.ElideRight
 					opacity: 0.7
-					font: Kirigami.Theme.smallFont
+					font: Theme.smallFont
 				}
 			}
 		}
@@ -130,6 +132,9 @@ Kirigami.OverlaySheet {
 	ListView {
 		id: appList
 		clip: true
+		Layout.fillWidth: true
+		Layout.fillHeight: true
+		Layout.preferredHeight: Units.gridUnit * 12
 		model: openWithDialog.apps
 		Keys.onReturnPressed: openWithDialog.openSelected()
 		Keys.onEnterPressed: openWithDialog.openSelected()
@@ -138,7 +143,7 @@ Kirigami.OverlaySheet {
 			width: appList.width
 			visible: openWithDialog.apps.length === 0
 			height: visible ? implicitHeight : 0
-			leftPadding: Kirigami.Units.largeSpacing
+			leftPadding: Units.largeSpacing
 			text: qsTr("No applications found for this file")
 			opacity: 0.7
 		}
@@ -159,18 +164,18 @@ Kirigami.OverlaySheet {
 			}
 
 			background: Rectangle {
-				radius: Kirigami.Units.smallRadius
-				color: appDelegate.highlighted ? Kirigami.Theme.highlightColor
-					: appDelegate.hovered ? Kirigami.Theme.hoverColor : "transparent"
+				radius: Units.smallRadius
+				color: appDelegate.highlighted ? Theme.highlightColor
+					: appDelegate.hovered ? Theme.hoverColor : "transparent"
 			}
 
 			contentItem: RowLayout {
-				spacing: Kirigami.Units.largeSpacing
+				spacing: Units.largeSpacing
 
-				Kirigami.Icon {
+				Icon {
 					source: appDelegate.modelData.icon || "application-x-executable"
-					implicitWidth: Kirigami.Units.iconSizes.medium
-					implicitHeight: Kirigami.Units.iconSizes.medium
+					implicitWidth: Units.iconSizes.medium
+					implicitHeight: Units.iconSizes.medium
 				}
 
 				ColumnLayout {
@@ -180,7 +185,7 @@ Kirigami.OverlaySheet {
 					Label {
 						Layout.fillWidth: true
 						text: appDelegate.modelData.name
-						color: appDelegate.highlighted ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.textColor
+						color: appDelegate.highlighted ? Theme.highlightedTextColor : Theme.textColor
 						elide: Text.ElideRight
 					}
 
@@ -188,9 +193,9 @@ Kirigami.OverlaySheet {
 						Layout.fillWidth: true
 						visible: text.length > 0
 						text: appDelegate.modelData.comment || ""
-						color: appDelegate.highlighted ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.textColor
+						color: appDelegate.highlighted ? Theme.highlightedTextColor : Theme.textColor
 						opacity: 0.7
-						font: Kirigami.Theme.smallFont
+						font: Theme.smallFont
 						elide: Text.ElideRight
 					}
 				}
@@ -198,9 +203,9 @@ Kirigami.OverlaySheet {
 				Label {
 					visible: appDelegate.modelData.isDefault
 					text: qsTr("default")
-					color: appDelegate.highlighted ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.textColor
+					color: appDelegate.highlighted ? Theme.highlightedTextColor : Theme.textColor
 					opacity: 0.7
-					font: Kirigami.Theme.smallFont
+					font: Theme.smallFont
 				}
 			}
 		}

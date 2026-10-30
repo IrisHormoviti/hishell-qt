@@ -2,154 +2,6 @@ import QtQuick.tooling 1.2
 
 Module {
 	Component {
-		name: "DropValidator"
-		prototype: "QObject"
-		exports: ["Hishell/DropValidator 1.0"]
-		exportMetaObjectRevisions: [256]
-
-		Property { name: "window"; type: "QVariant"; isReadonly: true }
-		Method {
-			name: "is_drop_valid"
-			type: "bool"
-			Parameter { name: "target_path"; type: "string" }
-			Parameter { name: "source_paths"; type: "QVariantList" }
-		}
-	}
-	Component {
-		name: "PathUtils"
-		prototype: "QObject"
-		exports: ["Hishell/PathUtils 1.0"]
-		exportMetaObjectRevisions: [256]
-
-		Property { name: "window"; type: "QVariant"; isReadonly: true }
-		Method {
-			name: "get_segments"
-			type: "string"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "path_for_index"
-			type: "string"
-			Parameter { name: "current_path"; type: "string" }
-			Parameter { name: "idx"; type: "int" }
-		}
-		Method {
-			name: "folder_name"
-			type: "string"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "normalize_path"
-			type: "string"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "parent_path"
-			type: "string"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "path_exists"
-			type: "bool"
-			Parameter { name: "base"; type: "string" }
-			Parameter { name: "text"; type: "string" }
-		}
-		Method {
-			name: "resolve_path"
-			type: "string"
-			Parameter { name: "base"; type: "string" }
-			Parameter { name: "spec"; type: "string" }
-		}
-		Method {
-			name: "complete_path"
-			type: "string"
-			Parameter { name: "base"; type: "string" }
-			Parameter { name: "text"; type: "string" }
-			Parameter { name: "limit"; type: "int" }
-		}
-	}
-	Component {
-		name: "SelectionManager"
-		prototype: "QObject"
-		exports: ["Hishell/SelectionManager 1.0"]
-		exportMetaObjectRevisions: [256]
-
-		Property { name: "selection_active"; type: "bool"; isReadonly: true }
-		Property { name: "selected_paths"; type: "string"; isReadonly: true }
-		Property { name: "selected_count"; type: "int"; isReadonly: true }
-		Property { name: "last_selected_index"; type: "int"; isReadonly: true }
-		Property { name: "selection_status"; type: "string"; isReadonly: true }
-		Property { name: "window"; type: "QVariant"; isReadonly: true }
-		Signal { name: "selection_changed" }
-		Method {
-			name: "enter_selection_mode"
-			type: "void"
-		}
-		Method {
-			name: "exit_selection_mode"
-			type: "void"
-		}
-		Method {
-			name: "toggle_selection"
-			type: "void"
-			Parameter { name: "path"; type: "string" }
-			Parameter { name: "idx"; type: "int" }
-		}
-		Method {
-			name: "range_select"
-			type: "void"
-			Parameter { name: "from_idx"; type: "int" }
-			Parameter { name: "to_idx"; type: "int" }
-		}
-		Method {
-			name: "select_all"
-			type: "void"
-			Parameter { name: "paths"; type: "QVariantList" }
-		}
-		Method {
-			name: "deselect_all"
-			type: "void"
-		}
-		Method {
-			name: "get_selected_path_list"
-			type: "QVariantList"
-		}
-		Method {
-			name: "is_selected"
-			type: "bool"
-			Parameter { name: "path"; type: "string" }
-		}
-		Method {
-			name: "clear"
-			type: "void"
-		}
-	}
-	Component {
-		name: "Sound"
-		prototype: "QObject"
-		exports: ["Hishell/Sound 1.0"]
-		exportMetaObjectRevisions: [256]
-
-		Property { name: "window"; type: "QVariant"; isReadonly: true }
-		Property { name: "enabled"; type: "bool"; isReadonly: true }
-		Signal { name: "enabled_changed" }
-		Method {
-			name: "play"
-			type: "bool"
-			Parameter { name: "event_id"; type: "string" }
-		}
-		Method {
-			name: "play_transient"
-			type: "bool"
-			Parameter { name: "event_id"; type: "string" }
-		}
-		Method {
-			name: "set_volume"
-			type: "void"
-			Parameter { name: "factor"; type: "double" }
-		}
-	}
-	Component {
 		name: "Config"
 		prototype: "QObject"
 		exports: ["Hishell/Config 1.0"]
@@ -201,11 +53,16 @@ Module {
 		Property { name: "error"; type: "string"; isReadonly: true }
 		Property { name: "error_file"; type: "string"; isReadonly: true }
 		Signal { name: "config_changed" }
+		Signal { name: "view_changed" }
 		Signal { name: "items_changed" }
 		Method {
 			name: "load"
 			type: "void"
 			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "notify_loaded"
+			type: "void"
 		}
 		Method {
 			name: "set"
@@ -234,9 +91,19 @@ Module {
 		Signal { name: "config_changed" }
 		Signal { name: "exposure_changed" }
 		Signal { name: "scanning_changed" }
+		Signal { name: "scan_applied" }
 		Signal { name: "path_changed" }
 		Signal { name: "filter_changed" }
 		Signal { name: "requestExecutePrompt" }
+		Method {
+			name: "set_deferred"
+			type: "void"
+			Parameter { name: "on"; type: "bool" }
+		}
+		Method {
+			name: "finish_path_change"
+			type: "void"
+		}
 		Method {
 			name: "poll_scan"
 			type: "void"
@@ -492,6 +359,20 @@ Module {
 		Method {
 			name: "end_drag"
 			type: "void"
+		}
+	}
+	Component {
+		name: "DropValidator"
+		prototype: "QObject"
+		exports: ["Hishell/DropValidator 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Property { name: "window"; type: "QVariant"; isReadonly: true }
+		Method {
+			name: "is_drop_valid"
+			type: "bool"
+			Parameter { name: "target_path"; type: "string" }
+			Parameter { name: "source_paths"; type: "QVariantList" }
 		}
 	}
 	Component {
@@ -952,6 +833,157 @@ Module {
 			name: "border_source"
 			type: "string"
 			Parameter { name: "color"; type: "string" }
+		}
+	}
+	Component {
+		name: "PathUtils"
+		prototype: "QObject"
+		exports: ["Hishell/PathUtils 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Property { name: "window"; type: "QVariant"; isReadonly: true }
+		Method {
+			name: "get_segments"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "path_for_index"
+			type: "string"
+			Parameter { name: "current_path"; type: "string" }
+			Parameter { name: "idx"; type: "int" }
+		}
+		Method {
+			name: "folder_name"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "normalize_path"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "navigation_plan"
+			type: "string"
+			Parameter { name: "from"; type: "string" }
+			Parameter { name: "to"; type: "string" }
+		}
+		Method {
+			name: "parent_path"
+			type: "string"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "path_exists"
+			type: "bool"
+			Parameter { name: "base"; type: "string" }
+			Parameter { name: "text"; type: "string" }
+		}
+		Method {
+			name: "resolve_path"
+			type: "string"
+			Parameter { name: "base"; type: "string" }
+			Parameter { name: "spec"; type: "string" }
+		}
+		Method {
+			name: "complete_path"
+			type: "string"
+			Parameter { name: "base"; type: "string" }
+			Parameter { name: "text"; type: "string" }
+			Parameter { name: "limit"; type: "int" }
+		}
+	}
+	Component {
+		name: "SelectionManager"
+		prototype: "QObject"
+		exports: ["Hishell/SelectionManager 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Property { name: "selection_active"; type: "bool"; isReadonly: true }
+		Property { name: "selected_paths"; type: "string"; isReadonly: true }
+		Property { name: "selected_count"; type: "int"; isReadonly: true }
+		Property { name: "last_selected_index"; type: "int"; isReadonly: true }
+		Property { name: "selection_status"; type: "string"; isReadonly: true }
+		Property { name: "window"; type: "QVariant"; isReadonly: true }
+		Signal { name: "selection_changed" }
+		Method {
+			name: "enter_selection_mode"
+			type: "void"
+		}
+		Method {
+			name: "exit_selection_mode"
+			type: "void"
+		}
+		Method {
+			name: "toggle_selection"
+			type: "void"
+			Parameter { name: "path"; type: "string" }
+			Parameter { name: "idx"; type: "int" }
+		}
+		Method {
+			name: "range_select"
+			type: "void"
+			Parameter { name: "from_idx"; type: "int" }
+			Parameter { name: "to_idx"; type: "int" }
+		}
+		Method {
+			name: "select_all"
+			type: "void"
+			Parameter { name: "paths"; type: "QVariantList" }
+		}
+		Method {
+			name: "deselect_all"
+			type: "void"
+		}
+		Method {
+			name: "get_selected_path_list"
+			type: "QVariantList"
+		}
+		Method {
+			name: "is_selected"
+			type: "bool"
+			Parameter { name: "path"; type: "string" }
+		}
+		Method {
+			name: "clear"
+			type: "void"
+		}
+	}
+	Component {
+		name: "Sound"
+		prototype: "QObject"
+		exports: ["Hishell/Sound 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Property { name: "window"; type: "QVariant"; isReadonly: true }
+		Property { name: "enabled"; type: "bool"; isReadonly: true }
+		Signal { name: "enabled_changed" }
+		Method {
+			name: "play"
+			type: "bool"
+			Parameter { name: "event_id"; type: "string" }
+		}
+		Method {
+			name: "play_transient"
+			type: "bool"
+			Parameter { name: "event_id"; type: "string" }
+		}
+		Method {
+			name: "set_volume"
+			type: "void"
+			Parameter { name: "factor"; type: "double" }
+		}
+	}
+	Component {
+		name: "ThemeIcons"
+		prototype: "QObject"
+		exports: ["Hishell/ThemeIcons 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Method {
+			name: "backend"
+			type: "string"
 		}
 	}
 }

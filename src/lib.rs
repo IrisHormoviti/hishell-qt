@@ -28,6 +28,7 @@ pub mod selection_manager;
 pub mod session;
 pub mod sound;
 pub mod squashfs;
+pub mod theme_icons;
 pub mod thumbnailer;
 pub mod topscreen;
 
@@ -76,6 +77,8 @@ pub fn install() {
 	static FOCUSMANAGER_STR: &CStr =
 		unsafe { CStr::from_bytes_with_nul_unchecked(b"FocusManager\0") };
 	static SOUND_STR: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Sound\0") };
+	static THEMEICONS_STR: &CStr =
+		unsafe { CStr::from_bytes_with_nul_unchecked(b"ThemeIcons\0") };
 
 	qmetaobject::qml_register_type::<Config>(IMPORT_NAME, 1, 0, CONFIG_STR);
 	qmetaobject::qml_register_type::<Directory>(IMPORT_NAME, 1, 0, DIRECTORY_STR);
@@ -86,11 +89,20 @@ pub fn install() {
 	qmetaobject::qml_register_type::<SelectionManager>(IMPORT_NAME, 1, 0, SELECTIONMANAGER_STR);
 	qmetaobject::qml_register_type::<FocusManager>(IMPORT_NAME, 1, 0, FOCUSMANAGER_STR);
 	qmetaobject::qml_register_type::<sound::Sound>(IMPORT_NAME, 1, 0, SOUND_STR);
+	qmetaobject::qml_register_singleton_type::<theme_icons::ThemeIcons>(
+		IMPORT_NAME, 1, 0, THEMEICONS_STR,
+	);
 
 	qmetaobject::qrc!(load_qml_resources,
 		"Hishell" as "Hishell" {
 			"qmldir",
 			"plugins.qmltypes",
+			"Theme/qmldir",
+			"Theme/Theme.qml",
+			"Theme/Units.qml",
+			"Theme/Icon.qml",
+			"Theme/Kde.qml",
+			"Theme/Clamos.qml",
 			"ActionGroupMenu.qml",
 			"ActionManager.qml",
 			"CoreTheme.qml",
@@ -104,6 +116,7 @@ pub fn install() {
 			"FolderFilterBar.qml",
 			"FolderGrid.qml",
 			"FolderSelectionBar.qml",
+			"FolderTransition.qml",
 			"FolderView.qml",
 			"LayoutEngine.qml",
 			"LaunchConfirmDialog.qml",
@@ -111,6 +124,10 @@ pub fn install() {
 			"OpenWithDialog.qml",
 			"PerfBench.qml",
 			"Recovery.qml",
+			"Sheet.qml",
+			"SegmentedButtons.qml",
+			"SegmentedButtonsStyle.qml",
+			"SegmentedButtonsGeneric.qml",
 			"ShellContextMenu.qml",
 			"ShellWindow.qml",
 			"StyleThemeBridge.qml",

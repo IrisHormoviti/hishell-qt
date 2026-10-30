@@ -69,6 +69,57 @@ pub struct PathUtils {
 		}
 	),
 
+	/// Plan a folder transition between two absolute paths, lexically.
+	///
+	/// Returns `{ "relation", "close", "open" }`: `close` lists the folders to
+	/// leave, one level at a time, from the current folder up to the nearest
+	/// common ancestor (the current folder first); `open` lists the folders to
+	/// enter from that ancestor down to the destination. Symlinks are not
+	/// resolved, so `/a/link` and `/a/real` are different paths here.
+	navigation_plan: qt_method!(
+		fn navigation_plan(&self, from: String, to: String) -> String {
+			let from_parts = Self::components(&from);
+			let to_parts = Self::components(&to);
+			let mut close = Vec::new();
+			let mut open = Vec::new();
+			let relation;
+			if from_parts == to_parts {
+				relation = "same";
+			} else if Self::is_under(&to_parts, &from_parts) {
+				relation = "child";
+				for depth in from_parts.len()..to_parts.len() {
+					open.push(Self::join(&to_parts, depth + 1));
+				}
+			} else if Self::is_under(&from_parts, &to_parts) {
+				relation = "parent";
+				for depth in (to_parts.len()..from_parts.len()).rev() {
+					close.push(Self::join(&from_parts, depth + 1));
+				}
+			} else {
+				relation = "sibling";
+				let mut common = 0;
+				while common < from_parts.len()
+					&& common < to_parts.len()
+					&& from_parts[common] == to_parts[common]
+				{
+					common += 1;
+				}
+				for depth in (common..from_parts.len()).rev() {
+					close.push(Self::join(&from_parts, depth + 1));
+				}
+				for depth in common..to_parts.len() {
+					open.push(Self::join(&to_parts, depth + 1));
+				}
+			}
+			serde_json::json!({
+				"relation": relation,
+				"close": close,
+				"open": open,
+			})
+			.to_string()
+		}
+	),
+
 	parent_path: qt_method!(
 		fn parent_path(&self, path: String) -> String {
 			let p = std::path::Path::new(path.trim());
@@ -115,6 +166,30 @@ pub struct PathUtils {
 }
 
 impl PathUtils {
+	/// Path components without the root, so `/a/b/` and `a/b` both yield
+	/// `["a", "b"]`. Purely lexical: `..` is kept as an ordinary component and
+	/// is never resolved against the filesystem.
+	fn components(path: &str) -> Vec<String> {
+		path.trim()
+			.split('/')
+			.filter(|part| !part.is_empty())
+			.map(str::to_string)
+			.collect()
+	}
+
+	/// Whether `parts` is `prefix` or starts with it.
+	fn is_under(parts: &[String], prefix: &[String]) -> bool {
+		parts.len() >= prefix.len() && parts[..prefix.len()] == *prefix
+	}
+
+	fn join(parts: &[String], count: usize) -> String {
+		if count == 0 {
+			"/".to_string()
+		} else {
+			format!("/{}", parts[..count].join("/"))
+		}
+	}
+
 	fn normalize(path: String) -> String {
 		let p = path.trim();
 		if p.is_empty() {

@@ -30,10 +30,19 @@ QtObject {
 	readonly property string viewConfigGroupName: "Folder View"
 
 	// ── Current values ───────────────────────────────────────────────────
-	readonly property int gridSize: viewActions.config ? viewActions.config.grid_size : 64
-	readonly property int gridSizeMin: 16
-	readonly property int gridSizeMax: 256
-	readonly property int gridSizeStep: 12
+	// One density control: `Lines` is the number of rows when the grid scrolls
+	// horizontally, or columns when it scrolls vertically. The icon size is
+	// derived from that count and the pane, so there is no separate pixel
+	// setting to keep in sync. A stored 0 ("Auto") is treated as four lines.
+	readonly property int lineCountMin: 1
+	readonly property int lineCountMax: 8
+	readonly property int lineCount: {
+		const lines = viewActions.config ? viewActions.config.grid_lines : 0;
+		return lines > 0
+			? Math.max(viewActions.lineCountMin, Math.min(viewActions.lineCountMax, lines))
+			: 4;
+	}
+	readonly property string lineCountLabel: viewActions.scrollHorizontal ? qsTr("Rows") : qsTr("Columns")
 
 	readonly property int viewMode: viewActions.config ? viewActions.config.view_mode : 0
 	readonly property bool isListView: viewActions.viewMode === 1
@@ -184,7 +193,6 @@ QtObject {
 	readonly property int groupMode: viewActions.config ? viewActions.config.group_mode : 0
 	readonly property bool customGroups: viewActions.groupMode === 4
 
-	readonly property int gridLines: viewActions.config ? viewActions.config.grid_lines : 0
 	readonly property bool scrollHorizontal: viewActions.config ? viewActions.config.scroll_horizontal : false
 	readonly property int horizontalAlign: viewActions.config ? viewActions.config.grid_horizontal_align : 0
 	readonly property int verticalAlign: viewActions.config ? viewActions.config.grid_vertical_align : 0
@@ -262,13 +270,14 @@ QtObject {
 		viewActions.playSound("dialog-ok");
 	}
 
-	function setGridSize(value) {
-		const clamped = Math.max(viewActions.gridSizeMin, Math.min(viewActions.gridSizeMax, Math.round(value)));
-		viewActions.setConfig("GridSize", String(clamped));
+	function setLineCount(value) {
+		const clamped = Math.max(viewActions.lineCountMin, Math.min(viewActions.lineCountMax, Math.round(value)));
+		viewActions.setConfig("Lines", String(clamped));
 	}
 
-	function nudgeGridSize(delta) {
-		viewActions.setGridSize(viewActions.gridSize + delta);
+	// More lines means smaller icons: +1 zooms out, -1 zooms in.
+	function nudgeLineCount(delta) {
+		viewActions.setLineCount(viewActions.lineCount + delta);
 	}
 
 	function toggleViewMode() {

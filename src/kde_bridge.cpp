@@ -601,13 +601,29 @@ extern "C" void hishell_warm_icons(void)
 	}
 }
 
-// Renders a themed icon with the ClamOS accent applied to the parts the icon
-// theme marks with its `ColorScheme-Accent` class — Breeze draws every folder
-// body that way — using KDE's own KIconEngine, so folders follow the accent
-// exactly the way KDE apps do. The result is cached as a PNG (the cache is
-// keyed by icon, size and both colours, so all folders sharing an icon render
-// once) and returned as a file:// URI, or "" when it cannot be rendered.
-// The cache path of the rendered icon. Kept as a small helper so the shell can
+// A cheap fingerprint of the installed icon theme. A rendered PNG is a
+// function of the theme's files, not only of its name: when an update adds a
+// context to index.theme, touches the FollowsColorScheme flag, or replaces an
+// icon, a PNG cached from the previous theme must not be reused. The installers
+// touch the theme directory and editing index.theme updates its mtime, so both
+// change on an update. QIconLoader takes the first search path that has the
+// theme's index.theme; mirror that lookup so a shadowed theme does not stamp
+// the wrong files.
+static QString icon_theme_stamp(const QString &themeName)
+{
+	for (const QString &base : QIcon::themeSearchPaths()) {
+		const QString themeDir = base + QLatin1Char('/') + themeName;
+		const QFileInfo index(themeDir + QStringLiteral("/index.theme"));
+		if (index.isFile()) {
+			return QString::number(index.lastModified().toMSecsSinceEpoch())
+				+ QLatin1Char('-')
+				+ QString::number(QFileInfo(themeDir).lastModified().toMSecsSinceEpoch());
+		}
+	}
+	return QStringLiteral("0");
+}
+
+// The cache path of a rendered icon. Kept as a small helper so the shell can
 // ask whether a PNG already exists without paying for a render on the GUI
 // thread; missing icons are rendered later from an idle timer.
 static QString accent_icon_path(const char *name, int size, int accent_r, int accent_g, int accent_b, int text_r, int text_g, int text_b, const char *cache_dir)
@@ -620,16 +636,19 @@ static QString accent_icon_path(const char *name, int size, int accent_r, int ac
 	safeName.replace(QLatin1Char('/'), QLatin1Char('_'));
 	// The rendered PNG depends on the icon theme as well as the colours, and
 	// KIconLoader only recolours themes that declare FollowsColorScheme, so
-	// keep the theme in the key. A theme changed in place (e.g. that flag
-	// added) still needs the cache version in the directory name bumped.
+	// keep the theme name and the theme's install stamp in the key.
 	QString themeName = QIcon::themeName();
 	themeName.replace(QLatin1Char('/'), QLatin1Char('_'));
+	// The theme's install stamp is part of the key: a PNG rendered before an
+	// icon (or the FollowsColorScheme flag) reached the theme must not survive
+	// the update.
+	const QString themeKey = themeName + QLatin1Char('-') + icon_theme_stamp(themeName);
 
 	const QString dir = QString::fromUtf8(cache_dir);
 	QDir().mkpath(dir);
 
 	const QString fileName = QStringLiteral("%1_%2_%3_%4-%5-%6_%7-%8-%9.png")
-	                                 .arg(themeName)
+	                                 .arg(themeKey)
 	                                 .arg(safeName)
 	                                 .arg(size)
 	                                 .arg(accent_r)
@@ -647,6 +666,13 @@ static const char *accent_icon_result(const QString &path)
 	return g_result.constData();
 }
 
+// Renders a themed icon with the ClamOS accent applied to the parts the icon
+// theme marks with its `ColorScheme-Accent` class — Breeze draws every folder
+// body that way — using KDE's own KIconEngine, so folders follow the accent
+// exactly the way KDE apps do. The result is cached as a PNG (the cache is
+// keyed by icon, size, both colours and the theme's install stamp, so all
+// folders sharing an icon render once) and returned as a file:// URI, or ""
+// when it cannot be rendered.
 const char *hishell_accent_icon(const char *name, int size, int accent_r, int accent_g, int accent_b, int text_r, int text_g, int text_b, const char *cache_dir)
 {
 	const QString path = accent_icon_path(name, size, accent_r, accent_g, accent_b, text_r, text_g, text_b, cache_dir);
@@ -815,3 +841,12 @@ bool hishell_thumbnail_image(const char *src, const char *dst, int size, const c
 }
 
 #include "moc_kde_bridge.cpp"
+
+// Process the DeferredDelete events queued by the QML views when a model
+// reset releases its delegates. Called between clearing a folder's model and
+// announcing the new folder's config, so that notification cannot re-layout
+// (and re-render the icons of) delegates that are already gone.
+extern "C" void hishell_flush_deferred_deletes(void)
+{
+	QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+}

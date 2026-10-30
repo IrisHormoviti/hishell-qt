@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import org.kde.kirigami as Kirigami
+import Hishell.Theme
 import Hishell
 
 Item {
@@ -186,7 +186,12 @@ Item {
 
 	Item {
 		id: externalOpenAnimation
-		z: 100
+		// The ActionManager is declared before the window's content layout, so
+		// its children stack below the folder panel. Parent the launch ghost to
+		// the window content and lift it explicitly; otherwise the grab runs but
+		// the scale/fade plays behind the panel and looks like nothing happened.
+		parent: actionManager.window ? actionManager.window.contentItem : actionManager
+		z: 100000
 		visible: false
 		transformOrigin: Item.Center
 
@@ -451,6 +456,30 @@ Item {
 			actionManager.window.clearReturnFrame();
 	}
 
+	// The app manager hides the shell as soon as the guest is spawned, so the
+	// launch ghost lost the race: the grab callback (and the window) were gone
+	// before it could play. Give the ghost its 220 ms, then start the guest.
+	property var pendingLaunches: []
+
+	Timer {
+		id: launchDelay
+		interval: 200
+		repeat: false
+		onTriggered: {
+			const calls = actionManager.pendingLaunches;
+			actionManager.pendingLaunches = [];
+			for (let i = 0; i < calls.length; i++)
+				if (calls[i])
+					calls[i]();
+		}
+	}
+
+	function launchAfterGhost(call) {
+		actionManager.pendingLaunches.push(call);
+		if (!launchDelay.running)
+			launchDelay.restart();
+	}
+
 	property alias executeAction: executeAction
 	Action {
 		id: executeAction
@@ -491,10 +520,12 @@ Item {
 				// off. Only controls keep their in-shell sound.
 				if (isButton)
 					actionManager.playSound("menu-item");
+				let hasGhost = false;
 				if (!isButton) {
 					actionManager.prepareLaunch();
 					const layout = sourceItem ? (sourceItem.contentBody ? sourceItem.contentBody : sourceItem.contentLayout) : null;
 					if (layout) {
+						hasGhost = true;
 						const globalPos = layout.mapToItem(actionManager, 0, 0);
 						layout.grabToImage(result => {
 							externalOpenAnimation.x = globalPos.x;
@@ -507,9 +538,15 @@ Item {
 						});
 					}
 				}
-				const warning = String(actionManager.targetDirectory.execute_action(path));
-				if (warning !== "")
-					actionManager.showLaunchConfirm(warning, path);
+				const launch = function () {
+					const warning = String(actionManager.targetDirectory.execute_action(path));
+					if (warning !== "")
+						actionManager.showLaunchConfirm(warning, path);
+				};
+				if (hasGhost)
+					actionManager.launchAfterGhost(launch);
+				else
+					launch();
 			}
 		}
 
@@ -559,8 +596,10 @@ Item {
 				// survives the shell being stopped for the guest.
 				if (!isDir && !isButton && !selectsRadio)
 					actionManager.prepareLaunch();
+				let hasGhost = false;
 				const layout = sourceItem ? (sourceItem.contentBody ? sourceItem.contentBody : sourceItem.contentLayout) : null;
 				if (layout && !isButton && !selectsRadio && !(isDir && !inNewWindow)) {
+					hasGhost = true;
 					const globalPos = layout.mapToItem(actionManager, 0, 0);
 					layout.grabToImage(result => {
 						externalOpenAnimation.x = globalPos.x;
@@ -579,11 +618,25 @@ Item {
 				}
 
 				if (inNewWindow) {
-					actionManager.targetDirectory.open_in_new_window(p);
+					if (hasGhost)
+						actionManager.launchAfterGhost(() => actionManager.targetDirectory.open_in_new_window(p));
+					else
+						actionManager.targetDirectory.open_in_new_window(p);
+				} else if (isDir && actionManager.targetFolderView
+					&& typeof actionManager.targetFolderView.navigateToPath === "function") {
+					// The view owns the folder transition, so it navigates
+					// rather than the directory being reassigned under it.
+					actionManager.targetFolderView.navigateToPath(p, sourceItem, true);
 				} else {
-					const warning = String(actionManager.targetDirectory.open_path(p));
-					if (warning !== "")
-						actionManager.showLaunchConfirm(warning, p);
+					const openIt = function () {
+						const warning = String(actionManager.targetDirectory.open_path(p));
+						if (warning !== "")
+							actionManager.showLaunchConfirm(warning, p);
+					};
+					if (hasGhost)
+						actionManager.launchAfterGhost(openIt);
+					else
+						openIt();
 				}
 			}
 		}
@@ -605,8 +658,14 @@ Item {
 
 		function execute(targetPath: string, sourceItem: Item) {
 			const paths = targetPath !== "" ? [targetPath] : actionManager.targetPaths();
+			const view = actionManager.targetFolderView;
 			for (let i = 0; i < paths.length; i++) {
 				const p = paths[i];
+				const isDir = actionManager.fileManager && actionManager.fileManager.is_directory(p);
+				if (isDir && view && typeof view.navigateToPath === "function") {
+					view.navigateToPath(p, sourceItem, true);
+					continue;
+				}
 				const warning = String(actionManager.targetDirectory.open_path(p));
 				if (warning !== "")
 					actionManager.showLaunchConfirm(warning, p);
@@ -796,8 +855,12 @@ Item {
 			// The back sound belongs to the back gesture, not to the action:
 			// the menu item that triggers this already plays the menu sound,
 			// and playing both made one press sound like two.
-			if (actionManager.directory)
+			const view = actionManager.navigationView;
+			if (view && view.directory && typeof view.navigateToPath === "function") {
+				view.navigateToPath(view.parentFolder(String(view.directory.path)), null, true);
+			} else if (actionManager.directory) {
 				actionManager.directory.go_up();
+			}
 		}
 	}
 
@@ -1176,7 +1239,7 @@ Item {
 		onClosed: actionManager.playSound("dialog-open")
 
 		contentItem: ColumnLayout {
-			spacing: Kirigami.Units.smallSpacing
+			spacing: Units.smallSpacing
 
 			Label {
 				text: qsTr("New name:")
@@ -1212,14 +1275,14 @@ Item {
 				id: renameError
 				visible: renameDialog.errorText.length > 0
 				text: renameDialog.errorText
-				color: Kirigami.Theme.negativeTextColor
+				color: Theme.negativeTextColor
 				wrapMode: Text.WordWrap
 				Layout.fillWidth: true
 			}
 
 			RowLayout {
 				Layout.alignment: Qt.AlignRight
-				spacing: Kirigami.Units.smallSpacing
+				spacing: Units.smallSpacing
 
 				Button {
 					text: qsTr("OK")

@@ -2,12 +2,12 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import org.kde.kirigami as Kirigami
+import Hishell.Theme
 import Hishell
 
 RowLayout {
 	id: pathBar
-	spacing: Kirigami.Units.mediumSpacing
+	spacing: Units.mediumSpacing
 	Layout.fillWidth: true
 
 	// Untyped to avoid the ShellWindow <-> PathBar cyclic dependency; see
@@ -276,7 +276,14 @@ RowLayout {
 		}
 		const target = String(pathUtils.resolve_path(base, editField.text));
 		pathBar.stopEditing();
-		if (pathBar.directory)
+		// The path bar can only choose a folder; the view owns the transition
+		// into it (and the focus/scroll that follows).
+		const view = pathBar.window
+			? (pathBar.window.focusedFolderView ? pathBar.window.focusedFolderView : pathBar.window.primaryFolderView)
+			: null;
+		if (view && view.directory === pathBar.directory && typeof view.navigateToPath === "function")
+			view.navigateToPath(target, null, true);
+		else if (pathBar.directory)
 			pathBar.directory.open_path(target);
 		pathBar.focusFolderView();
 	}
@@ -389,7 +396,7 @@ RowLayout {
 
 		orientation: ListView.Horizontal
 		interactive: true
-		spacing: Kirigami.Units.smallSpacing
+		spacing: Units.smallSpacing
 
 		model: pathBar.segments
 
@@ -398,7 +405,7 @@ RowLayout {
 
 		delegate: RowLayout {
 			id: delegateRoot
-			spacing: Kirigami.Units.mediumSpacing
+			spacing: Units.mediumSpacing
 			height: breadcrumbList.height
 
 			required property int index
@@ -410,7 +417,7 @@ RowLayout {
 				visible: delegateRoot.index > 0 && (pathBar.segments[0] !== "/" || delegateRoot.index > 1)
 				text: "/"
 				font.pointSize: 12
-				color: Kirigami.Theme.disabledTextColor
+				color: Theme.disabledTextColor
 				Layout.alignment: Qt.AlignVCenter
 			}
 
@@ -452,7 +459,7 @@ RowLayout {
 				index: delegateRoot.index
 				// The breadcrumb icon scales with the taller header; match the
 				// size the header's own view button uses.
-				gridSize: Kirigami.Units.iconSizes.medium
+				gridSize: Units.iconSizes.medium
 				labelBesideIcon: true
 				isActive: delegateRoot.isCurrent
 				fixedWidth: false
@@ -477,10 +484,10 @@ RowLayout {
 		background: Rectangle {
 			implicitWidth: 200
 			implicitHeight: 40
-			color: Kirigami.Theme.backgroundColor
-			radius: Kirigami.Units.cornerRadius
+			color: Theme.backgroundColor
+			radius: Units.cornerRadius
 			border.width: pathBar.pathInvalid ? 2 : 1
-			border.color: pathBar.pathInvalid ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.disabledTextColor
+			border.color: pathBar.pathInvalid ? Theme.negativeTextColor : Theme.disabledTextColor
 		}
 
 		// The part of the best suggestion that is still missing, shown after the
@@ -569,8 +576,8 @@ RowLayout {
 		parent: pathBar
 		// x: editField.x
 		// y: editField.y + editField.height
-		// width: Math.max(editField.width + goButton.width + cancelButton.width + pathBar.spacing * 2, Kirigami.Units.gridUnit * 16)
-		// height: Math.min(completionList.contentHeight, Kirigami.Units.gridUnit * 10)
+		// width: Math.max(editField.width + goButton.width + cancelButton.width + pathBar.spacing * 2, Units.gridUnit * 16)
+		// height: Math.min(completionList.contentHeight, Units.gridUnit * 10)
 		padding: 0
 		focus: false
 		closePolicy: Popup.NoAutoClose

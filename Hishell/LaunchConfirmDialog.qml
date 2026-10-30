@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import org.kde.kirigami as Kirigami
+import Hishell.Theme
 import Hishell
 
 // Touch- and controller-friendly confirmation for a launch the host's execution
@@ -9,7 +9,7 @@ import Hishell
 // OverlaySheet gives finger-sized rows; the sheet grabs focus while it is up so
 // the controller drives it (A accepts, B/Back cancels) and the two items'
 // keyboard focus is routed here.
-Kirigami.OverlaySheet {
+Sheet {
 	id: launchConfirm
 	property var window
 	property var fileManager
@@ -21,7 +21,7 @@ Kirigami.OverlaySheet {
 	property bool accepted: false
 
 	title: qsTr("Launch")
-	implicitWidth: Kirigami.Units.gridUnit * 20
+	implicitWidth: Units.gridUnit * 20
 	closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
 	readonly property var info: {
@@ -60,7 +60,7 @@ Kirigami.OverlaySheet {
 				source: parent.isThumbnail ? parent.artSource : ""
 			}
 
-			Kirigami.Icon {
+			Icon {
 				anchors.fill: parent
 				visible: !parent.isThumbnail
 				source: parent.artSource !== "" ? parent.artSource : "application-x-executable"
@@ -99,8 +99,8 @@ Kirigami.OverlaySheet {
 		Layout.fillWidth: true
 		// A fixed content width keeps the wrapped labels' heights independent of
 		// the sheet's own width, which would otherwise be a binding loop.
-		Layout.preferredWidth: Kirigami.Units.gridUnit * 20
-		spacing: Kirigami.Units.largeSpacing
+		Layout.preferredWidth: Units.gridUnit * 20
+		spacing: Units.largeSpacing
 
 		Keys.onReturnPressed: launchConfirm.accept()
 		Keys.onEnterPressed: launchConfirm.accept()
@@ -111,49 +111,49 @@ Kirigami.OverlaySheet {
 		// to launch on the right.
 		RowLayout {
 			Layout.alignment: Qt.AlignHCenter
-			spacing: Kirigami.Units.largeSpacing
+			spacing: Units.largeSpacing
 
 			ColumnLayout {
 				Layout.alignment: Qt.AlignVCenter
-				spacing: Kirigami.Units.smallSpacing
+				spacing: Units.smallSpacing
 
 				Loader {
 					Layout.alignment: Qt.AlignHCenter
-					Layout.preferredWidth: Kirigami.Units.iconSizes.large
-					Layout.preferredHeight: Kirigami.Units.iconSizes.large
+					Layout.preferredWidth: Units.iconSizes.large
+					Layout.preferredHeight: Units.iconSizes.large
 					sourceComponent: itemArtComponent
 					onLoaded: item.artSource = Qt.binding(() => launchConfirm.info.blockedIcon || "")
 				}
 
 				Label {
-					Layout.maximumWidth: Kirigami.Units.gridUnit * 8
+					Layout.maximumWidth: Units.gridUnit * 8
 					horizontalAlignment: Text.AlignHCenter
 					elide: Text.ElideRight
 					text: launchConfirm.info.blockedTitle || ""
 				}
 			}
 
-			Kirigami.Icon {
+			Icon {
 				Layout.alignment: Qt.AlignVCenter
 				source: "go-next"
-				implicitWidth: Kirigami.Units.iconSizes.medium
-				implicitHeight: Kirigami.Units.iconSizes.medium
+				implicitWidth: Units.iconSizes.medium
+				implicitHeight: Units.iconSizes.medium
 			}
 
 			ColumnLayout {
 				Layout.alignment: Qt.AlignVCenter
-				spacing: Kirigami.Units.smallSpacing
+				spacing: Units.smallSpacing
 
 				Loader {
 					Layout.alignment: Qt.AlignHCenter
-					Layout.preferredWidth: Kirigami.Units.iconSizes.large
-					Layout.preferredHeight: Kirigami.Units.iconSizes.large
+					Layout.preferredWidth: Units.iconSizes.large
+					Layout.preferredHeight: Units.iconSizes.large
 					sourceComponent: itemArtComponent
 					onLoaded: item.artSource = Qt.binding(() => launchConfirm.info.launchIcon || "")
 				}
 
 				Label {
-					Layout.maximumWidth: Kirigami.Units.gridUnit * 8
+					Layout.maximumWidth: Units.gridUnit * 8
 					horizontalAlignment: Text.AlignHCenter
 					elide: Text.ElideRight
 					text: launchConfirm.info.launchTitle || ""
@@ -163,7 +163,7 @@ Kirigami.OverlaySheet {
 
 		Label {
 			Layout.fillWidth: true
-			Layout.maximumWidth: Kirigami.Units.gridUnit * 18
+			Layout.maximumWidth: Units.gridUnit * 18
 			Layout.alignment: Qt.AlignHCenter
 			horizontalAlignment: Text.AlignHCenter
 			wrapMode: Text.WordWrap
@@ -172,11 +172,11 @@ Kirigami.OverlaySheet {
 
 		RowLayout {
 			Layout.fillWidth: true
-			spacing: Kirigami.Units.largeSpacing
+			spacing: Units.largeSpacing
 
 			Button {
 				Layout.fillWidth: true
-				Layout.preferredHeight: Kirigami.Units.gridUnit * 2.5
+				Layout.preferredHeight: Units.gridUnit * 2.5
 				text: qsTr("Close and Launch")
 				icon.name: "system-run"
 				onClicked: launchConfirm.accept()
@@ -184,7 +184,7 @@ Kirigami.OverlaySheet {
 
 			Button {
 				Layout.fillWidth: true
-				Layout.preferredHeight: Kirigami.Units.gridUnit * 2.5
+				Layout.preferredHeight: Units.gridUnit * 2.5
 				text: qsTr("Cancel")
 				icon.name: "dialog-cancel"
 				onClicked: {

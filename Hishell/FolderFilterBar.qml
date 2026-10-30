@@ -5,7 +5,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import org.kde.kirigami as Kirigami
+import Hishell.Theme
 import Hishell
 
 Rectangle {
@@ -31,9 +31,9 @@ Rectangle {
 	anchors.top: parent.top
 	anchors.left: parent.left
 	anchors.right: parent.right
-	anchors.margins: Kirigami.Units.mediumSpacing
-	height: Kirigami.Units.gridUnit * 2
-	radius: Kirigami.Units.cornerRadius
+	anchors.margins: Units.mediumSpacing
+	height: Units.gridUnit * 2
+	radius: Units.cornerRadius
 
 	visible: opacity > 0
 	opacity: filterBar.filterActive ? 1 : 0
@@ -44,10 +44,9 @@ Rectangle {
 		}
 	}
 
-	Kirigami.Theme.colorSet: Kirigami.Theme.Header
-	color: Kirigami.Theme.backgroundColor
+	color: Theme.backgroundColor
 	border.width: 1
-	border.color: Kirigami.Theme.highlightColor
+	border.color: Theme.highlightColor
 
 	MouseArea {
 		anchors.fill: parent
@@ -60,14 +59,14 @@ Rectangle {
 
 	RowLayout {
 		anchors.fill: parent
-		anchors.leftMargin: Kirigami.Units.largeSpacing
-		anchors.rightMargin: Kirigami.Units.smallSpacing
-		spacing: Kirigami.Units.smallSpacing
+		anchors.leftMargin: Units.largeSpacing
+		anchors.rightMargin: Units.smallSpacing
+		spacing: Units.smallSpacing
 
-		Kirigami.Icon {
+		Icon {
 			source: "search"
-			Layout.preferredWidth: Kirigami.Units.iconSizes.small
-			Layout.preferredHeight: Kirigami.Units.iconSizes.small
+			Layout.preferredWidth: Units.iconSizes.small
+			Layout.preferredHeight: Units.iconSizes.small
 		}
 
 		Label {

@@ -3,7 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import org.kde.kirigami as Kirigami
+import Hishell.Theme
 import Hishell
 
 MenuBar {
@@ -20,7 +20,7 @@ MenuBar {
 	property bool hasOpenMenu: false
 
 	Layout.alignment: Qt.AlignRight
-	spacing: Kirigami.Units.mediumSpacing
+	spacing: Units.mediumSpacing
 
 	delegate: MenuBarItem {
 		id: menuBarItem

@@ -17,7 +17,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import org.kde.kirigami as Kirigami
+import Hishell.Theme
 import Hishell
 
 Item {
@@ -40,6 +40,13 @@ Item {
 	property int freeDropRow: -1
 	// Whether a reposition animation is in flight, so slots animate their x/y.
 	property bool repositionAnimating: false
+	// Whether cell positions animate when the layout moves them: a pane resize,
+	// a Lines/alignment change or a refresh that reorders the model.
+	// Scrolling changes contentX/contentY, never a delegate's x/y, so leaving
+	// this on during a scroll is safe. Each delegate still waits for its first
+	// placement before animating, so a lazily built slot does not fly in from
+	// the corner. Gated by the existing SmoothScrolling setting.
+	readonly property bool layoutAnimating: grid.config ? grid.config.smooth_scrolling : true
 
 	// Item interactions. The view performs them, because they need the keyboard,
 	// the selection and the event sounds, all of which it owns.
@@ -75,21 +82,37 @@ Item {
 			grid.window.sound.play_transient(name);
 	}
 
-	readonly property bool freeGrid: grid.config ? (grid.config.sort === 3 && grid.config.view_mode === 0) : false
+	// One decision for which view draws the folder. The three flags below used
+	// to be independent bindings, so a config change that touched sort, view
+	// mode and grouping re-evaluated them in sequence and toggled the views
+	// (and their models) two or three times for one folder change. A shared
+	// enum evaluates once and leaves exactly one view holding the model.
+	// 0 = grid, 1 = free placement, 2 = list, 3 = grouped.
+	readonly property int viewKind: {
+		const cfg = grid.config;
+		if (!cfg)
+			return 0;
+		if (cfg.view_mode === 1)
+			return 2;
+		if (cfg.sort === 3 && cfg.view_mode === 0)
+			return 1;
+		if (cfg.group_mode > 0 || cfg.show_stash)
+			return 3;
+		return 0;
+	}
+	readonly property bool freeGrid: grid.viewKind === 1
 	// A list is a single column of full-width rows. It keeps the grid's focus,
 	// selection and drag interaction but replaces the cell maths with rows.
-	readonly property bool listMode: grid.config ? grid.config.view_mode === 1 : false
+	readonly property bool listMode: grid.viewKind === 2
 	// Grouped folders use an explicit layout: a section header is not item
 	// sized, and a GridView cannot reserve a row for one. Free placement is
 	// never grouped.
-	readonly property bool grouped: grid.config
-		? (!grid.freeGrid && (grid.config.group_mode > 0 || grid.config.show_stash))
-		: false
-	readonly property real groupHeaderSize: Math.max(Kirigami.Units.gridUnit * 1.45, 20)
-	readonly property real listRowHeight: Math.max(Kirigami.Units.gridUnit * 2.6, 44)
-	readonly property real listIconSize: Math.max(16, Math.min(28, grid.listRowHeight - Kirigami.Units.largeSpacing))
-	readonly property real listPadding: Kirigami.Units.smallSpacing * 2
-	readonly property real listHeaderHeight: Kirigami.Units.gridUnit * 2
+	readonly property bool grouped: grid.viewKind === 3
+	readonly property real groupHeaderSize: Math.max(Units.gridUnit * 1.45, 20)
+	readonly property real listRowHeight: Math.max(Units.gridUnit * 2.6, 44)
+	readonly property real listIconSize: Math.max(16, Math.min(28, grid.listRowHeight - Units.largeSpacing))
+	readonly property real listPadding: Units.smallSpacing * 2
+	readonly property real listHeaderHeight: Units.gridUnit * 2
 	readonly property bool showListHeader: grid.config ? grid.config.list_header : true
 	readonly property bool listHeaderVisible: grid.listMode && grid.showListHeader && grid.count > 0
 	// Columns in display order. TITLE/FILENAME are the name columns; at least
@@ -157,29 +180,112 @@ Item {
 	}
 	// Space kept clear for the vertical scrollbar; rows stop before it instead
 	// of sliding underneath.
-	readonly property real listBarInset: listVerticalScrollBar.width + Kirigami.Units.mediumSpacing
-	// A fixed line count (Folder View > Lines). The GridView wraps by its own
-	// size, so with a count set the view has to be sized to exactly that many
-	// cells; see the view margins below.
-	readonly property bool fixedLines: grid.config ? grid.config.grid_lines > 0 : false
+	readonly property real listBarInset: listVerticalScrollBar.width + Units.mediumSpacing
 
-	// The item cell size: icon plus room for the label, or a wide row when the
-	// label sits beside the icon.
-	readonly property size gridItemSize: {
-		const iconSize = grid.config ? grid.config.grid_size : 64;
-		const beside = grid.labelsBesideIcons;
-		if (beside) {
-			const labelWidth = Kirigami.Units.gridUnit * 7;
-			return Qt.size(Math.max(Kirigami.Units.gridUnit * 10, iconSize + labelWidth + Kirigami.Units.gridUnit * 2), Math.max(Kirigami.Units.gridUnit * 2, iconSize + Kirigami.Units.smallSpacing * 2));
-		}
-		return Qt.size(iconSize + Kirigami.Units.gridUnit * 3, iconSize + Kirigami.Units.gridUnit * 3);
+	// The one density control: the number of rows (horizontal scroll) or
+	// columns (vertical scroll). A stored 0 (the old "Auto") is four lines.
+	readonly property int gridLineCount: {
+		const cfg = grid.config;
+		if (!cfg || cfg.grid_lines <= 0)
+			return 4;
+		return Math.max(1, Math.min(8, cfg.grid_lines));
 	}
+	// Every line count is exact now, so the view is always sized to it.
+	readonly property bool fixedLines: !!grid.config
+
+	// The gap between cells. Small on purpose: the 3DS grid is tight, and the
+	// label already separates the rows.
+	readonly property real gridGap: Units.smallSpacing
+
+	// The label line plus the gap between it and the icon. The cell is exactly
+	// icon + this, so there is no slack to centre into; the only space between
+	// rows is gridGap.
+	readonly property real gridLabelHeight: Math.ceil(CoreTheme.labelRegularMetrics.height) + Units.smallSpacing
 
 	readonly property bool labelsBesideIcons: {
 		const cfg = grid.config;
 		if (!cfg || !cfg.show_labels)
 			return false;
-		return cfg.grid_labels_beside_icons || cfg.grid_size < 32;
+		// The size is derived now, so only an explicit setting moves labels
+		// beside the icon.
+		return cfg.grid_labels_beside_icons;
+	}
+
+	// The icon size is derived from the line count and the pane. The user says
+	// how many rows or columns the view should have, and the icons fill the
+	// remaining space; there is no separate pixel setting.
+	readonly property real gridIconSize: {
+		const cfg = grid.config;
+		if (!cfg)
+			return 72;
+		const beside = grid.labelsBesideIcons;
+		const horizontal = cfg.scroll_horizontal;
+		const gap = grid.gridGap;
+		const lines = Math.max(1, grid.gridLineCount);
+		// Reserve the scrollbar on the main axis even while it is hidden, so
+		// the size does not change (and reflow) the moment content overflows.
+		const bar = horizontal
+			? Math.max(horizontalScrollBar.height, Units.smallSpacing)
+			: Math.max(verticalScrollBar.width, Units.smallSpacing);
+		const main = Math.max(1, (horizontal ? grid.height : grid.width) - bar - gap);
+		// A single line must not turn one icon into a poster: cap the cell at
+		// the two-line size. On the 3DS the one-row setting takes about half
+		// the screen and the rest is the item information panel.
+		const cell = Math.min(main / lines - gap, main / 2 - gap);
+		// Only a visible label takes label space. With labels off (a gallery or
+		// an applet strip) the cell is icon + the small padding in both axes;
+		// subtracting a label block here made the rows shorter than the space
+		// the layout reserved, leaving a band at the bottom.
+		const padding = (beside || !cfg.show_labels)
+			? Units.smallSpacing * 2
+			: (horizontal ? grid.gridLabelHeight : Units.smallSpacing * 2);
+		return Math.max(16, Math.min(256, cell - padding));
+	}
+
+	// The item cell size: icon plus room for the label, or a wide row when the
+	// label sits beside the icon. With labels off (an applet strip) the icon
+	// owns the cell.
+	readonly property size gridItemSize: {
+		const iconSize = grid.gridIconSize;
+		const beside = grid.labelsBesideIcons;
+		if (beside) {
+			const labelWidth = Units.gridUnit * 7;
+			return Qt.size(Math.max(Units.gridUnit * 10, iconSize + labelWidth + Units.gridUnit * 2), Math.max(Units.gridUnit * 2, iconSize + Units.smallSpacing * 2));
+		}
+		if (grid.config && !grid.config.show_labels)
+			return Qt.size(iconSize + Units.smallSpacing * 2, iconSize + Units.smallSpacing * 2);
+		return Qt.size(iconSize + Units.smallSpacing * 2, iconSize + grid.gridLabelHeight);
+	}
+
+	// The per-delegate view settings are copied out of the config instead of
+	// being bound to it. Every Config property shares one change signal, so a
+	// folder whose view settings differ from the previous one re-evaluated all
+	// of these bindings on every live delegate (and each change cascaded into
+	// the icon size, label and layout), which cost hundreds of milliseconds.
+	// The copy is refreshed when the folder is loaded and when the user changes
+	// a setting, not while a folder transition runs.
+	property bool navigating: false
+	property bool effectiveShowLabels: true
+	property bool effectiveLabelBeside: false
+	property bool effectiveLabelShowsName: false
+	property real effectiveGridSize: 72
+	property bool effectiveRadioEnabled: false
+	property int effectiveRadioOnly: 0
+	property string effectiveRadioSelected: ""
+	property bool effectiveFreePlacement: false
+	property bool effectiveOpenOnClick: true
+
+	function applyConfigToView() {
+		const cfg = grid.config;
+		grid.effectiveShowLabels = cfg ? Boolean(cfg.show_labels) : true;
+		grid.effectiveLabelBeside = Boolean(grid.labelsBesideIcons);
+		grid.effectiveLabelShowsName = cfg ? cfg.label_text === 1 : false;
+		grid.effectiveGridSize = grid.gridIconSize;
+		grid.effectiveRadioEnabled = cfg ? Boolean(cfg.radio_enabled) : false;
+		grid.effectiveRadioOnly = cfg ? cfg.radio_only : 0;
+		grid.effectiveRadioSelected = cfg ? String(cfg.radio_selected) : "";
+		grid.effectiveFreePlacement = grid.freeGrid;
+		grid.effectiveOpenOnClick = cfg ? Boolean(cfg.open_on_click) : true;
 	}
 
 	// The view actually in charge; free placement, grouping, the list and the
@@ -199,13 +305,37 @@ Item {
 	// grid width.
 	readonly property real verticalBarWidth: grid.freeGrid ? freeVerticalScrollBar.width : (grid.listMode ? listVerticalScrollBar.width : verticalScrollBar.width)
 
+	// Layout metrics are read by dozens of bindings. A config change used to
+	// re-enter the whole computation (including the Rust free/group layout and
+	// its JSON) once for every dependent binding, which is what made switching
+	// a folder's view settings cost hundreds of milliseconds. Cache the result
+	// per configuration state and hand out the same object. The cache is one
+	// JS object whose fields are mutated (not a property reassignment), so it
+	// does not feed back into this binding.
+	property int configRevision: 0
+	property var metricsCache: ({ key: "", value: null })
+
 	readonly property var gridMetrics: {
+		const key = grid.count + "|" + grid.width + "|" + grid.height + "|"
+			+ grid.configRevision + "|" + grid.gridItemSize.width + "|"
+			+ grid.gridItemSize.height + "|" + grid.gridGap + "|"
+			+ grid.verticalBarWidth;
+		const cache = grid.metricsCache;
+		if (cache.key === key)
+			return cache.value;
+		const value = grid.computeMetrics();
+		cache.key = key;
+		cache.value = value;
+		return value;
+	}
+
+	function computeMetrics() {
 		const cfg = grid.config;
 		const horizontal = cfg ? cfg.scroll_horizontal : false;
 		const count = grid.count;
 		const viewWidth = grid.width;
 		const viewHeight = grid.height;
-		const gap = Kirigami.Units.mediumSpacing;
+		const gap = grid.gridGap;
 		const itemWidth = grid.gridItemSize.width;
 		const itemHeight = grid.gridItemSize.height;
 		const barWidth = verticalScrollBar.width;
@@ -225,7 +355,7 @@ Item {
 			const freeCfg = cfg;
 			const json = grid.directory.free_layout(
 				freeCfg.free_placement_positions,
-				freeCfg.grid_lines,
+				grid.gridLineCount,
 				horizontal,
 				width,
 				height,
@@ -262,7 +392,7 @@ Item {
 				list ? grid.listRowHeight : itemHeight,
 				gap,
 				grid.groupHeaderSize,
-				cfg ? cfg.grid_lines : 0,
+				grid.gridLineCount,
 				list
 			);
 			let parsed = null;
@@ -310,7 +440,7 @@ Item {
 					free: true
 				};
 			}
-			const lines = cfg ? cfg.grid_lines : 0;
+			const lines = grid.gridLineCount;
 			const viewMain = horizontal ? height : width;
 			const itemMain = horizontal ? itemHeight : itemWidth;
 			// A fixed Lines count is a cap, not a promise: the pane may not have
@@ -466,11 +596,74 @@ Item {
 	// bounded by the viewport (plus a row of prefetch), not by folder size, so
 	// a thousand-item folder costs the same as a ten-item one.
 	function schedulePopulate() {
+		// A folder transition fills the visible slots before it starts; any
+		// build during the motion would only steal frames from it.
+		if (grid.populatePaused)
+			return;
 		if (!populateTimer.running)
 			populateTimer.start();
 	}
 
+	// Set while a folder open/close motion runs.
+	property bool populatePaused: false
+
+	// Build every instantiated slot now instead of one per timer tick. Called
+	// before a folder transition: a FileSlot costs several milliseconds to
+	// construct, and building a screen of them during the 260 ms motion made
+	// the animation take twice as long as its duration.
+	function fillVisibleNow() {
+		const started = Date.now();
+		const view = grid.flickable;
+		let filled = 0;
+		if (view) {
+			// Only what the screen can show (plus one item of margin): the
+			// views keep extra delegates in their cache buffer, and building
+			// those before an animation would cost more than it saves.
+			const metrics = grid.gridMetrics;
+			const margin = Math.max(metrics.itemWidth, metrics.itemHeight);
+			const left = view.contentX - margin;
+			const top = view.contentY - margin;
+			const right = view.contentX + view.width + margin;
+			const bottom = view.contentY + view.height + margin;
+			const inside = function (slot) {
+				return slot.x + slot.width >= left && slot.x <= right
+					&& slot.y + slot.height >= top && slot.y <= bottom;
+			};
+			if (grid.freeGrid || grid.grouped) {
+				const repeater = grid.freeGrid ? freeRepeater : groupedRepeater;
+				for (let i = 0; i < repeater.count; i++) {
+					const slot = repeater.itemAt(i);
+					if (!slot || slot.populateReady !== false || !inside(slot))
+						continue;
+					slot.populateReady = true;
+					filled++;
+				}
+			} else {
+				const content = view.contentItem;
+				if (content) {
+					const children = content.children;
+					for (let i = 0; i < children.length; i++) {
+						const slot = children[i];
+						if (!slot || slot.populateReady !== false || !inside(slot))
+							continue;
+						slot.populateReady = true;
+						filled++;
+					}
+				}
+			}
+		}
+		populateTimer.stop();
+		if (filled > 0 && grid.window && grid.window.fileManager && grid.window.fileManager.perf_mode() > 0)
+			grid.window.fileManager.perf_log("prefill " + filled + " slots in "
+				+ (Date.now() - started) + "ms " + String(grid.directory ? grid.directory.path : ""));
+		return filled;
+	}
+
 	function populateSome() {
+		if (grid.populatePaused) {
+			populateTimer.stop();
+			return;
+		}
 		const started = Date.now();
 		if (grid.freeGrid || grid.grouped) {
 			// Free placement and grouped folders lay every item out
@@ -558,9 +751,10 @@ Item {
 		const view = grid.flickable;
 		if (!dir || !view || view.height <= 0 || view.width <= 0)
 			return;
+		const started = Date.now();
 
 		const cfg = grid.config;
-		const gridSize = cfg ? cfg.grid_size : 64;
+		const gridSize = grid.gridIconSize;
 		// Without labels the icons fill their slots, so ask for a thumbnail tier
 		// big enough for the whole slot instead of just the icon size.
 		const displaySize = cfg && !cfg.show_labels ? grid.gridItemSize.width : gridSize;
@@ -610,9 +804,12 @@ Item {
 		// delegates rather than the `indexAt` range: indexAt can return the
 		// same index for both corners on some Qt builds, which requested only
 		// the first row and left everything below it on the MIME placeholder.
+		// Use the grid's content item, not the flickable's: free placement and
+		// grouped folders put the delegates inside a child item, so walking
+		// the flickable found no delegate and never asked for anything.
 		// Asking every pass is cheap (`request_descriptor` returns immediately
 		// when cached) and lets the timer retry a failed generator.
-		const content = view.contentItem;
+		const content = grid.gridContent;
 		if (content) {
 			for (let i = 0; i < content.children.length; i++) {
 				const item = content.children[i];
@@ -623,13 +820,24 @@ Item {
 				dir.request_descriptor(item.path);
 			}
 		}
+		const elapsed = Date.now() - started;
+		if (elapsed > 20 && grid.window && grid.window.fileManager)
+			grid.window.fileManager.perf_log("nav thumbs " + elapsed + "ms " + String(dir.path));
 	}
 
 	Timer {
 		id: thumbnailTimer
 		interval: 120
 		repeat: false
-		onTriggered: grid.requestVisibleThumbnails()
+		onTriggered: {
+			// Asking for previews imports files and starts worker jobs; during a
+			// transition that steals the frames the animation needs.
+			if (grid.populatePaused) {
+				thumbnailTimer.restart();
+				return;
+			}
+			grid.requestVisibleThumbnails();
+		}
 	}
 
 	// The first request can race the view's layout (or a generator can fail
@@ -641,6 +849,18 @@ Item {
 		repeat: true
 		running: grid.count > 0
 		onTriggered: grid.scheduleThumbnails()
+	}
+
+	Connections {
+		target: grid.config
+		// Any view setting can change the layout; bump the revision so the
+		// cached metrics are recomputed exactly once for the new config, and
+		// refresh the delegate copy unless a folder transition owns it.
+		function onView_changed() {
+			grid.configRevision += 1;
+			if (!grid.navigating)
+				grid.applyConfigToView();
+		}
 	}
 
 	Connections {
@@ -677,11 +897,11 @@ Item {
 	// not sound like a different kind of movement. Reaching either end plays the
 	// "edge" sound once, then stays quiet until the position moves away again.
 	readonly property real scrollStepX: grid.listMode
-		? grid.gridMetrics.itemWidth + Kirigami.Units.mediumSpacing
-		: grid.gridItemSize.width + Kirigami.Units.mediumSpacing
+		? grid.gridMetrics.itemWidth + Units.mediumSpacing
+		: grid.gridItemSize.width + Units.mediumSpacing
 	readonly property real scrollStepY: grid.listMode
-		? grid.listRowHeight + Kirigami.Units.mediumSpacing
-		: grid.gridItemSize.height + Kirigami.Units.mediumSpacing
+		? grid.listRowHeight + Units.mediumSpacing
+		: grid.gridItemSize.height + Units.mediumSpacing
 	property real scrollRemainderX: 0
 	property real scrollRemainderY: 0
 	property real lastScrollX: 0
@@ -877,10 +1097,16 @@ Item {
 		delegate: DeferredFileSlot {
 			width: grid.gridMetrics.itemWidth
 			height: grid.gridMetrics.itemHeight
-			gridSize: grid.config ? grid.config.grid_size : 64
-			showLabels: grid.config ? grid.config.show_labels : true
-			labelBesideIcon: grid.labelsBesideIcons
-			labelShowsFilename: grid.config ? grid.config.label_text === 1 : false
+			layoutAnimating: grid.layoutAnimating
+			gridSize: grid.effectiveGridSize
+			showLabels: grid.effectiveShowLabels
+			labelBesideIcon: grid.effectiveLabelBeside
+			labelShowsFilename: grid.effectiveLabelShowsName
+			radioGroupEnabled: grid.effectiveRadioEnabled
+			radioGroupOnly: grid.effectiveRadioOnly
+			radioGroupSelected: grid.effectiveRadioSelected
+			freePlacementEnabled: grid.effectiveFreePlacement
+			openOnClickEnabled: grid.effectiveOpenOnClick
 			property SelectionManager selectionManager: grid.selectionManager
 			selectionActive: grid.selectionManager ? grid.selectionManager.selection_active : false
 			actionManager: grid.window ? grid.window.actionManager : null
@@ -914,13 +1140,13 @@ Item {
 		anchors.top: parent.top
 		anchors.left: parent.left
 		anchors.right: parent.right
-		color: Qt.alpha(Kirigami.Theme.textColor, 0.05)
+		color: Qt.alpha(Theme.textColor, 0.05)
 
 		RowLayout {
 			anchors.fill: parent
 			anchors.leftMargin: grid.listPadding
 			anchors.rightMargin: grid.listPadding + grid.listBarInset
-			spacing: Kirigami.Units.mediumSpacing
+			spacing: Units.mediumSpacing
 
 			Item {
 				Layout.preferredWidth: grid.listIconSize
@@ -954,7 +1180,7 @@ Item {
 		anchors.left: parent.left
 		anchors.right: parent.right
 		anchors.bottom: parent.bottom
-		spacing: Kirigami.Units.mediumSpacing
+		spacing: Units.mediumSpacing
 		// Rows are a few screens' worth of delegates; keep a small cache, like
 		// the grid, so a fling does not build while the finger is moving.
 		cacheBuffer: grid.listRowHeight * 4
@@ -1001,13 +1227,19 @@ Item {
 		delegate: DeferredFileSlot {
 			width: grid.gridMetrics.itemWidth
 			height: grid.gridMetrics.itemHeight
+			layoutAnimating: grid.layoutAnimating
 			listMode: true
 			listColumns: grid.listColumnSpecs
 			listIconSize: grid.listIconSize
-			gridSize: grid.config ? grid.config.grid_size : 64
+			gridSize: grid.effectiveGridSize
 			showLabels: true
 			labelBesideIcon: true
-			labelShowsFilename: grid.config ? grid.config.label_text === 1 : false
+			labelShowsFilename: grid.effectiveLabelShowsName
+			radioGroupEnabled: grid.effectiveRadioEnabled
+			radioGroupOnly: grid.effectiveRadioOnly
+			radioGroupSelected: grid.effectiveRadioSelected
+			freePlacementEnabled: grid.effectiveFreePlacement
+			openOnClickEnabled: grid.effectiveOpenOnClick
 			property SelectionManager selectionManager: grid.selectionManager
 			selectionActive: grid.selectionManager ? grid.selectionManager.selection_active : false
 			actionManager: grid.window ? grid.window.actionManager : null
@@ -1109,15 +1341,21 @@ Item {
 				delegate: DeferredFileSlot {
 					width: grid.gridMetrics.itemWidth
 					height: grid.gridMetrics.itemHeight
-					x: grid.gridSlotX(index)
+					layoutAnimating: grid.layoutAnimating
+							x: grid.gridSlotX(index)
 					y: grid.gridSlotY(index)
 					listMode: grid.listMode
 					listColumns: grid.listColumnSpecs
 					listIconSize: grid.listIconSize
-					gridSize: grid.config ? grid.config.grid_size : 64
-					showLabels: grid.listMode ? true : (grid.config ? grid.config.show_labels : true)
-					labelBesideIcon: grid.listMode ? true : grid.labelsBesideIcons
-					labelShowsFilename: grid.config ? grid.config.label_text === 1 : false
+					gridSize: grid.gridIconSize
+					showLabels: grid.listMode ? true : grid.effectiveShowLabels
+					labelBesideIcon: grid.listMode ? true : grid.effectiveLabelBeside
+					labelShowsFilename: grid.effectiveLabelShowsName
+			radioGroupEnabled: grid.effectiveRadioEnabled
+			radioGroupOnly: grid.effectiveRadioOnly
+			radioGroupSelected: grid.effectiveRadioSelected
+			freePlacementEnabled: grid.effectiveFreePlacement
+			openOnClickEnabled: grid.effectiveOpenOnClick
 					property SelectionManager selectionManager: grid.selectionManager
 					selectionActive: grid.selectionManager ? grid.selectionManager.selection_active : false
 					actionManager: grid.window ? grid.window.actionManager : null
@@ -1158,22 +1396,22 @@ Item {
 				id: verticalGroupLabel
 				visible: groupHeader.modelData ? !groupHeader.modelData.horizontal : false
 				text: groupHeader.modelData ? groupHeader.modelData.label : ""
-				width: Math.max(0, parent.width - Kirigami.Units.largeSpacing)
+				width: Math.max(0, parent.width - Units.largeSpacing)
 				anchors.left: parent.left
 				anchors.verticalCenter: parent.verticalCenter
 				elide: Text.ElideRight
-				color: Kirigami.Theme.textColor
+				color: Theme.textColor
 				opacity: 0.75
 				font.bold: true
-				font.pixelSize: Math.max(12, Kirigami.Units.gridUnit * 0.85)
+				font.pixelSize: Math.max(12, Units.gridUnit * 0.85)
 			}
 
 			Rectangle {
 				visible: verticalGroupLabel.visible
 				height: 1
-				color: Qt.alpha(Kirigami.Theme.textColor, 0.22)
+				color: Qt.alpha(Theme.textColor, 0.22)
 				anchors.left: verticalGroupLabel.right
-				anchors.leftMargin: Kirigami.Units.mediumSpacing
+				anchors.leftMargin: Units.mediumSpacing
 				anchors.right: parent.right
 				anchors.verticalCenter: parent.verticalCenter
 			}
@@ -1182,16 +1420,16 @@ Item {
 				id: horizontalGroupLabelBox
 				visible: groupHeader.modelData ? groupHeader.modelData.horizontal : false
 				width: parent.width
-				height: Math.min(parent.height, Kirigami.Units.gridUnit * 4)
+				height: Math.min(parent.height, Units.gridUnit * 4)
 				anchors.top: parent.top
 
 				Text {
 					id: horizontalGroupLabel
 					text: groupHeader.modelData ? groupHeader.modelData.label : ""
-					color: Kirigami.Theme.textColor
+					color: Theme.textColor
 					opacity: 0.75
 					font.bold: true
-					font.pixelSize: Math.max(12, Kirigami.Units.gridUnit * 0.85)
+					font.pixelSize: Math.max(12, Units.gridUnit * 0.85)
 					rotation: -90
 					transformOrigin: Item.TopLeft
 					x: parent.width
@@ -1207,7 +1445,7 @@ Item {
 			Rectangle {
 				visible: horizontalGroupLabelBox.visible
 				width: 1
-				color: Qt.alpha(Kirigami.Theme.textColor, 0.22)
+				color: Qt.alpha(Theme.textColor, 0.22)
 				anchors.horizontalCenter: parent.horizontalCenter
 				anchors.top: horizontalGroupLabelBox.bottom
 				anchors.bottom: parent.bottom
@@ -1278,12 +1516,18 @@ Item {
 				delegate: DeferredFileSlot {
 					width: grid.gridItemSize.width
 					height: grid.gridItemSize.height
-					x: grid.gridSlotX(index)
+					layoutAnimating: grid.layoutAnimating
+							x: grid.gridSlotX(index)
 					y: grid.gridSlotY(index)
-					gridSize: grid.config ? grid.config.grid_size : 64
-					showLabels: grid.config ? grid.config.show_labels : true
-					labelBesideIcon: grid.labelsBesideIcons
-					labelShowsFilename: grid.config ? grid.config.label_text === 1 : false
+					gridSize: grid.effectiveGridSize
+					showLabels: grid.effectiveShowLabels
+					labelBesideIcon: grid.effectiveLabelBeside
+					labelShowsFilename: grid.effectiveLabelShowsName
+			radioGroupEnabled: grid.effectiveRadioEnabled
+			radioGroupOnly: grid.effectiveRadioOnly
+			radioGroupSelected: grid.effectiveRadioSelected
+			freePlacementEnabled: grid.effectiveFreePlacement
+			openOnClickEnabled: grid.effectiveOpenOnClick
 					property SelectionManager selectionManager: grid.selectionManager
 					selectionActive: grid.selectionManager ? grid.selectionManager.selection_active : false
 					actionManager: grid.window ? grid.window.actionManager : null
@@ -1318,10 +1562,10 @@ Item {
 		height: grid.gridMetrics.itemHeight
 		x: grid.freeDropX
 		y: grid.freeDropY
-		radius: Kirigami.Units.cornerRadius
-		color: Kirigami.Theme.focusColor
+		radius: Units.cornerRadius
+		color: Theme.focusColor
 		opacity: 0.35
-		border.color: Kirigami.Theme.highlightColor
+		border.color: Theme.highlightColor
 		border.width: 2
 	}
 
@@ -1330,9 +1574,11 @@ Item {
 	// x/y behaviours smooth the move between items.
 	Item {
 		id: focusBorderHost
-		parent: grid.freeGrid
-			? freeGridContent
-			: (grid.grouped ? groupedContent : (grid.listMode ? listView.contentItem : gridView.contentItem))
+		// Kept above the views instead of inside the active view's content
+		// item. Reparenting it into another content item on every view change
+		// was expensive (the border's corner images and behaviours were torn
+		// down and rebuilt), and it only needs the viewport's scroll offset.
+		parent: grid
 		z: 3
 		readonly property var fm: grid.focusManager
 		readonly property var metrics: grid.gridMetrics
@@ -1343,11 +1589,13 @@ Item {
 		readonly property bool onEmpty: paneActive && focusBorderHost.fm.focus_on_empty
 		readonly property bool onItem: paneActive && !focusBorderHost.fm.focus_on_empty
 			&& focusBorderHost.fm.focused_index >= 0
-		// The border lives in the view's content item, which sits at the view's
-		// origin. In a GridView that origin is the alignment offset, so subtract
-		// it to place the border on the slot's real position.
+		// Slot positions are content coordinates; the border is drawn in the
+		// viewport, so subtract the scroll offset. In a GridView the content
+		// origin is also shifted by the alignment offset.
 		readonly property real originX: (grid.freeGrid || grid.listMode || grid.grouped) ? 0 : focusBorderHost.metrics.offsetX
 		readonly property real originY: (grid.freeGrid || grid.listMode || grid.grouped) ? 0 : focusBorderHost.metrics.offsetY
+		readonly property real scrollX: grid.flickable ? grid.flickable.contentX : 0
+		readonly property real scrollY: grid.flickable ? grid.flickable.contentY : 0
 		visible: (onEmpty || onItem) && !grid.userScrolling
 		width: focusBorderHost.metrics.itemWidth
 		height: focusBorderHost.metrics.itemHeight
@@ -1363,10 +1611,12 @@ Item {
 		}
 		x: (focusBorderHost.onEmpty
 			? focusBorderHost.metrics.offsetX + focusBorderHost.fm.focused_column * (focusBorderHost.metrics.itemWidth + focusBorderHost.metrics.gap)
-			: (focusBorderHost.onItem ? grid.gridSlotX(focusBorderHost.fm.focused_index) : 0)) - focusBorderHost.originX
+			: (focusBorderHost.onItem ? grid.gridSlotX(focusBorderHost.fm.focused_index) : 0))
+			- focusBorderHost.originX - focusBorderHost.scrollX
 		y: (focusBorderHost.onEmpty
 			? focusBorderHost.metrics.offsetY + focusBorderHost.fm.focused_row * (focusBorderHost.metrics.itemHeight + focusBorderHost.metrics.gap)
-			: (focusBorderHost.onItem ? grid.gridSlotY(focusBorderHost.fm.focused_index) : 0)) - focusBorderHost.originY
+			: (focusBorderHost.onItem ? grid.gridSlotY(focusBorderHost.fm.focused_index) : 0))
+			- focusBorderHost.originY - focusBorderHost.scrollY
 
 		Behavior on x {
 			enabled: focusBorderHost.moving

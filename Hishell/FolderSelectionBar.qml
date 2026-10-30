@@ -5,7 +5,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import org.kde.kirigami as Kirigami
+import Hishell.Theme
 import Hishell
 
 Rectangle {
@@ -27,20 +27,19 @@ Rectangle {
 
 	readonly property bool selectionActive: selectionBar.selectionManager ? selectionBar.selectionManager.selection_active : false
 	// The labels are dropped so the buttons stay reachable in a narrow pane.
-	readonly property bool compact: selectionBar.width < Kirigami.Units.largeSpacing * 50
+	readonly property bool compact: selectionBar.width < Units.largeSpacing * 50
 
 	z: 2
 	anchors.left: parent.left
 	anchors.right: parent.right
 	anchors.bottom: parent.bottom
-	anchors.margins: Kirigami.Units.mediumSpacing
+	anchors.margins: Units.mediumSpacing
 
 	height: selectionBar.selectionActive ? 48 : 0
 	visible: selectionBar.selectionActive
 	radius: 6
 
-	Kirigami.Theme.colorSet: Kirigami.Theme.Header
-	color: Kirigami.Theme.backgroundColor
+	color: Theme.backgroundColor
 
 	MouseArea {
 		anchors.fill: parent
@@ -59,10 +58,12 @@ Rectangle {
 		text: countLabel.text
 	}
 
-	Kirigami.Separator {
+	Rectangle {
 		anchors.top: parent.top
 		anchors.left: parent.left
 		anchors.right: parent.right
+		height: 1
+		color: Qt.rgba(0, 0, 0, 0.18)
 	}
 
 	Behavior on height {
@@ -74,17 +75,17 @@ Rectangle {
 
 	RowLayout {
 		anchors.fill: parent
-		anchors.leftMargin: Kirigami.Units.largeSpacing
-		anchors.rightMargin: Kirigami.Units.smallSpacing
-		spacing: Kirigami.Units.smallSpacing
+		anchors.leftMargin: Units.largeSpacing
+		anchors.rightMargin: Units.smallSpacing
+		spacing: Units.smallSpacing
 
 		CheckBox {
 			id: selectAllCheckbox
 			checked: selectionBar.selectionManager.selected_count > 0 && selectionBar.selectionManager.selected_count === selectionBar.itemCount
 			tristate: selectionBar.selectionManager.selected_count > 0 && selectionBar.selectionManager.selected_count < selectionBar.itemCount
 			checkState: tristate ? Qt.PartiallyChecked : (checked ? Qt.Checked : Qt.Unchecked)
-			Layout.preferredWidth: Kirigami.Units.iconSizes.medium
-			Layout.preferredHeight: Kirigami.Units.iconSizes.medium
+			Layout.preferredWidth: Units.iconSizes.medium
+			Layout.preferredHeight: Units.iconSizes.medium
 			onClicked: {
 				if (selectionBar.selectionManager.selected_count === selectionBar.itemCount)
 					selectionBar.selectionManager.deselect_all();

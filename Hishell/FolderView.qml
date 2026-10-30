@@ -3,7 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import org.kde.kirigami as Kirigami
+import Hishell.Theme
 import Hishell
 
 Item {
@@ -13,11 +13,119 @@ Item {
 	property var window
 	readonly property var rootWindow: folderView.window
 
+	// The folder on screen is the panel that opens out of a folder icon: while
+	// an open runs it is scaled down around that icon and lifted, then animated
+	// to identity. Only the live view is used, so the motion is a plain scene
+	// graph transform with no re-rendered icons. A snapshot of the folder being
+	// left sits behind it, as the home grid does behind the 3DS folder panel.
+	property real navScale: 1.0
+	// The panel fades in while it grows: the 3DS folder appears out of the
+	// dimmed home grid rather than popping in at full weight. Kept at 1 outside
+	// an open.
+	property real navOpacity: 1.0
+	property real navShiftY: 0
+	property real navOriginX: 0
+	property real navOriginY: 0
+
+	// The wallpaper, background and grid, so the panel can be transformed
+	// without transforming the bars and the backdrop too.
+	Item {
+		id: folderPanel
+		anchors.fill: parent
+		z: 0
+		opacity: folderView.navOpacity
+		transform: [
+			Translate {
+				y: folderView.navShiftY
+			},
+			Scale {
+				origin.x: folderView.navOriginX
+				origin.y: folderView.navOriginY
+				xScale: folderView.navScale
+				yScale: folderView.navScale
+			}
+		]
+	}
+
+	// The folder being left, shown behind the opening panel instead of the
+	// window background. Filled from a grab when an open starts.
+	Image {
+		id: navBackdrop
+		anchors.fill: parent
+		z: -2
+		visible: false
+		fillMode: Image.Stretch
+		smooth: true
+		cache: false
+		asynchronous: false
+		property var snapshotResult: null
+	}
+
+	// Darkens the folder behind the opening panel, as the 3DS dims the home
+	// grid while a folder is open.
+	Rectangle {
+		anchors.fill: parent
+		z: -1
+		color: "black"
+		opacity: navBackdrop.visible ? 0.45 : 0
+		Behavior on opacity {
+			NumberAnimation { duration: 120 }
+		}
+	}
+
 	// Event sounds (ClamOS XDG sound theme). Played through the window's sound
 	// object; a null window (or a missing theme) simply stays silent.
 	function playSound(name) {
 		if (folderView.rootWindow && folderView.rootWindow.sound)
 			folderView.rootWindow.sound.play(name);
+	}
+
+	// Navigation timing, only when the shell runs its benchmark mode. Each
+	// folder transition writes one line so a slow open can be attributed to
+	// the snapshot, the motion or the folder load behind it.
+	readonly property bool perfEnabled: {
+		const manager = folderView.rootWindow ? folderView.rootWindow.fileManager : null;
+		return manager ? manager.perf_mode() > 0 : false;
+	}
+
+	function perfLog(message) {
+		if (!folderView.perfEnabled)
+			return;
+		const manager = folderView.rootWindow.fileManager;
+		if (manager)
+			manager.perf_log(message);
+	}
+
+	property double navStartedAt: 0
+	property double openStepStarted: 0
+	property string openStepPath: ""
+	property double navGapLast: 0
+	property int navTicks: 0
+
+	// Counts 60 Hz opportunities while a transition runs. Together with the
+	// elapsed motion time it gives the effective frame rate of the animation.
+	Timer {
+		interval: 16
+		repeat: true
+		running: folderView.perfEnabled && folderView.navigationBusy
+		onTriggered: folderView.navTicks += 1
+	}
+
+	// While a folder transition runs, note any frame gap the GUI thread could
+	// not hide. The timer can only run between stalls, so a line is written
+	// just after one ends, with the folder whose work was in progress.
+	Timer {
+		interval: 10
+		repeat: true
+		running: folderView.perfEnabled && folderView.navigationBusy
+		onTriggered: {
+			const now = Date.now();
+			const last = folderView.navGapLast;
+			folderView.navGapLast = now;
+			if (last > 0 && now - last > 40)
+				folderView.perfLog("nav stall " + (now - last) + "ms in "
+					+ String(folderView.directory ? folderView.directory.path : "?"));
+		}
 	}
 
 	// The path the focus sound last played for, so moving the cursor within one
@@ -93,7 +201,7 @@ Item {
 	// logic can ignore the motion it causes.
 	property bool focusScrollAnimating: false
 	property FocusManager focusManager: folderView.rootWindow ? folderView.rootWindow.focusManager : null
-	readonly property string focusBorderSource: folderView.focusManager ? folderView.focusManager.border_source(Kirigami.Theme.highlightColor.toString()) : ""
+	readonly property string focusBorderSource: folderView.focusManager ? folderView.focusManager.border_source(Theme.highlightColor.toString()) : ""
 	property bool focusOwned: false
 	// True for the pane that follows the window's own folder; that pane owns
 	// the keyboard whenever nothing else does.
@@ -168,19 +276,10 @@ Item {
 
 	// Width the pane needs for its fixed grid block: the block, its scrollbar inset
 	// and the view margins; -1 lets the pane take a fill share of the layout instead.
-	readonly property real preferredGridWidth: {
-		const cfg = folderView.config;
-		if (!cfg || folderView.paneCount <= 1 || cfg.scroll_horizontal || cfg.view_mode === 1 || cfg.grid_lines <= 0 || cfg.grid_horizontal_align === 0)
-			return -1;
-
-		const size = folderView.gridItemSize;
-		const gap = Kirigami.Units.mediumSpacing;
-		const naturalWidth = cfg.grid_lines * size.width + (cfg.grid_lines - 1) * gap;
-		const rows = Math.max(1, Math.ceil(grid.count / cfg.grid_lines));
-		const naturalHeight = rows * size.height + (rows - 1) * gap;
-		const scrollBar = naturalHeight > grid.flickable.height ? grid.verticalBarWidth + gap : 0;
-		return naturalWidth + scrollBar + 2 * gap;
-	}
+	// The icon size is derived from the pane's width now, so a pane cannot ask
+	// for a natural width computed from that same size (it would be circular).
+	// Every pane fills and the grid aligns inside it.
+	readonly property real preferredGridWidth: -1
 
 	Layout.fillWidth: folderView.preferredGridWidth <= 0
 	Layout.fillHeight: true
@@ -264,7 +363,7 @@ Item {
 			return false;
 		folderView.historyIndex -= 1;
 		folderView.historyNavigating = true;
-		folderView.directory.path = target;
+		folderView.navigateToPath(target, null, false);
 		return true;
 	}
 
@@ -276,14 +375,441 @@ Item {
 			return false;
 		folderView.historyIndex += 1;
 		folderView.historyNavigating = true;
-		folderView.directory.path = target;
+		folderView.navigateToPath(target, null, false);
 		return true;
+	}
+
+	// ── Folder transitions ───────────────────────────────────────────────
+	// Navigation walks the lexical path chain and never loads more than the
+	// folder on screen: closing one level shows the parent (the model already
+	// has its placeholder rows), the snapshot of the folder being left shrinks
+	// into that folder's icon, and the next folder grows out of its own icon.
+	// `navigationSteps` is the stack for the duration of one navigation.
+
+	PathUtils {
+		id: pathUtils
+	}
+
+	// A navigation is in flight; further requests are ignored until it ends.
+	property bool navigationBusy: false
+	// Paths to close and then open, from NavigationPlan.close + open.
+	property var navigationSteps: []
+	// How many leading entries of navigationSteps are closes.
+	property int navigationCloseCount: 0
+	property int navigationStepIndex: 0
+	// Item to focus once the last step has landed (a file target, for example).
+	property string navigationFocusPath: ""
+	// Whether the destination should become one history entry when done.
+	property bool navigationRecordHistory: true
+
+	readonly property bool animatedNavigation: folderView.config ? folderView.config.smooth_scrolling : false
+
+	// Lexical parent; `..` is never resolved against the filesystem here.
+	function parentFolder(path) {
+		let p = String(path);
+		while (p.length > 1 && p.endsWith("/"))
+			p = p.substring(0, p.length - 1);
+		const cut = p.lastIndexOf("/");
+		return cut <= 0 ? "/" : p.substring(0, cut);
+	}
+
+	// Index of a path in the current (placeholder-complete) model.
+	function folderIndex(path) {
+		if (!folderView.directory)
+			return -1;
+		const paths = folderView.directory.get_all_paths();
+		for (let i = 0; i < paths.length; ++i) {
+			if (String(paths[i]) === String(path))
+				return i;
+		}
+		return -1;
+	}
+
+	// Cell rectangle of a model index in this view's coordinates. The layout
+	// knows every cell, so this works before the delegate has been built.
+	function itemRect(index) {
+		const metrics = folderView.gridMetrics;
+		if (index < 0 || !metrics)
+			return Qt.rect(0, 0, 0, 0);
+		const viewX = folderView.flickable ? folderView.flickable.contentX : 0;
+		const viewY = folderView.flickable ? folderView.flickable.contentY : 0;
+		return Qt.rect(
+			grid.x + folderView.gridSlotX(index) - viewX,
+			grid.y + folderView.gridSlotY(index) - viewY,
+			metrics.itemWidth,
+			metrics.itemHeight);
+	}
+
+	// The icon's own box inside its cell, for a transition that grows from (or
+	// shrinks into) the folder icon rather than the whole cell.
+	function itemIconRect(index) {
+		const rect = folderView.itemRect(index);
+		const size = Math.max(1, Math.min(grid.gridIconSize, rect.width, rect.height));
+		return Qt.rect(rect.x + (rect.width - size) / 2, rect.y + (rect.height - size) / 2, size, size);
+	}
+
+	function rectOnGrid(rect) {
+		return rect.width > 0 && rect.height > 0
+			&& rect.x < grid.x + grid.width && rect.x + rect.width > grid.x
+			&& rect.y < grid.y + grid.height && rect.y + rect.height > grid.y;
+	}
+
+	// Put the cursor on a path and settle the viewport on it without an
+	// intermediate scroll, so the transition can measure the final icon rect.
+	function revealForTransition(path) {
+		const fm = folderView.focusManager;
+		if (!fm || folderView.paneId <= 0)
+			return -1;
+		fm.activate_pane(folderView.paneId);
+		folderView.updateFocusItems();
+		fm.set_pane_focus_path(folderView.paneId, path);
+		const index = folderView.folderIndex(path);
+		if (index < 0)
+			return -1;
+		const keep = folderView.entryScrollReset;
+		folderView.entryScrollReset = true;
+		folderView.ensureFocusVisible();
+		folderView.entryScrollReset = keep;
+		return index;
+	}
+
+	// Snapshot the whole folder panel (wallpaper, background and grid). The
+	// callback receives the grab result itself (its URL alone would not keep
+	// the image data alive), or null when the grab is not possible.
+	function grabPanel(callback) {
+		if (!folderPanel || folderPanel.width <= 0 || folderPanel.height <= 0) {
+			callback(null);
+			return false;
+		}
+		// The snapshot is only ever shown shrinking, so a reduced texture is
+		// enough and keeps the one readback cheap on the device.
+		const target = Qt.size(
+			Math.max(1, Math.round(folderPanel.width * 0.7)),
+			Math.max(1, Math.round(folderPanel.height * 0.7)));
+		folderView.pendingGrab = callback;
+		grabWatchdog.restart();
+		folderPanel.grabToImage(result => {
+			const done = folderView.pendingGrab;
+			if (!done)
+				return;
+			folderView.pendingGrab = null;
+			grabWatchdog.stop();
+			done(result && result.url ? result : null);
+		}, target);
+		return true;
+	}
+
+	// A grab that never answers must not strand the navigation (and leave the
+	// focus sound muted): fall back to navigating without the snapshot.
+	property var pendingGrab: null
+
+	Timer {
+		id: grabWatchdog
+		interval: 150
+		repeat: false
+		onTriggered: {
+			const done = folderView.pendingGrab;
+			folderView.pendingGrab = null;
+			if (done)
+				done(null);
+		}
+	}
+
+	// Navigate to a folder, or to a file inside one. With SmoothScrolling off
+	// (or while another navigation runs) this is the old direct assignment.
+	function navigateToPath(target, sourceItem, recordHistory) {
+		if (!folderView.directory || target === "")
+			return false;
+		const current = String(folderView.directory.path);
+		let destination = String(target);
+		let focusPath = "";
+		const files = folderView.rootWindow ? folderView.rootWindow.fileManager : null;
+		if (files && destination !== "/" && !files.is_directory(destination)) {
+			// A file: reveal the folder that holds it, then focus the file.
+			focusPath = destination;
+			destination = folderView.parentFolder(destination);
+		}
+		if (destination === current) {
+			if (focusPath !== "")
+				folderView.focusSlot(focusPath, true);
+			return true;
+		}
+		if (!folderView.animatedNavigation || folderView.navigationBusy) {
+			folderView.finishNavigationTo(destination, focusPath);
+			return true;
+		}
+		const record = recordHistory === undefined ? true : recordHistory;
+		const plan = JSON.parse(String(pathUtils.navigation_plan(current, destination)));
+		folderView.navigationSteps = plan.close.concat(plan.open);
+		folderView.navigationCloseCount = plan.close.length;
+		folderView.navigationStepIndex = 0;
+		folderView.navigationFocusPath = focusPath;
+		folderView.navigationRecordHistory = record;
+		// The folder close/open already has its own sound. Landing the cursor on
+		// the folder icon must not add a second focus tick on top of it.
+		folderView.suppressFocusSound = true;
+		folderView.navigationBusy = true;
+		folderView.navStartedAt = Date.now();
+		folderView.perfLog("nav " + current + " -> " + destination
+			+ " close=" + plan.close.length + " open=" + plan.open.length);
+		folderView.runNavigationStep();
+		return true;
+	}
+
+	function finishNavigationTo(destination, focusPath) {
+		if (!folderView.directory)
+			return;
+		folderView.directory.path = destination;
+		if (focusPath !== "")
+			Qt.callLater(() => folderView.focusSlot(focusPath, true));
+	}
+
+	function runNavigationStep() {
+		if (!folderView.navigationBusy)
+			return;
+		if (folderView.navigationStepIndex >= folderView.navigationSteps.length) {
+			folderView.finishNavigation();
+			return;
+		}
+		const index = folderView.navigationStepIndex;
+		const path = String(folderView.navigationSteps[index]);
+		if (index < folderView.navigationCloseCount)
+			folderView.closeIntoFolder(path);
+		else
+			folderView.openIntoFolder(path);
+	}
+
+	function advanceNavigation() {
+		folderView.navigationStepIndex += 1;
+		folderView.runNavigationStep();
+	}
+
+	function finishNavigation() {
+		const focusPath = folderView.navigationFocusPath;
+		const record = folderView.navigationRecordHistory;
+		folderView.perfLog("nav done total " + (Date.now() - folderView.navStartedAt) + "ms");
+		folderView.navigationBusy = false;
+		// The transition filled what was on screen; let the timer pick up the
+		// rest (a resize or a scroll settle that landed mid-motion).
+		grid.schedulePopulate();
+		folderView.navigationSteps = [];
+		folderView.navigationStepIndex = 0;
+		folderView.navigationCloseCount = 0;
+		folderView.navigationFocusPath = "";
+		folderView.navigationRecordHistory = true;
+		// Back/Forward set this before the first step; clear it even though
+		// the steps themselves suppressed history recording.
+		folderView.historyNavigating = false;
+		if (record && folderView.directory)
+			folderView.recordHistory(String(folderView.directory.path));
+		if (focusPath !== "") {
+			Qt.callLater(() => {
+				folderView.focusSlot(focusPath, true);
+				folderView.suppressFocusSound = false;
+			});
+		} else {
+			Qt.callLater(() => folderView.suppressFocusSound = false);
+		}
+	}
+
+	// Leave `path` and land in its parent. The snapshot covers the grid while
+	// the parent's placeholder rows settle, then shrinks into the folder icon.
+	function closeIntoFolder(path) {
+		// A stale step (the view moved under the plan) would close the wrong
+		// folder; let the chain end instead.
+		if (!folderView.directory || String(folderView.directory.path) !== String(path)) {
+			folderView.advanceNavigation();
+			return;
+		}
+		const parent = folderView.parentFolder(path);
+		const panelRect = Qt.rect(0, 0, folderView.width, folderView.height);
+		const stepStarted = Date.now();
+		const start = function (snapshot) {
+			folderView.returnFocusPath = path;
+			folderView.directory.path = parent;
+			// Closing keeps its own notification: the snapshot is about to
+			// cover the parent, and the animation cannot wait for a turn.
+			folderView.directory.finish_path_change();
+			const index = folderView.revealForTransition(path);
+			if (!snapshot || index < 0) {
+				folderView.advanceNavigation();
+				return;
+			}
+			const iconRect = folderView.itemIconRect(index);
+			if (!folderView.rectOnGrid(iconRect)) {
+				folderView.advanceNavigation();
+				return;
+			}
+			folderView.perfLog("nav-close " + path + " grab " + (Date.now() - stepStarted) + "ms");
+			// The parent was just swapped in under the snapshot; fill its
+			// visible slots before the shrink starts for the same reason.
+			grid.fillVisibleNow();
+			folderView.navTicks = 0;
+			folderTransition.closeInto(panelRect, iconRect, snapshot);
+		};
+		folderView.grabPanel(start);
+	}
+
+	// Enter `path` from the folder on screen: the new folder panel grows out of
+	// that folder's icon and rises into place, like the 3DS folder panel.
+	function openIntoFolder(path) {
+		if (!folderView.directory || folderView.parentFolder(path) !== String(folderView.directory.path)) {
+			// The chain no longer starts where it expected: jump straight to
+			// the step rather than growing out of an unrelated icon.
+			if (folderView.directory)
+				folderView.directory.path = path;
+			folderView.advanceNavigation();
+			return;
+		}
+		const index = folderView.revealForTransition(path);
+		if (index < 0) {
+			// No icon to grow from (hidden, filtered or absent): navigate
+			// directly for this step rather than inventing a source.
+			folderView.directory.path = path;
+			folderView.advanceNavigation();
+			return;
+		}
+		const iconRect = folderView.itemIconRect(index);
+		const stepStarted = Date.now();
+		const start = function (snapshot) {
+			if (!folderView.navigationBusy || !folderView.directory)
+				return;
+			// The folder being left stays visible behind the growing panel.
+			if (snapshot) {
+				navBackdrop.snapshotResult = snapshot;
+				navBackdrop.source = snapshot.url;
+				navBackdrop.visible = true;
+			}
+			folderView.navOriginX = iconRect.x + iconRect.width / 2;
+			folderView.navOriginY = iconRect.y + iconRect.height / 2;
+			// About a third of the panel, growing from the icon while rising.
+			folderView.navScale = 0.35;
+			folderView.navShiftY = Math.max(20, folderView.height * 0.16);
+			// The panel is transparent while it is small and fades in with the
+			// grow, instead of arriving at full weight.
+			folderView.navOpacity = 0.0;
+			folderView.perfLog("nav-open " + path + " grab " + (Date.now() - stepStarted) + "ms");
+			folderView.openStepPath = path;
+			folderView.openStepStarted = Date.now();
+			folderView.navGapLast = 0;
+			const loadStarted = Date.now();
+			folderView.directory.path = path;
+			folderView.perfLog("nav-open " + path + " setpath "
+				+ (Date.now() - loadStarted) + "ms");
+			// The config is announced on the next event loop turn, after the
+			// previous folder's delegates are gone; the motion starts from
+			// `applyPathConfig` when that has happened.
+			folderView.pendingOpenPath = path;
+		};
+		folderView.grabPanel(start);
+	}
+
+	// One frame of grace before the new config is announced: the views
+	// process the model reset (and release the previous folder's delegates)
+	// in their polish pass, which a zero-timer can beat. Switching views with
+	// the old delegates still held tore down a whole screen of FileSlots
+	// synchronously, which was the cost of opening any folder from a free
+	// placement view.
+	Timer {
+		id: pathConfigTimer
+		interval: 16
+		repeat: false
+		onTriggered: folderView.applyPathConfig()
+	}
+
+	// Set when an open is waiting for the new folder's config notification.
+	property string pendingOpenPath: ""
+
+	// Runs one turn after a path change (see onPathChanged): the reset has
+	// been processed and its delegates deleted, so announcing the config only
+	// updates view state. An open then fills the visible slots in the folder's
+	// own view mode and starts the grow.
+	function applyPathConfig() {
+		if (!folderView.directory || !folderView.config)
+			return;
+		const started = Date.now();
+		folderView.perfLog("cfg-start " + started);
+		folderView.directory.finish_path_change();
+		folderView.perfLog("cfg-end " + Date.now());
+		// Copy the new view settings to the delegates after the folder's rows
+		// exist. Doing it before would leave the new (cheap) placeholder hosts
+		// with the previous folder's sizes; the FileSlots are built later.
+		grid.applyConfigToView();
+		folderView.perfLog("nav config " + (Date.now() - started) + "ms");
+		const path = folderView.pendingOpenPath;
+		if (path === "")
+			return;
+		folderView.pendingOpenPath = "";
+		if (!folderView.navigationBusy || String(folderView.directory.path) !== String(path))
+			return;
+		grid.fillVisibleNow();
+		folderView.prepareTurns = 0;
+		folderView.prepareOpenMotion();
+	}
+
+	property int prepareTurns: 0
+
+	// Give the view a few turns to place every visible delegate, filling the
+	// ones it has created each turn. Only then start the grow; the panel is
+	// still scaled down and the parent snapshot is behind it.
+	function prepareOpenMotion() {
+		if (!folderView.navigationBusy)
+			return;
+		folderView.prepareTurns += 1;
+		grid.fillVisibleNow();
+		if (folderView.prepareTurns < 4) {
+			Qt.callLater(() => folderView.prepareOpenMotion());
+			return;
+		}
+		folderView.startOpenMotion();
+	}
+
+	function startOpenMotion() {
+		folderView.navTicks = 0;
+		openMotion.restart();
+	}
+
+	ParallelAnimation {
+		id: openMotion
+		NumberAnimation {
+			target: folderView
+			property: "navScale"
+			to: 1.0
+			duration: 260
+			easing.type: Easing.OutCubic
+		}
+		NumberAnimation {
+			target: folderView
+			property: "navShiftY"
+			to: 0
+			duration: 260
+			easing.type: Easing.OutCubic
+		}
+		NumberAnimation {
+			target: folderView
+			property: "navOpacity"
+			to: 1.0
+			duration: 260
+			easing.type: Easing.OutCubic
+		}
+		onFinished: {
+			folderView.perfLog("nav-open " + folderView.openStepPath + " motion "
+				+ (Date.now() - folderView.openStepStarted) + "ms ticks=" + folderView.navTicks);
+			folderView.navScale = 1.0;
+			folderView.navShiftY = 0;
+			folderView.navOpacity = 1.0;
+			navBackdrop.visible = false;
+			navBackdrop.source = "";
+			navBackdrop.snapshotResult = null;
+			folderView.advanceNavigation();
+		}
 	}
 
 	function updateFocusItems() {
 		const fm = folderView.focusManager;
 		if (!fm || !folderView.directory || folderView.paneId <= 0)
 			return;
+		const started = Date.now();
 		const paths = folderView.directory.get_all_paths();
 		if (paths.length === 0) {
 			fm.clear_pane(folderView.paneId);
@@ -296,6 +822,9 @@ Item {
 		fm.set_pane_grid(folderView.paneId, metrics.columns, metrics.rows);
 		fm.set_pane_empty_slots(folderView.paneId, folderView.focusEmptySlots);
 		folderView.focusOwned = true;
+		if (Date.now() - started > 20)
+			folderView.perfLog("nav focus-items " + (Date.now() - started) + "ms "
+				+ String(folderView.directory.path));
 
 		if (folderView.returnFocusPath !== "") {
 			const target = folderView.returnFocusPath;
@@ -876,8 +1405,16 @@ Item {
 		interval: 30
 		repeat: true
 		running: folderView.directory ? folderView.directory.scanning : false
-		onTriggered: if (folderView.directory)
-			folderView.directory.poll_scan()
+		onTriggered: {
+			if (!folderView.directory)
+				return;
+			// Applying the scan replaces row data and re-points the focus pane.
+			// During the open/close motion the placeholders are already on
+			// screen, so wait for the animation rather than making it stutter.
+			if (folderView.navigationBusy)
+				return;
+			folderView.directory.poll_scan();
+		}
 	}
 
 	Timer {
@@ -886,6 +1423,12 @@ Item {
 		repeat: true
 		onTriggered: {
 			if (folderView.directory) {
+				// Preview and change polling can touch the filesystem and the
+				// descriptor workers; none of it is needed during a transition
+				// and it used to land in the middle of one.
+				if (folderView.navigationBusy)
+					return;
+				const pollStarted = Date.now();
 				folderView.directory.poll_thumbnails();
 				// A new descriptor changes the focused item's title/icon
 				// without moving the cursor. Publish it again so the top
@@ -893,6 +1436,8 @@ Item {
 				if (folderView.directory.poll_descriptors())
 					topScreenFocusTimer.restart();
 				folderView.directory.poll_changes();
+				if (Date.now() - pollStarted > 20)
+					folderView.perfLog("nav poll " + (Date.now() - pollStarted) + "ms");
 			}
 		}
 	}
@@ -910,6 +1455,16 @@ Item {
 			// without this the pane kept the placeholder order and the D-pad
 			// index and the published focus path disagreed. Tap was correct
 			// because focusSlot refreshes the pane first.
+			const started = Date.now();
+			folderView.updateFocusItems();
+			if (Date.now() - started > 20)
+				folderView.perfLog("nav model-reset focus " + (Date.now() - started) + "ms");
+			folderView.scheduleThumbnails();
+		}
+
+		function onScan_applied() {
+			// A refresh now updates rows in place rather than resetting the
+			// model, so the pane's item list has to be re-pointed explicitly.
 			folderView.updateFocusItems();
 			folderView.scheduleThumbnails();
 		}
@@ -938,9 +1493,11 @@ Item {
 			const current = String(folderView.directory.path);
 			const previous = folderView.lastPath;
 			folderView.lastPath = current;
+			// One animated navigation is one history entry, recorded when the
+			// whole chain has landed, not once per intermediate folder.
 			if (folderView.historyNavigating)
 				folderView.historyNavigating = false;
-			else
+			if (!folderView.navigationBusy)
 				folderView.recordHistory(current);
 			folderView.returnFocusPath = previous;
 
@@ -961,6 +1518,10 @@ Item {
 			folderView.scheduleThumbnails();
 			if (folderView.selectionManager)
 				folderView.selectionManager.exit_selection_mode();
+			// The new folder's config is announced one frame later, once the
+			// views have processed the reset and released the previous
+			// folder's delegates; see Directory::set_path.
+			pathConfigTimer.restart();
 		}
 
 		function onConfig_changed() {
@@ -968,8 +1529,11 @@ Item {
 			// applied by re-evaluating the grid bindings; the directory does not
 			// need to be re-read. A grid size change may need thumbnails of a
 			// different cache tier.
+			const started = Date.now();
 			folderView.updateFocusItems();
 			folderView.scheduleThumbnails();
+			if (Date.now() - started > 20)
+				folderView.perfLog("nav config-handler " + (Date.now() - started) + "ms");
 		}
 	}
 
@@ -997,7 +1561,6 @@ Item {
 		return name !== "" ? name : "/";
 	}
 
-	Kirigami.Theme.colorSet: Kirigami.Theme.View
 
 	Binding {
 		target: folderView.Window.window
@@ -1010,6 +1573,7 @@ Item {
 
 	Image {
 		id: wallpaper
+		parent: folderPanel
 		anchors.fill: parent
 		source: String(folderView.config ? folderView.config.wallpaper : "")
 		fillMode: Image.PreserveAspectCrop
@@ -1017,8 +1581,9 @@ Item {
 	}
 
 	Rectangle {
+		parent: folderPanel
 		anchors.fill: parent
-		color: wallpaper.status === Image.Ready ? "transparent" : Kirigami.Theme.backgroundColor
+		color: wallpaper.status === Image.Ready ? "transparent" : Theme.viewBackgroundColor
 		radius: 8
 		anchors.margins: 4
 	}
@@ -1281,7 +1846,7 @@ Item {
 
 		const handler = folderView.rootWindow ? folderView.rootWindow.dragDropHandler : null;
 		if (handler) {
-			handler.reposition_preview = JSON.stringify({ hotspotX: hotspotX, hotspotY: hotspotY, gridSize: (cfg.grid_size ? cfg.grid_size : 64), showLabels: cfg.show_labels, labelsBeside: folderView.labelsBesideIcons, items: previewItems });
+			handler.reposition_preview = JSON.stringify({ hotspotX: hotspotX, hotspotY: hotspotY, gridSize: grid.gridIconSize, showLabels: cfg.show_labels, labelsBeside: folderView.labelsBesideIcons, items: previewItems });
 			handler.reposition_active = true;
 		}
 		folderView.repositionDragActive = true;
@@ -1456,7 +2021,7 @@ Item {
 		if (!handler || flickable.width <= 0 || flickable.height <= 0)
 			return;
 		const local = flickable.mapFromItem(null, handler.drag_cursor_x, handler.drag_cursor_y);
-		const margin = Kirigami.Units.gridUnit * 2;
+		const margin = Units.gridUnit * 2;
 		const maxStep = 28;
 		const horizontal = folderView.config ? folderView.config.scroll_horizontal : false;
 		let dx = 0;
@@ -1496,7 +2061,7 @@ Item {
 		anchors.margins: 4
 		radius: 8
 		color: "transparent"
-		border.color: Kirigami.Theme.highlightColor
+		border.color: Theme.highlightColor
 		border.width: 3
 		z: 10
 		opacity: bgDropArea.isHovered ? 0.85 : 0.0
@@ -1685,7 +2250,7 @@ Item {
 				if (!folderView.directory)
 					return;
 				folderView.playSound("window-new");
-				folderView.directory.open_path(path);
+				folderView.navigateToPath(path, null, true);
 			};
 
 			// In free placement the drag is an in-window reposition tracked by
@@ -1872,21 +2437,25 @@ Item {
 
 	FolderGrid {
 		id: grid
+		parent: folderPanel
 		z: 1
 		anchors {
 			top: parent.top
 			left: parent.left
 			right: parent.right
 			bottom: parent.bottom
-			leftMargin: Kirigami.Units.mediumSpacing
-			rightMargin: Kirigami.Units.mediumSpacing
-			bottomMargin: Kirigami.Units.mediumSpacing
+			leftMargin: Units.mediumSpacing
+			rightMargin: Units.mediumSpacing
+			bottomMargin: Units.mediumSpacing
 			// The filter bar pushes the grid down while it is up.
-			topMargin: folderView.filterActive ? filterBar.height + Kirigami.Units.mediumSpacing * 2 : Kirigami.Units.mediumSpacing
+			topMargin: folderView.filterActive ? filterBar.height + Units.mediumSpacing * 2 : Units.mediumSpacing
 		}
 
 		directory: folderView.directory
 		config: folderView.config
+		populatePaused: folderView.navigationBusy
+		navigating: folderView.navigationBusy
+		Component.onCompleted: applyConfigToView()
 		focusManager: folderView.focusManager
 		selectionManager: folderView.selectionManager
 		window: folderView.rootWindow
@@ -2004,5 +2573,25 @@ Item {
 		directory: folderView.directory
 		fileManager: folderView.rootWindow ? folderView.rootWindow.fileManager : null
 		window: folderView.rootWindow
+	}
+
+	// ── Folder open/close transition ──
+	// Above the grid and the bars: the snapshot must cover the folder being
+	// left while its parent settles underneath.
+	FolderTransition {
+		id: folderTransition
+		onFinished: {
+			folderView.perfLog("nav-close done total " + (Date.now() - folderView.navStartedAt) + "ms ticks=" + folderView.navTicks);
+			folderView.advanceNavigation();
+		}
+	}
+
+	// The open motion transforms the live view in place, so this is what keeps
+	// a tap from landing on half-scaled content while it runs.
+	MouseArea {
+		anchors.fill: parent
+		z: 60
+		enabled: folderView.navigationBusy
+		acceptedButtons: Qt.AllButtons
 	}
 }

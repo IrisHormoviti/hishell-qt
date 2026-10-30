@@ -4,7 +4,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
-import org.kde.kirigami as Kirigami
+import Hishell.Theme
 import QtQuick.Shapes
 import Hishell
 
@@ -36,7 +36,7 @@ Item {
 	required property string title
 	// Secondary desktop-entry data; only the list's Comment column shows it.
 	property string comment: ""
-	property int gridSize: 64
+	property int gridSize: 72
 	// List view: one row per item, with the name leading and the configured
 	// columns to its right. The row keeps all the grid slot's interaction,
 	// selection and drag behaviour; only the content layout changes.
@@ -56,7 +56,7 @@ Item {
 	// else keeps the icon its resolver chose, and an icon that cannot be
 	// recoloured falls back to its plain name.
 	// Themed icons are rendered once to a cached PNG and then loaded by the
-	// asynchronous Image component, instead of a Kirigami.Icon (a synchronous
+	// asynchronous Image component, instead of a Icon (a synchronous
 	// QIcon decode) in every delegate. The PNG is rendered at the physical
 	// pixel size, so it stays sharp at the panel's scale.
 	readonly property int iconPixelSize: Math.round(fileSlot.iconDisplaySize * (Screen.devicePixelRatio || 1))
@@ -76,11 +76,15 @@ Item {
 	// smoothing keeps the label pixels crisp at the file view's icon sizes.
 	readonly property bool pixelatedIcon: fileSlot.displayIcon.indexOf("/hishell/descriptors/") !== -1
 	// With no label the icon takes over the whole slot, so the view reads as a gallery.
-	readonly property real iconDisplaySize: fileSlot.showLabels ? fileSlot.gridSize : Math.max(fileSlot.gridSize, Math.min(fileSlot.width, fileSlot.height) - Kirigami.Units.smallSpacing * 2)
+	readonly property real iconDisplaySize: fileSlot.showLabels ? fileSlot.gridSize : Math.max(fileSlot.gridSize, Math.min(fileSlot.width, fileSlot.height) - Units.smallSpacing * 2)
 	// Whether the label shows the file name instead of the item's title.
 	property bool labelShowsFilename: false
 	property bool fixedWidth: true
-	property bool showIcon: icon !== ""
+	// False while the model row is still the name-only placeholder pass: the
+	// real icon has not been resolved yet, and showing the generic folder /
+	// text icon first made every folder flash before its icons arrived.
+	property bool iconReady: true
+	property bool showIcon: iconReady && icon !== ""
 	required property bool is_symlink
 	required property int index
 	// A directory's kind, control kind and control state arrive from the
@@ -140,13 +144,17 @@ Item {
 	// folder decides whether this item is selectable and owns the selection; the
 	// child carries only display metadata.  `radio_only` narrows the group to
 	// directories or files.
+	// The folder's radio-group settings are copied in by the view. Reading the
+	// Config object here made every slot re-evaluate this binding (and the
+	// QObject property lookups behind it) on every config change, even for the
+	// ordinary folders where radio groups are off.
+	property bool radioGroupEnabled: false
+	property int radioGroupOnly: 0
+	property string radioGroupSelected: ""
 	readonly property bool isRadio: {
-		if (!fileSlot.radioMember)
+		if (!fileSlot.radioMember || !fileSlot.radioGroupEnabled)
 			return false;
-		const view = fileSlot.folderView;
-		if (!view || !view.directory || !view.directory.config || !view.directory.config.radio_enabled)
-			return false;
-		const only = view.directory.config.radio_only;
+		const only = fileSlot.radioGroupOnly;
 		return only === 0 || (only === 1 && fileSlot.is_dir) || (only === 2 && !fileSlot.is_dir);
 	}
 	readonly property string radioValue: {
@@ -155,10 +163,9 @@ Item {
 		return String(fileSlot.folderView.directory.radio_value(fileSlot.path));
 	}
 	readonly property bool isRadioSelected: {
-		const view = fileSlot.folderView;
-		if (!fileSlot.isRadio || !view || !view.directory || !view.directory.config)
+		if (!fileSlot.isRadio)
 			return false;
-		return String(view.directory.config.radio_selected) === fileSlot.radioValue;
+		return fileSlot.radioGroupSelected === fileSlot.radioValue;
 	}
 
 	// The selected radio choice is the folder's current item, so give it the
@@ -176,11 +183,15 @@ Item {
 		}
 		return null;
 	}
-	readonly property bool freePlacement: folderView && folderView.config ? (folderView.config.sort === 3 && folderView.config.view_mode === 0) : false
+	// Both are copied from the view's config for the same reason as the radio
+	// settings: a binding reading Config would re-run on every config change.
+	property bool freePlacementEnabled: false
+	readonly property bool freePlacement: fileSlot.freePlacementEnabled
 
 	// Whether a plain click opens the item. When off, the first click only
 	// focuses it and a click on the (now focused) item opens it. See ViewActions.
-	readonly property bool openOnClick: fileSlot.folderView && fileSlot.folderView.config ? fileSlot.folderView.config.open_on_click : true
+	property bool openOnClickEnabled: true
+	readonly property bool openOnClick: fileSlot.openOnClickEnabled
 
 	property int animationDuration: 200
 	property int animationEase: Easing.OutCubic
@@ -315,9 +326,9 @@ Item {
 	readonly property var modeLayout: modeLoader.item
 	implicitWidth: !modeLayout ? 0
 		: (fileSlot.listMode
-			? modeLayout.implicitWidth + Kirigami.Units.smallSpacing * 2
-			: modeLayout.implicitWidth + (fileSlot.labelBesideIcon && fileSlot.showIcon && fileSlot.showLabels ? Kirigami.Units.largeSpacing * 2 : Kirigami.Units.smallSpacing * 2))
-	implicitHeight: !modeLayout ? 0 : modeLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
+			? modeLayout.implicitWidth + Units.smallSpacing * 2
+			: modeLayout.implicitWidth + (fileSlot.labelBesideIcon && fileSlot.showIcon && fileSlot.showLabels ? Units.largeSpacing * 2 : Units.smallSpacing * 2))
+	implicitHeight: !modeLayout ? 0 : modeLayout.implicitHeight + Units.smallSpacing * 2
 	// The on-disk name, used by the FILENAME label mode and the tooltip.
 	readonly property string fileName: {
 		const path = fileSlot.path;
@@ -473,13 +484,13 @@ Item {
 		Item {
 		id: buttonPlate
 		anchors.fill: parent
-		anchors.margins: Kirigami.Units.smallSpacing
+		anchors.margins: Units.smallSpacing
 
 		readonly property bool down: mouseArea.pressed
 		readonly property bool hot: mouseArea.containsMouse
-		readonly property real plateRadius: Kirigami.Units.cornerRadius * 1.5
-		readonly property color body: down ? Qt.lighter(Kirigami.Theme.highlightColor, 1.25)
-			: (hot ? Qt.lighter(Kirigami.Theme.backgroundColor, 1.10) : Kirigami.Theme.backgroundColor)
+		readonly property real plateRadius: Units.cornerRadius * 1.5
+		readonly property color body: down ? Qt.lighter(Theme.highlightColor, 1.25)
+			: (hot ? Qt.lighter(Theme.backgroundColor, 1.10) : Theme.backgroundColor)
 
 		// Soft drop shadow, stacked translucent rounded rectangles (renders on
 		// every backend); each layer is the rim pushed down by `d` and grown
@@ -516,7 +527,7 @@ Item {
 				GradientStop { position: 1.0; color: buttonPlate.down ? Qt.darker(buttonPlate.body, 1.12) : Qt.darker(buttonPlate.body, 1.16) }
 			}
 			border.width: 1
-			border.color: buttonPlate.down || buttonPlate.hot ? Kirigami.Theme.highlightColor : Qt.alpha(Kirigami.Theme.disabledTextColor, 0.7)
+			border.color: buttonPlate.down || buttonPlate.hot ? Theme.highlightColor : Qt.alpha(Theme.disabledTextColor, 0.7)
 		}
 		Rectangle {
 			id: buttonFace
@@ -543,12 +554,12 @@ Item {
 		Rectangle {
 		id: radioPlate
 		anchors.fill: parent
-		anchors.margins: Kirigami.Units.smallSpacing
-		radius: Kirigami.Units.cornerRadius * 1.5
-		color: mouseArea.pressed ? Qt.alpha(Kirigami.Theme.highlightColor, 0.25)
-			: (mouseArea.containsMouse ? Qt.lighter(Kirigami.Theme.backgroundColor, 1.15) : Kirigami.Theme.backgroundColor)
+		anchors.margins: Units.smallSpacing
+		radius: Units.cornerRadius * 1.5
+		color: mouseArea.pressed ? Qt.alpha(Theme.highlightColor, 0.25)
+			: (mouseArea.containsMouse ? Qt.lighter(Theme.backgroundColor, 1.15) : Theme.backgroundColor)
 		border.width: 1
-		border.color: fileSlot.isRadioSelected ? Kirigami.Theme.highlightColor : Kirigami.Theme.disabledTextColor
+		border.color: fileSlot.isRadioSelected ? Theme.highlightColor : Theme.disabledTextColor
 		opacity: fileSlot.isRadioSelected ? 1.0 : 0.75
 
 		// The selected choice gets an accent wash, so it reads as the current
@@ -556,7 +567,7 @@ Item {
 		Rectangle {
 			anchors.fill: parent
 			radius: parent.radius
-			color: Kirigami.Theme.highlightColor
+			color: Theme.highlightColor
 			opacity: fileSlot.isRadioSelected ? 0.12 : 0.0
 			Behavior on opacity { NumberAnimation { duration: fileSlot.animationDuration } }
 		}
@@ -595,9 +606,9 @@ Item {
 		anchors.left: parent.left
 		anchors.right: parent.right
 		anchors.verticalCenter: parent.verticalCenter
-		anchors.leftMargin: Kirigami.Units.smallSpacing * 2
-		anchors.rightMargin: Kirigami.Units.smallSpacing * 2
-		spacing: Kirigami.Units.mediumSpacing
+		anchors.leftMargin: Units.smallSpacing * 2
+		anchors.rightMargin: Units.smallSpacing * 2
+		spacing: Units.mediumSpacing
 
 		Item {
 			id: listIconItem
@@ -643,7 +654,7 @@ Item {
 
 			Component {
 				id: listIconComponent
-				Kirigami.Icon {
+				Icon {
 					source: fileSlot.displayIcon
 					anchors.fill: parent
 				}
@@ -660,7 +671,7 @@ Item {
 				Layout.minimumWidth: 0
 				text: fileSlot.columnText(modelData.key)
 				textFormat: Text.PlainText
-				color: Kirigami.Theme.textColor
+				color: Theme.textColor
 				elide: Text.ElideRight
 				maximumLineCount: 1
 				horizontalAlignment: modelData.align
@@ -688,7 +699,8 @@ Item {
 	GridLayout {
 		id: contentLayout
 		anchors.verticalCenter: parent.verticalCenter
-		x: (fileSlot.labelBesideIcon && fileSlot.showIcon && fileSlot.showLabels) ? Kirigami.Units.largeSpacing : (parent.width - width) / 2
+		rowSpacing: Units.smallSpacing
+		x: (fileSlot.labelBesideIcon && fileSlot.showIcon && fileSlot.showLabels) ? Units.largeSpacing : (parent.width - width) / 2
 		columns: (fileSlot.labelBesideIcon && fileSlot.showIcon && fileSlot.showLabels) ? 2 : 1
 
 		Item {
@@ -738,7 +750,7 @@ Item {
 
 			Component {
 				id: iconComponent
-				Kirigami.Icon {
+				Icon {
 					source: fileSlot.displayIcon
 					Layout.preferredWidth: fileSlot.gridSize
 					Layout.preferredHeight: fileSlot.gridSize
@@ -775,7 +787,7 @@ Item {
 						focalRadius: 0
 
 						GradientStop { position: 1.0; color: "transparent" }
-						GradientStop { position: 0.0; color: Kirigami.Theme.highlightColor }
+						GradientStop { position: 0.0; color: Theme.highlightColor }
 					}
 				}
 
@@ -801,9 +813,9 @@ Item {
 			// straight in the frame time.
 			text: fileSlot.labelText
 			textFormat: Text.PlainText
-			color: Kirigami.Theme.textColor
-			wrapMode: Text.Wrap
-			maximumLineCount: 2
+			color: Theme.textColor
+			wrapMode: Text.NoWrap
+			maximumLineCount: 1
 
 			// The four faces are measured once in CoreTheme. Building a pair of
 			// FontMetrics (and the QFont behind them) per delegate was paid by
@@ -817,8 +829,8 @@ Item {
 			// the grid cell it lives in.  A toggle has no plate even though it
 			// is a control, so it follows the ordinary bound.
 			Layout.maximumWidth: (fileSlot.hasControlPlate || fileSlot.isRadio)
-				? fileSlot.width - Kirigami.Units.smallSpacing * 2 - Kirigami.Units.largeSpacing * 2
-				: (fileSlot.labelBesideIcon ? (fileSlot.fixedWidth ? fileSlot.width - fileSlot.gridSize - Kirigami.Units.gridUnit * 2 : 250) : fileSlot.gridSize + Kirigami.Units.gridUnit * 2)
+				? fileSlot.width - Units.smallSpacing * 2 - Units.largeSpacing * 2
+				: (fileSlot.labelBesideIcon ? (fileSlot.fixedWidth ? fileSlot.width - fileSlot.gridSize - Units.gridUnit * 2 : 250) : fileSlot.width - Units.smallSpacing * 2)
 			horizontalAlignment: fileSlot.labelBesideIcon ? Text.AlignLeft : Text.AlignHCenter
 		}
 	}
@@ -851,9 +863,9 @@ Item {
 		id: selectionWashComponent
 		Rectangle {
 			anchors.fill: parent
-			anchors.margins: fileSlot.isSelected ? Kirigami.Units.smallSpacing : 0
-			radius: Kirigami.Units.cornerRadius
-			color: Kirigami.Theme.highlightColor
+			anchors.margins: fileSlot.isSelected ? Units.smallSpacing : 0
+			radius: Units.cornerRadius
+			color: Theme.highlightColor
 			opacity: (fileSlot.isSelected ? 0.25 : 0.0) || (fileSlot.active ? 0.5 : 0.0)
 			Behavior on opacity {
 				NumberAnimation {
@@ -883,10 +895,10 @@ Item {
 			Rectangle {
 				visible: fileSlot.selectionActive
 				anchors.fill: parent
-				anchors.margins: Kirigami.Units.smallSpacing
-				radius: Kirigami.Units.cornerRadius
+				anchors.margins: Units.smallSpacing
+				radius: Units.cornerRadius
 				color: "transparent"
-				border.color: Kirigami.Theme.highlightColor
+				border.color: Theme.highlightColor
 				border.width: 2
 				opacity: fileSlot.isSelected ? 1.0 : 0.0
 				Behavior on opacity {
@@ -903,19 +915,16 @@ Item {
 			// slot meant loading four SVG documents for every item in the
 			// folder.
 			Rectangle {
-				Kirigami.Theme.colorSet: Kirigami.Theme.Selection
-				Kirigami.Theme.inherit: false
-
 				visible: fileSlot.selectionActive
 				anchors.top: parent.top
 				anchors.right: parent.right
-				anchors.margins: Kirigami.Units.mediumSpacing
-				width: Kirigami.Units.iconSizes.small
-				height: Kirigami.Units.iconSizes.small
-				radius: Kirigami.Units.cornerRadius
+				anchors.margins: Units.mediumSpacing
+				width: Units.iconSizes.small
+				height: Units.iconSizes.small
+				radius: Units.cornerRadius
 				border.width: 2
-				border.color: Kirigami.Theme.backgroundColor
-				color: fileSlot.isSelected ? Kirigami.Theme.backgroundColor : "transparent"
+				border.color: Theme.selectionBackgroundColor
+				color: fileSlot.isSelected ? Theme.selectionBackgroundColor : "transparent"
 				opacity: fileSlot.isSelected ? 1.0 : 0.4
 				Behavior on color {
 					ColorAnimation {
@@ -924,7 +933,7 @@ Item {
 					}
 				}
 
-				Kirigami.Icon {
+				Icon {
 					anchors.fill: parent
 					anchors.margins: 2
 					source: "emblem-ok-symbolic"
@@ -945,10 +954,10 @@ Item {
 				visible: fileSlot.dropHovered
 				anchors.fill: parent
 				anchors.margins: 2
-				radius: Kirigami.Units.cornerRadius
-				color: Kirigami.Theme.focusColor
+				radius: Units.cornerRadius
+				color: Theme.focusColor
 				opacity: 0.35
-				border.color: Kirigami.Theme.highlightColor
+				border.color: Theme.highlightColor
 				border.width: 2
 			}
 		}
@@ -1095,7 +1104,10 @@ Item {
 					// whichever pane happens to hold the cursor.
 					const fView = fileSlot.folderView;
 					const dir = fView ? fView.directory : null;
-					if (dir) {
+					if (dir && typeof fView.navigateToPath === "function") {
+						fileSlot.playSound("window-new");
+						fView.navigateToPath(targetPath, fileSlot, true);
+					} else if (dir) {
 						fileSlot.playSound("window-new");
 						dir.open_path(targetPath);
 					} else if (fileSlot.actionManager && fileSlot.actionManager.openAction) {

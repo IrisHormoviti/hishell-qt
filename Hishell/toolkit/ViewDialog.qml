@@ -4,9 +4,10 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
-import org.kde.kirigami as Kirigami
+import Hishell.Theme
+import Hishell
 
-Kirigami.OverlaySheet {
+Sheet {
 	id: viewDialog
 	// The shared settings object. Required so the dialog cannot be opened
 	// without a Directory to act on.
@@ -56,7 +57,7 @@ Kirigami.OverlaySheet {
 		}
 	}
 
-	implicitWidth: Kirigami.Units.gridUnit * 20
+	implicitWidth: Units.gridUnit * 20
 	// OverlaySheet caps its height at the window and scrolls the content; the
 	// explicit maximum keeps the last groups reachable on the short touch panel.
 	closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
@@ -96,7 +97,7 @@ Kirigami.OverlaySheet {
 
 	component SectionHeading: Label {
 		Layout.fillWidth: true
-		Layout.topMargin: Kirigami.Units.largeSpacing
+		Layout.topMargin: Units.largeSpacing
 		font.bold: true
 		font.capitalization: Font.AllUppercase
 		opacity: 0.6
@@ -110,7 +111,7 @@ Kirigami.OverlaySheet {
 		property string columnKey
 		readonly property bool shown: viewDialog.viewActions.hasListColumn(columnRow.columnKey)
 		Layout.fillWidth: true
-		spacing: Kirigami.Units.smallSpacing
+		spacing: Units.smallSpacing
 
 		Label {
 			Layout.fillWidth: true
@@ -146,7 +147,7 @@ Kirigami.OverlaySheet {
 	ColumnLayout {
 		// The dialog sizes itself to this content and scrolls it when it is
 		// taller than the panel; width comes from the dialog's preferredWidth.
-		spacing: Kirigami.Units.largeSpacing
+		spacing: Units.largeSpacing
 
 		// ── Scope ────────────────────────────────────────────────────────
 		SectionHeading {
@@ -176,32 +177,29 @@ Kirigami.OverlaySheet {
 		RowLayout {
 			Layout.fillWidth: true
 			visible: !viewDialog.viewActions.isListView
-			spacing: Kirigami.Units.smallSpacing
+			spacing: Units.smallSpacing
 
 			Label {
-				text: qsTr("Icon Size")
+				text: viewDialog.viewActions.lineCountLabel
 			}
 			ViewSlider {
-				id: gridSizeSlider
+				id: linesSlider
 				Layout.fillWidth: true
-				// The setting is the single source of truth; the slider shows it
-				// whenever it is not being dragged.
-				boundValue: viewDialog.viewActions.gridSize
-				from: viewDialog.viewActions.gridSizeMin
-				to: viewDialog.viewActions.gridSizeMax
-				stepSize: viewDialog.viewActions.gridSizeStep
-				onMovedTo: value => viewDialog.viewActions.setGridSize(value)
+				boundValue: viewDialog.viewActions.lineCount
+				from: viewDialog.viewActions.lineCountMin
+				to: viewDialog.viewActions.lineCountMax
+				stepSize: 1
+				onMovedTo: value => viewDialog.viewActions.setConfig("Lines", String(value))
 				onDragStarted: viewDialog.playSound("button-pressed")
 				onStepped: viewDialog.playSound("slider-tick")
 				onReachedEdge: viewDialog.playSound("scroll-edge")
 			}
 			Label {
-				Layout.minimumWidth: Kirigami.Units.gridUnit * 3
+				Layout.minimumWidth: Units.gridUnit * 3
 				horizontalAlignment: Text.AlignHCenter
-				text: viewDialog.viewActions.gridSize
+				text: viewDialog.viewActions.lineCount
 			}
 		}
-
 		// ── Labels ───────────────────────────────────────────────────────
 		SectionHeading {
 			visible: !viewDialog.viewActions.isListView
@@ -276,7 +274,7 @@ Kirigami.OverlaySheet {
 		}
 		RowLayout {
 			Layout.fillWidth: true
-			spacing: Kirigami.Units.smallSpacing
+			spacing: Units.smallSpacing
 			visible: viewDialog.viewActions.sort === 0 || viewDialog.viewActions.sort === 1
 
 			Label {
@@ -294,7 +292,7 @@ Kirigami.OverlaySheet {
 		}
 		RowLayout {
 			Layout.fillWidth: true
-			spacing: Kirigami.Units.smallSpacing
+			spacing: Units.smallSpacing
 			visible: viewDialog.viewActions.sort === 2
 
 			Label {
@@ -312,7 +310,7 @@ Kirigami.OverlaySheet {
 		// Only offered while there is something to reset.
 		Button {
 			Layout.fillWidth: true
-			Layout.minimumHeight: Kirigami.Units.gridUnit * 2.4
+			Layout.minimumHeight: Units.gridUnit * 2.4
 			visible: viewDialog.viewActions.hasFreePlacementPositions && !viewDialog.viewActions.isListView
 			text: qsTr("Reset Manual Placement")
 			icon.name: "edit-reset"
@@ -347,33 +345,7 @@ Kirigami.OverlaySheet {
 		RowLayout {
 			Layout.fillWidth: true
 			visible: !viewDialog.viewActions.isListView
-			spacing: Kirigami.Units.smallSpacing
-
-			Label {
-				text: qsTr("Lines")
-			}
-			ViewSlider {
-				id: linesSlider
-				Layout.fillWidth: true
-				boundValue: viewDialog.viewActions.gridLines
-				from: 0
-				to: 10
-				stepSize: 1
-				onMovedTo: value => viewDialog.viewActions.setConfig("Lines", String(value))
-				onDragStarted: viewDialog.playSound("button-pressed")
-				onStepped: viewDialog.playSound("slider-tick")
-				onReachedEdge: viewDialog.playSound("scroll-edge")
-			}
-			Label {
-				Layout.minimumWidth: Kirigami.Units.gridUnit * 3
-				horizontalAlignment: Text.AlignHCenter
-				text: viewDialog.viewActions.gridLines === 0 ? qsTr("Auto") : viewDialog.viewActions.gridLines
-			}
-		}
-		RowLayout {
-			Layout.fillWidth: true
-			visible: !viewDialog.viewActions.isListView
-			spacing: Kirigami.Units.smallSpacing
+			spacing: Units.smallSpacing
 			Label {
 				text: qsTr("Scroll")
 			}
@@ -389,7 +361,7 @@ Kirigami.OverlaySheet {
 		RowLayout {
 			Layout.fillWidth: true
 			visible: !viewDialog.viewActions.isListView
-			spacing: Kirigami.Units.smallSpacing
+			spacing: Units.smallSpacing
 			Label {
 				text: qsTr("Align X")
 			}
@@ -407,7 +379,7 @@ Kirigami.OverlaySheet {
 		RowLayout {
 			Layout.fillWidth: true
 			visible: !viewDialog.viewActions.isListView
-			spacing: Kirigami.Units.smallSpacing
+			spacing: Units.smallSpacing
 			Label {
 				text: qsTr("Align Y")
 			}
@@ -455,11 +427,11 @@ Kirigami.OverlaySheet {
 		}
 		RowLayout {
 			Layout.fillWidth: true
-			spacing: Kirigami.Units.smallSpacing
+			spacing: Units.smallSpacing
 
 			Button {
 				Layout.fillWidth: true
-				Layout.minimumHeight: Kirigami.Units.gridUnit * 2.4
+				Layout.minimumHeight: Units.gridUnit * 2.4
 				text: qsTr("Set Wallpaper...")
 				icon.name: "document-open"
 				onPressed: viewDialog.playSound("button-pressed")
@@ -468,7 +440,7 @@ Kirigami.OverlaySheet {
 			}
 			Button {
 				Layout.fillWidth: true
-				Layout.minimumHeight: Kirigami.Units.gridUnit * 2.4
+				Layout.minimumHeight: Units.gridUnit * 2.4
 				text: qsTr("Clear")
 				icon.name: "edit-clear"
 				enabled: viewDialog.viewActions.wallpaper.trim() !== ""

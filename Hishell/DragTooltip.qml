@@ -4,7 +4,7 @@ ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import org.kde.kirigami as Kirigami
+import Hishell.Theme
 
 Item {
 	id: tooltipRoot
@@ -27,21 +27,22 @@ Item {
 		}
 	}
 
-	Kirigami.ShadowedRectangle {
+	Rectangle {
 		id: bg
-		width: contentRow.implicitWidth + Kirigami.Units.mediumSpacing
-		height: contentRow.implicitHeight + Kirigami.Units.mediumSpacing
+		width: contentRow.implicitWidth + Units.mediumSpacing
+		height: contentRow.implicitHeight + Units.mediumSpacing
 
-		Kirigami.Theme.colorSet: Kirigami.Theme.Header
-		color: Qt.rgba(Kirigami.Theme.backgroundColor.r, Kirigami.Theme.backgroundColor.g, Kirigami.Theme.backgroundColor.b, 0.92)
-		radius: Kirigami.Units.cornerRadius
+		color: Qt.rgba(Theme.backgroundColor.r, Theme.backgroundColor.g, Theme.backgroundColor.b, 0.92)
+		radius: Units.cornerRadius
+		border.width: 1
+		border.color: Qt.rgba(1, 1, 1, 0.15)
 
 		RowLayout {
 			id: contentRow
 			anchors.centerIn: parent
 			spacing: 6
 
-			Kirigami.Icon {
+			Icon {
 				source: {
 					if (tooltipRoot.reposition)
 						return "transform-move";
@@ -54,8 +55,8 @@ Item {
 							return "edit-copy";
 					}
 				}
-				Layout.preferredWidth: Kirigami.Units.iconSizes.small
-				Layout.preferredHeight: Kirigami.Units.iconSizes.small
+				Layout.preferredWidth: Units.iconSizes.small
+				Layout.preferredHeight: Units.iconSizes.small
 			}
 
 			Label {
@@ -72,8 +73,8 @@ Item {
 					}
 				}
 				font.weight: Font.DemiBold
-				font.pixelSize: Kirigami.Units.gridUnit * 0.75
-				color: Kirigami.Theme.textColor
+				font.pixelSize: Units.gridUnit * 0.75
+				color: Theme.textColor
 			}
 		}
 	}

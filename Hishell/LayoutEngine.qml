@@ -2,7 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Layouts
-import org.kde.kirigami as Kirigami
+import Hishell.Theme
 import Hishell
 
 RowLayout {
@@ -34,7 +34,7 @@ RowLayout {
 		visible: layoutEngine.errorString.length > 0
 		Layout.fillWidth: true
 		text: layoutEngine.errorString
-		color: Kirigami.Theme.negativeTextColor
+		color: Theme.negativeTextColor
 		wrapMode: Text.WordWrap
 	}
 
@@ -51,6 +51,11 @@ RowLayout {
 		} catch (e) {
 			layoutEngine.errorString = "Layout error: " + e.message;
 		}
+		// Re-assigning the same entries used to destroy and recreate every
+		// toolbar/view item (including the main FolderView) on any config
+		// change, because the array is rebuilt even when nothing moved.
+		if (JSON.stringify(items) === JSON.stringify(layoutEngine.layoutItems))
+			return;
 		layoutEngine.layoutItems = items;
 	}
 
@@ -63,6 +68,10 @@ RowLayout {
 	}
 
 	function updateLayout() {
+		if (layoutEngine.window && layoutEngine.window.fileManager
+			&& layoutEngine.window.fileManager.perf_mode() > 0)
+			layoutEngine.window.fileManager.perf_log("layout rebuild "
+				+ layoutEngine.layoutItems.length + " " + layoutEngine.layoutString);
 		for (let i = 0; i < layoutEngine._createdItems.length; i++) {
 			layoutEngine._createdItems[i].destroy();
 		}

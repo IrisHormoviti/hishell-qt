@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import org.kde.kirigami as Kirigami
+import Hishell.Theme
 
 // The delete warning for a thing the provider marked as not the user's to
 // remove. It is not a confirmation: resetting the settings and unmounting a
@@ -9,7 +9,7 @@ import org.kde.kirigami as Kirigami
 // `clam-configd.md` §5.2). Touch- and controller-friendly, like
 // LaunchConfirmDialog: full-width rows and a sheet that owns focus while it is
 // up.
-Kirigami.OverlaySheet {
+Sheet {
 	id: destroyConfirm
 	property var window
 	property var fileManager
@@ -21,7 +21,7 @@ Kirigami.OverlaySheet {
 	signal decided(string action)
 
 	title: qsTr("Delete")
-	implicitWidth: Kirigami.Units.gridUnit * 22
+	implicitWidth: Units.gridUnit * 22
 	closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
 	readonly property string itemTitle: info.title ? String(info.title) : path
@@ -87,8 +87,8 @@ Kirigami.OverlaySheet {
 		Layout.fillWidth: true
 		// A fixed content width keeps the wrapped label's height independent of
 		// the sheet's width, which would otherwise be a binding loop.
-		Layout.preferredWidth: Kirigami.Units.gridUnit * 22
-		spacing: Kirigami.Units.largeSpacing
+		Layout.preferredWidth: Units.gridUnit * 22
+		spacing: Units.largeSpacing
 
 		Keys.onEscapePressed: destroyConfirm.choose("cancel")
 

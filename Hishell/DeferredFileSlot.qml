@@ -25,6 +25,7 @@ Item {
 	required property bool is_symlink
 	required property int index
 	required property bool is_directory
+	required property bool icon_ready
 	required property int control_kind
 	required property bool toggle_on
 	required property string number_value
@@ -34,7 +35,12 @@ Item {
 	readonly property bool is_dir: is_directory
 
 	property bool populateReady: false
-	property int gridSize: 64
+	// The view owns this host's x/y, so animating those writes is what turns a
+	// pane resize, a GridSize/Lines change or a refresh reflow into icons
+	// moving to their new cells instead of snapping. Enabled by the owning
+	// grid (SmoothScrolling); see FolderGrid.layoutAnimating.
+	property bool layoutAnimating: false
+	property int gridSize: 72
 	property bool listMode: false
 	property var listColumns: []
 	property int listIconSize: 24
@@ -45,6 +51,12 @@ Item {
 	property bool isSelected: false
 	property bool isActive: false
 	property bool radioMember: true
+	// Copied from the view's config; see FileSlot's radioGroupEnabled.
+	property bool radioGroupEnabled: false
+	property int radioGroupOnly: 0
+	property string radioGroupSelected: ""
+	property bool freePlacementEnabled: false
+	property bool openOnClickEnabled: true
 	property var selectionManager: null
 	property var actionManager: null
 	property var fileManager: null
@@ -55,6 +67,10 @@ Item {
 	signal pressHeld(string path, int idx)
 	signal contextMenuRequested(string path, int idx)
 
+	// The icon the slot actually paints, including the theme recolour and any
+	// thumbnail. The folder transition uses it to grow a folder out of its
+	// icon; before the slot is built it falls back to the model's icon role.
+	readonly property string displayIcon: slotLoader.item ? String(slotLoader.item.displayIcon) : icon
 	// The same surface a FileSlot offers to FolderView/ActionManager. They use
 	// it for launch grabs, suspended marks and the free-placement hand-off.
 	readonly property var contentLayout: slotLoader.item ? slotLoader.item.contentLayout : null
@@ -70,6 +86,34 @@ Item {
 			slotLoader.item.handOffRepositionDrag(x, y, onStarted);
 		else if (onStarted)
 			onStarted();
+	}
+
+	// The first placement is not a move: the view creates the host, then writes
+	// its cell position. Animating that write would make every lazily built
+	// slot fly in from the top-left, so the behavior stays off until one event
+	// loop turn has passed and the initial position has settled.
+	property bool positionSettled: false
+
+	Component.onCompleted: {
+		Qt.callLater(() => host.positionSettled = true);
+		if (host.fileManager && host.fileManager.perf_mode() > 0)
+			host.fileManager.perf_log("host+ " + Date.now());
+	}
+
+	Behavior on x {
+		enabled: host.layoutAnimating && host.positionSettled
+		NumberAnimation {
+			duration: 200
+			easing.type: Easing.OutCubic
+		}
+	}
+
+	Behavior on y {
+		enabled: host.layoutAnimating && host.positionSettled
+		NumberAnimation {
+			duration: 200
+			easing.type: Easing.OutCubic
+		}
 	}
 
 	Loader {
@@ -93,6 +137,7 @@ Item {
 			is_symlink: host.is_symlink
 			index: host.index
 			is_directory: host.is_directory
+			iconReady: host.icon_ready
 			control_kind: host.control_kind
 			toggle_on: host.toggle_on
 			number_value: host.number_value
@@ -107,6 +152,11 @@ Item {
 			isSelected: host.isSelected
 			isActive: host.isActive
 			radioMember: host.radioMember
+			radioGroupEnabled: host.radioGroupEnabled
+			radioGroupOnly: host.radioGroupOnly
+			radioGroupSelected: host.radioGroupSelected
+			freePlacementEnabled: host.freePlacementEnabled
+			openOnClickEnabled: host.openOnClickEnabled
 			actionManager: host.actionManager
 			fileManager: host.fileManager
 			dragDropHandler: host.dragDropHandler

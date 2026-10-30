@@ -4,7 +4,7 @@ import QtQuick
 import QtQuick.Window
 import QtQuick.Controls
 import QtQuick.Layouts
-import org.kde.kirigami as Kirigami
+import Hishell.Theme
 
 // The recovery screen the shell shows when it has crashed.
 //
@@ -77,14 +77,14 @@ Window {
 		ColumnLayout {
 			id: column
 			anchors.fill: parent
-			anchors.margins: Kirigami.Units.largeSpacing
-			spacing: Kirigami.Units.smallSpacing
+			anchors.margins: Units.largeSpacing
+			spacing: Units.smallSpacing
 
-			Kirigami.Icon {
+			Icon {
 				source: "dialog-error"
 				Layout.alignment: Qt.AlignHCenter
-				Layout.preferredWidth: Kirigami.Units.iconSizes.large
-				Layout.preferredHeight: Kirigami.Units.iconSizes.large
+				Layout.preferredWidth: Units.iconSizes.large
+				Layout.preferredHeight: Units.iconSizes.large
 			}
 
 			Label {
@@ -99,8 +99,8 @@ Window {
 			Button {
 				text: qsTr("Press Return to restart")
 				Layout.alignment: Qt.AlignHCenter
-				Layout.preferredWidth: Kirigami.Units.gridUnit * 12
-				Layout.preferredHeight: Kirigami.Units.gridUnit * 2.5
+				Layout.preferredWidth: Units.gridUnit * 12
+				Layout.preferredHeight: Units.gridUnit * 2.5
 				onClicked: recovery.restart()
 			}
 
@@ -109,15 +109,15 @@ Window {
 			Rectangle {
 				Layout.fillWidth: true
 				Layout.fillHeight: true
-				Layout.minimumHeight: Kirigami.Units.gridUnit * 3
+				Layout.minimumHeight: Units.gridUnit * 3
 				visible: recovery.diagnostic !== ""
 				color: Qt.rgba(1, 1, 1, 0.08)
-				radius: Kirigami.Units.cornerRadius
+				radius: Units.cornerRadius
 				clip: true
 
 				Flickable {
 					anchors.fill: parent
-					anchors.margins: Kirigami.Units.smallSpacing
+					anchors.margins: Units.smallSpacing
 					contentWidth: width
 					contentHeight: diagnosticText.implicitHeight
 					clip: true
