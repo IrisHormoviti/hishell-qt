@@ -2368,8 +2368,10 @@ Out of scope. The core APIs above are the contract.
 - `timeout 30s cargo run -p hishell-qt -- /tmp` and inspect.
 - Large folder on a slow target.
 - Grid and list modes; view controls change mode, lines, size, and labels and persist.
-- Click selects one item; Ctrl-click toggles, Shift-click ranges, Space toggles the
-  focused item. Arrow keys move the focus rectangle; only the active pane draws it.
+- With `OpenOnClick` (the old default), a plain click opens; press-and-hold enters
+  selection mode and selects the item. Ctrl-click toggles, Shift-click ranges, Space
+  toggles the focused item, Escape clears. Arrow keys move the focus rectangle; only the
+  active pane draws it.
 - Double-click/Return opens a folder; Backspace/Alt+Up goes up.
 - New folder/new text, rotate, and toggle through the context menu.
 - Trash/delete confirmation, rename, and open-with dialogs.
@@ -2378,7 +2380,8 @@ Out of scope. The core APIs above are the contract.
   directory map to the same focus/navigation/selection actions.
 - Free placement renders each slot at its stored cell.
 - The Header/Top/Middle/Bottom arrays from `.cfg` are loaded through `LayoutEngine`.
-- The path bar shows breadcrumbs; clicking the current crumb opens the here menu.
+- The path bar shows breadcrumbs; clicking the current crumb opens the here menu, and
+  Ctrl+L edits the location in place.
 - The menu bar exposes Edit/New/View and the old shortcuts (F2, Delete, F5,
   Alt+Up, Ctrl+Shift+N, Ctrl+A, Ctrl+O, Ctrl+W, …).
 - A middle layout with two `./` entries keeps independent folders; an arrow at a pane
