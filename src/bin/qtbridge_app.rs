@@ -5,8 +5,9 @@ use std::path::Path;
 use std::rc::Rc;
 
 use hishell::{
-	ChangeSet, Command, Config, ConfigKey, ConfigValue, Engine, FolderDelta, FolderMode, Location,
-	Metrics, ViewRequest, ViewSpec, Viewport,
+	ActionId, ActionRequest, ChangeSet, Command, Config, ConfigKey, ConfigValue, Engine,
+	FocusCommand, FolderDelta, FolderMode, Location, MenuKind, Metrics, PaneId, Target,
+	ViewRequest, ViewSpec, Viewport,
 };
 use qtbridge::{
 	QApp, QListModel, QListModelBase, QModelItem, QmlObject, include_bytes_qml, qobject,
@@ -366,6 +367,29 @@ fn qml_config_value(key: ConfigKey, value: &str) -> Option<ConfigValue> {
 	}
 }
 
+fn menu_kind(name: &str) -> Option<MenuKind> {
+	match name {
+		"main" => Some(MenuKind::Main),
+		"context" => Some(MenuKind::Context),
+		"edit" => Some(MenuKind::Edit),
+		"new" => Some(MenuKind::New),
+		"folder" => Some(MenuKind::FolderMenu),
+		"view" => Some(MenuKind::View),
+		"selection" => Some(MenuKind::SelectionBar),
+		_ => None,
+	}
+}
+
+fn target_kind(name: &str) -> Option<Target> {
+	match name {
+		"location" => Some(Target::Location),
+		"focus" => Some(Target::Focus),
+		"selection" => Some(Target::Selection),
+		"auto" => Some(Target::Auto),
+		_ => None,
+	}
+}
+
 fn key_from_qml(name: &str) -> Option<ConfigKey> {
 	match name {
 		"grid_mode" => Some(ConfigKey::GridMode),
@@ -613,6 +637,67 @@ impl Directory {
 		self.revision += 1;
 		self.revision_changed();
 		true
+	}
+
+	#[qslot]
+	fn focus_path(&mut self, path: String) {
+		let Some(engine) = self.engine.as_mut() else {
+			return;
+		};
+		let _ = engine.dispatch(Command::Focus(FocusCommand::Set {
+			pane: PaneId(0),
+			path: std::path::PathBuf::from(path),
+		}));
+	}
+
+	#[qslot]
+	fn actions_json(&self, menu: String, target: String) -> String {
+		let Some(engine) = &self.engine else {
+			return String::from("[]");
+		};
+		let Some(menu) = menu_kind(&menu) else {
+			return String::from("[]");
+		};
+		let Some(target) = target_kind(&target) else {
+			return String::from("[]");
+		};
+		serde_json::to_string(&engine.actions(&ActionRequest { menu, target }))
+			.unwrap_or_else(|_| String::from("[]"))
+	}
+
+	#[qslot]
+	fn invoke(&mut self, id: String) -> String {
+		let Some(action) = ActionId::from_str(&id) else {
+			return String::from("{}");
+		};
+		let Some(engine) = self.engine.as_mut() else {
+			return String::from("{}");
+		};
+		let Ok(outcome) = engine.dispatch(Command::Invoke(action)) else {
+			return String::from("{}");
+		};
+		let job = outcome.job.is_some();
+		self.path = engine.location().path().to_string_lossy().into_owned();
+		self.config.borrow_mut().apply(engine.config());
+		self.rows = rows_after(engine, Some(&outcome.changes));
+		self.read_selection();
+		self.reset();
+		self.revision += 1;
+		self.path_changed();
+		self.revision_changed();
+		self.selection_changed();
+		if job {
+			let handle = self.get_thread_handle();
+			std::thread::spawn(move || {
+				std::thread::sleep(std::time::Duration::from_millis(250));
+				handle.invoke_mut(|directory: &mut Directory| directory.refresh_now());
+			});
+		}
+		serde_json::json!({
+			"effects": outcome.effects.len(),
+			"job": job,
+		})
+		.to_string()
 	}
 
 	#[qslot]

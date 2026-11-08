@@ -17,6 +17,25 @@ ApplicationWindow {
 		id: pathUtils
 	}
 
+	property var contextActions: []
+
+	Menu {
+		id: contextMenu
+		onAboutToShow: window.contextActions = JSON.parse(
+			window.directory.actions_json("context", "focus"))
+
+		Repeater {
+			model: window.contextActions
+
+			MenuItem {
+				required property var modelData
+				text: modelData.id
+				enabled: modelData.enabled
+				onTriggered: window.directory.invoke(modelData.id)
+			}
+		}
+	}
+
 	readonly property var spec: {
 		window.directory.revision
 		return JSON.parse(window.directory.view_json(grid.width, grid.height, 18, 4, 18))
@@ -175,7 +194,15 @@ ApplicationWindow {
 
 					MouseArea {
 						anchors.fill: parent
-						onClicked: window.directory.toggle_select(cell.path)
+						acceptedButtons: Qt.LeftButton | Qt.RightButton
+						onClicked: function (mouse) {
+							if (mouse.button === Qt.RightButton) {
+								window.directory.focus_path(cell.path)
+								contextMenu.popup()
+							} else {
+								window.directory.toggle_select(cell.path)
+							}
+						}
 					}
 				}
 			}
@@ -222,7 +249,15 @@ ApplicationWindow {
 
 					MouseArea {
 						anchors.fill: parent
-						onClicked: window.directory.toggle_select(row.path)
+						acceptedButtons: Qt.LeftButton | Qt.RightButton
+						onClicked: function (mouse) {
+							if (mouse.button === Qt.RightButton) {
+								window.directory.focus_path(row.path)
+								contextMenu.popup()
+							} else {
+								window.directory.toggle_select(row.path)
+							}
+						}
 					}
 				}
 			}
