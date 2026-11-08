@@ -2349,17 +2349,17 @@ Out of scope. The core APIs above are the contract.
 
 - `timeout 30s cargo run -p hishell-qt -- /tmp` and inspect.
 - Large folder on a slow target.
-- Long copy/move: UI stays responsive; progress arrives.
-- Trash/delete/destroy.
-- Rename with the text dialog.
-- Open-with/default-app.
-- Grid, list, free placement, custom groups, stash.
-- Folder open/close, sibling, and cross-branch transitions; hidden/filtered anchor
-  fallback.
-- Multi-pane navigation and focus.
-- Drag/drop, including a virtual folder.
-- Icons: theme icon, `.directory` path icon, AppImage icon, descriptor icon.
-- Native theme switch (light/dark) while running.
+- Grid and list modes; view controls change mode, lines, size, and labels and persist.
+- Selection, keyboard movement, and the plain focus rectangle.
+- Double-click/Return opens a folder; Backspace/Alt+Up goes up.
+- New folder/new text, rotate, and toggle through the context menu.
+- A plain path, a `file://` URI, and a file argument all open the right folder.
+- The saved session path restores on the next start.
+- Icons: themed names and file paths.
+
+Future frontend parity (not part of the thin frontend yet): trash/delete confirmation,
+rename, open-with, drag/drop, multi-pane transitions, free placement, thumbnails,
+AppImage/descriptor enrichment, and gamepad input. The core APIs for them remain.
 
 ## 9. Risks and mitigations
 
