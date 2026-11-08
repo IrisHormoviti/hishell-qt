@@ -968,7 +968,8 @@ pub struct FileManager {
 	is_image_file: qt_method!(
 		fn is_image_file(&self, path: String) -> bool {
 			let p = clean_path(&path.to_string());
-			crate::image_utils::is_image_file(Path::new(&p))
+			hishell::icon::mime_for_path(Path::new(&p))
+				.is_some_and(|mime| mime.starts_with("image/"))
 		}
 	),
 

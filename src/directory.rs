@@ -2502,7 +2502,7 @@ pub fn open_file(path: String) -> String {
 	if crate::kde_bridge::open_with_default(&path) {
 		return String::new();
 	}
-	let _ = crate::launch::spawn(
+	let _ = crate::launch::request(
 		"xdg-open",
 		std::slice::from_ref(&path),
 		&path,

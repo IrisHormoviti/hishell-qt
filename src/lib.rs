@@ -20,7 +20,6 @@ pub mod drop_validator;
 pub mod file_manager;
 pub mod focus_manager;
 pub mod gamepad;
-pub mod image_utils;
 pub mod kde_bridge;
 pub mod launch;
 pub mod path_utils;

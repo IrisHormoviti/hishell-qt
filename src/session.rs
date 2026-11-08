@@ -5,14 +5,18 @@
 //! browsing and the item its cursor sits on, and picks both up at startup:
 //! `main` opens the saved folder directly, and the FocusManager re-applies the
 //! saved focus to the first file view that loads it.
+//!
+//! The file format, schema version, atomic write, and backward-compatible load
+//! live in `hishell::session::SessionStore`; this module keeps the host session
+//! handover markers, which are ClamOS-specific runtime state rather than saved
+//! shell state.
 
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::path::PathBuf;
 use std::time::Duration;
 
+use hishell::{SessionData, SessionStore};
 use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
 
 /// Environment variables naming the host's session handover files, so the
 /// shell does not have to know the host's own paths. Unset means the host has
@@ -46,86 +50,51 @@ const MARKER_MAX_AGE: Duration = Duration::from_secs(3600);
 /// back on its own — a crash there must not leave the buttons dead.
 const GRAB_MAX_AGE: Duration = Duration::from_secs(15);
 
+static STORE: Lazy<SessionStore> = Lazy::new(SessionStore::default);
+
 fn env_path(name: &str) -> String {
 	std::env::var(name).unwrap_or_default()
 }
 
-#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-struct Session {
-	path: String,
-	focus: String,
-}
-
-static SESSION: Lazy<Mutex<Option<Session>>> = Lazy::new(|| Mutex::new(None));
-
-fn file() -> PathBuf {
-	dirs::config_dir()
-		.unwrap_or_else(|| PathBuf::from("/home/root/.config"))
-		.join("hishell")
-		.join("session.json")
-}
-
-fn load() -> Session {
-	let mut cached = SESSION.lock().unwrap();
-	if cached.is_none() {
-		*cached = Some(load_uncached());
-	}
-	cached.clone().unwrap_or_default()
-}
-
-fn load_uncached() -> Session {
-	fs::read_to_string(file())
-		.ok()
-		.and_then(|text| serde_json::from_str(&text).ok())
-		.unwrap_or_default()
+fn load() -> SessionData {
+	STORE.load()
 }
 
 /// The folder to open at startup: the saved one when it still exists, else the
 /// fallback the caller computed (the command line argument or the home).
 pub fn startup_path(fallback: &str) -> String {
 	let path = load().path;
-	if !path.is_empty() && Path::new(&path).is_dir() {
-		return path;
+	if !path.as_os_str().is_empty() && path.is_dir() {
+		return path.to_string_lossy().into_owned();
 	}
 	fallback.to_string()
 }
 
 /// The item to focus at startup, when one was saved.
 pub fn startup_focus() -> Option<String> {
-	let focus = load().focus;
-	(!focus.is_empty()).then_some(focus)
+	load()
+		.focus
+		.map(|path| path.to_string_lossy().into_owned())
+		.filter(|focus| !focus.is_empty())
 }
 
 pub fn save_path(path: &str) {
-	update(|session| session.path = path.to_string());
+	update(|session| session.path = PathBuf::from(path));
 }
 
 pub fn save_focus(path: &str) {
 	if path.is_empty() {
 		return;
 	}
-	update(|session| session.focus = path.to_string());
+	update(|session| session.focus = Some(PathBuf::from(path)));
 }
 
-fn update(mutate: impl FnOnce(&mut Session)) {
-	let mut cached = SESSION.lock().unwrap();
-	let session = cached.get_or_insert_with(load_uncached);
+fn update(mutate: impl FnOnce(&mut SessionData)) {
+	let mut session = load();
 	let before = session.clone();
-	mutate(session);
-	if *session == before {
-		return;
-	}
-	let text = serde_json::to_string(session).unwrap_or_default();
-	let target = file();
-	if let Some(parent) = target.parent() {
-		let _ = fs::create_dir_all(parent);
-	}
-	// Write-and-rename, with the scratch file NEXT TO the target: a scratch in
-	// /tmp would make the rename fail with EXDEV (tmpfs vs the home's ext2).
-	let temporary = PathBuf::from(format!("{}.tmp", target.display()));
-	if fs::write(&temporary, text).is_ok() {
-		let _ = fs::rename(&temporary, target);
+	mutate(&mut session);
+	if session != before {
+		let _ = STORE.save(&session);
 	}
 }
 

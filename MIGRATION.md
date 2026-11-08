@@ -2005,6 +2005,9 @@ Status:
   `quit`. `Spawner` and `Clock` are injectable.
 - `Engine` exposes `Command::Launch`, `ConfirmLaunch`, `CancelLaunch`, `QuitActive`, and
   returns `Effect::Launch` / `Effect::LaunchEvent`.
+- The shipping `launch.rs` is a thin adapter over `Execution`: wrapper, preflight,
+  confirm/cancel, environment, launch markers, active items, and quit live in core. Only
+  `spawn_direct` stays frontend-side because provider commands wait on the child.
 - Parity note: the legacy `qmetaobject` frontend still calls `kde_bridge` for KDE MIME,
   KIO, portals, and thumbnails. Those are host integrations of that frontend, not core
   capability gaps (§13); the core `Platform` ships FreeDesktop implementations and the
@@ -2037,7 +2040,9 @@ drives view mode, grid mode, lines, icon size, and labels through that path.
 Plain-file icons no longer shell out to `gio`: `hishell::icon` maps extensions with
 `mime_guess`, sniffs extensionless files with `infer`, and returns the themed icon name.
 `directory::get_icon` uses it after the entry, AppImage, descriptor, and generator lookups.
-`gio mime` remains only in the default-application setter until `AppCatalog` lands.
+Image detection uses the same core MIME resolver; the frontend's duplicate `image_utils`
+module is gone. `gio mime` remains only in the default-application setter until
+`AppCatalog` lands.
 
 Themed lookups resolve the process icon theme to one that exists on disk. The Breeze
 style can leave `QIcon::themeName()` at an internal name with no `index.theme`, which made
@@ -2166,6 +2171,9 @@ names, which `poll_jobs` emits on the UI thread. `ShellWindow.qml` shows the dec
 the notice banner.
 Provider-owned `Destroy=`/`Rename=` entries and symlink/link fallbacks keep their
 synchronous path because they call a provider command rather than touch storage.
+The shipping shell reads and writes its saved location and focus through
+`hishell::session::SessionStore`; only the host handover markers (suspend, hide, return
+frame, focus file, active revision, input grab) stay in `src/session.rs`.
 
 Checkpoint:
 
