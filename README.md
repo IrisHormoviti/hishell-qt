@@ -26,6 +26,8 @@ All these things would be able to be set per folder using a few dot files, allow
 
 ## About hishell-qt
 This is meant to be a reference implementation for this Hishell spec, which I might also use in other projects. This app is strictly a file manager, made in QT and Kirigami, with the backend written in Rust.
+
+The toolkit-agnostic core lives in the [hishell](https://github.com/IrisHormoviti/hishell) repository and is checked out here as the `hishell/` submodule.
 Planned features:
 - [ ] Everything in the hishell spec
 - [X] Copy, Paste etc, essential file manager stuff

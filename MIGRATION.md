@@ -89,6 +89,10 @@ These are settled and should not be revisited during the migration.
 
 ## 3. Target architecture
 
+`hishell` is its own repository (`IrisHormoviti/hishell`) and is checked out as a git
+submodule at `hishell/`; the outer repository stays `hishell-qt`. The core builds
+standalone (`cargo build` inside `hishell/`).
+
 ```
 hishell/                       # pure Rust, no Qt, no Slint, no KDE
   engine.rs                    # Engine, Deps, Command, Outcome
@@ -1837,18 +1841,18 @@ never produces JSON or error strings.
 
 Each phase must leave the app runnable. Merge phases separately.
 
-### Phase 0 — Workspace and removals
+### Phase 0 — Repository split and removals
 
-1. Create a workspace `Cargo.toml`.
-2. `git mv` pure modules into `hishell/`.
-3. Move `Hishell/` into `hishell-qt/Hishell/`.
-4. Move `build.rs` into `hishell-qt/`; make it scan only `src/adapters/` if it survives.
-5. Delete `topscreen.rs`, `publish_focus`, `topScreenFocusTimer`, and the republish timer.
-6. Delete `CoreTheme.qml`, `Theme/Clamos.qml`, `StyleThemeBridge.qml`.
-7. Delete `src/keyboard.rs`, the `FileManager` keyboard request methods, and the
+1. Add `IrisHormoviti/hishell` as a submodule at `hishell/`.
+2. Move pure modules into the submodule; re-export them from `src/lib.rs` while the Qt
+   code migrates.
+3. Keep `build.rs` in `hishell-qt`; it only builds the remaining Qt hooks.
+4. Delete `topscreen.rs`, `publish_focus`, `topScreenFocusTimer`, and the republish timer.
+5. Delete `CoreTheme.qml`, `Theme/Clamos.qml`, `StyleThemeBridge.qml`.
+6. Delete `src/keyboard.rs`, the `FileManager` keyboard request methods, and the
    `ActionManager.qml` keyboard rename polling. Rename always uses the Qt dialog.
-8. Keep `Theme/Kde.qml`/`Units.qml` as the native-KDE facade for now.
-9. Update `.qmlls.ini`, `project.qmlproject`, `.qmlproject`, README, AGENTS.
+7. Keep `Theme/Kde.qml`/`Units.qml` as the native-KDE facade for now.
+8. Update `.qmlls.ini`, `project.qmlproject`, `.qmlproject`, README, AGENTS.
 
 Checkpoint:
 
@@ -2171,7 +2175,7 @@ Out of scope. The core APIs above are the contract.
 
 ## 10. Rollback
 
-- Phase 0 can be reverted as a single workspace move.
+- Phase 0 can be reverted by dropping the submodule and restoring the moved files.
 - The `qtbridge` migration lives on its own branch; `qmetaobject` remains on `master`
   until the spike and a full adapter port pass.
 - Each core phase is behind a working frontend, so a failed phase can be reverted without

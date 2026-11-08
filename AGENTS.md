@@ -2,7 +2,9 @@
 
 ## Build & Run
 
-- **Build**: `cargo build` (Rust + Qt6, no separate QML compilation)
+- Clone with `git clone --recurse-submodules`; the pure core lives in the `hishell/` submodule.
+- **Core build**: `cargo build` inside `hishell/` (no Qt or system dependencies).
+- **Build**: `cargo build` in the repository root (Rust + Qt6, no separate QML compilation)
 - **QML is embedded at compile time** via `qmetaobject::qrc!` in `src/main.rs`. `build.rs` only watches `src/`, so editing a `.qml` file alone does not trigger a rebuild. After QML changes, `touch src/main.rs` (or `cargo clean -p hishell-qt`) before `cargo build`, or the running binary keeps the old QML.
 - **Run**: `cargo run` or `cargo run -- /path/to/folder`
     - Accepts `file://` URIs which are percent-decoded to absolute paths.
@@ -10,6 +12,8 @@
 
 ## Architecture
 
+- Two repositories: `hishell` (pure Rust core, the `hishell/` submodule) and `hishell-qt`
+  (Qt frontend). Qt code lives only in the outer repository.
 - Rust backend (`src/`) + Qt6 QML frontend (`Hishell/`). Bridged via `qmetaobject`.
 - Main entry: `src/main.rs` registers `Config`, `Directory`, `FileManager`, `DragHandler`, `DropValidator`, `PathUtils`,
   `LayoutEngine`, `SelectionManager`, `FocusManager` types for Qt.
@@ -29,7 +33,7 @@
 - New modules: `drag_handler.rs`, `selection_manager.rs`, `focus_manager.rs`, `gamepad.rs`, `path_utils.rs`,
   `drop_validator.rs`, `layout_engine.rs`, `descriptor_generator.rs`
 - AppImage desktop entries and icons are read directly from the appended SquashFS image by
-  `appimage.rs` + `squashfs.rs`; no external tools are involved.
+  `appimage.rs` + `hishell::squashfs`; no external tools are involved.
 
 ## Configuration
 
