@@ -119,7 +119,8 @@ hishell/                       # pure Rust, no Qt, no Slint, no KDE
 
 hishell-qt/                    # thin qtbridge desktop frontend
   src/bin/qtbridge_app.rs      # ConfigBridge, Directory, PathBridge
-  src/bin/qml/Main.qml         # Qt Quick UI
+  src/bin/qml/Main.qml         # two-pane SplitView
+  src/bin/qml/FolderPane.qml   # one folder pane and its transitions
   Cargo.toml                   # hishell + qtbridge only
 ```
 
@@ -2112,6 +2113,8 @@ Status:
 - The JSON helper in `hishell::path::navigation_plan` projects the typed plan for
   frontends that want a string result; it is not a second plan implementation. The
   qtbridge `PathBridge` exposes it.
+- The qtbridge `FolderPane` animates the pane from the `NavigationPlan` relation returned by
+  `Directory::navigate`/`go_up`; typed plans remain the contract.
 - Tests cover same/child/parent/sibling/unrelated relations, child/parent/cousin steps, a
   file target landing in its parent with a focus, navigation effects, and anchor lookup.
 
@@ -2219,8 +2222,8 @@ math. `FocusCommand` carries `Register`, `Release`, `ActivatePane`, `SetOrder`,
 keeps pane 0 in sync with the folder and returns `FocusDelta`; `FocusCommand::Activate`
 returns `Effect::FocusActivate`. The qtbridge `Directory` exposes `focus_first`,
 `focus_last`, `move_focus`, and `focus_path` over these commands and publishes
-`focused_path`; the QML delegate draws a plain focus rectangle. Edge hand-off between panes
-is `Focus::handoff`, using the geometry the adapter supplies.
+`focused_path`; the QML delegate draws a plain focus rectangle. The two panes each own a
+core `Focus`; the adapter hands input to the other pane when the core reports no movement.
 
 1. Move pane state, navigation math, and status strings.
 2. Remove top-screen publishing.
@@ -2361,13 +2364,19 @@ Out of scope. The core APIs above are the contract.
 - Gamepad directions, accept, cancel, menu, select, and directory map to the same
   focus/navigation/selection actions.
 - Free placement renders each slot at its stored cell.
+- Two panes keep independent folders; an arrow at a pane edge hands focus to the other
+  pane.
+- Opening a folder scales the pane content in; closing it scales out, using the core
+  `NavigationPlan` relation.
 - A plain path, a `file://` URI, and a file argument all open the right folder.
 - The saved session path restores on the next start.
 - Icons and titles: themed names, file paths, cached image thumbnails, AppImage
   embedded entries/icons, and XDG directory/file descriptors.
 
-Future frontend parity: multi-pane transitions. The core `Focus` pane model and
-`NavigationPlan` already support them.
+The two visible panes are `FolderPane.qml` instances over separate `Directory`/`Engine`
+models. Each pane's focus is core `Focus`; the edge hand-off is frontend input mapping.
+`Directory::navigate` and `go_up` return the core `NavigationPlan` as JSON, and the pane
+animates from its relation.
 
 ## 9. Risks and mitigations
 
@@ -2499,8 +2508,9 @@ The frontend is:
 
 - `src/bin/qtbridge_app.rs` — `ConfigBridge`, `Directory`, `PathBridge`, and the
   `QApp` entry point.
-- `src/bin/qml/Main.qml` — Qt Quick Controls, `Kirigami.Icon`, the plain focus
-  rectangle, and the file-operation dialogs.
+- `src/bin/qml/Main.qml` — the two-pane `SplitView`.
+- `src/bin/qml/FolderPane.qml` — one pane: Qt Quick Controls, `Kirigami.Icon`, the
+  plain focus rectangle, file-operation dialogs, and the `NavigationPlan` transition.
 - `src/gamepad.rs` — gilrs polling adapted to `Directory` focus commands.
 
 `gamepad.rs`, `sound.rs`, `descriptor_generator.rs`, `appimage.rs`,

@@ -11,8 +11,8 @@ use hishell::platform::{AppCatalog, FreeDesktopApps};
 use hishell::{
 	ActionId, ActionRequest, AppId, ChangeSet, Command, Config, ConfigKey, ConfigValue,
 	CopyOptions, Direction, Effect, Engine, FocusCommand, FolderDelta, FolderMode, LaunchRequest,
-	Location, MenuKind, Metrics, Op, Overwrite, PaneId, Prompt, Target, ViewRequest, ViewSpec,
-	Viewport,
+	Location, MenuKind, Metrics, NavigationPlan, NavigationRequest, Op, Overwrite, PaneId, Prompt,
+	Target, ViewRequest, ViewSpec, Viewport,
 };
 use qtbridge::{
 	QApp, QListModel, QListModelBase, QModelItem, QmlObject, include_bytes_qml, qobject,
@@ -393,6 +393,18 @@ fn supported_action(id: &str) -> bool {
 	)
 }
 
+fn transition_json(plan: &NavigationPlan) -> String {
+	serde_json::json!({
+		"from": plan.from.to_string_lossy(),
+		"to": plan.to.to_string_lossy(),
+		"relation": serde_json::to_value(&plan.relation).unwrap_or(serde_json::Value::Null),
+		"animated": plan.animated,
+		"close": plan.close.len(),
+		"open": plan.open.len(),
+	})
+	.to_string()
+}
+
 fn parse_uris(text: &str) -> Vec<PathBuf> {
 	text.lines()
 		.map(str::trim)
@@ -599,6 +611,24 @@ impl Directory {
 		}
 	}
 
+	fn navigate_command(&mut self, command: Command) -> bool {
+		let plan_json = match self.engine.as_mut() {
+			Some(engine) => match engine.dispatch(command) {
+				Ok(outcome) => outcome.effects.iter().find_map(|effect| match effect {
+					Effect::Navigate(plan) => Some(transition_json(plan)),
+					_ => None,
+				}),
+				Err(_) => return false,
+			},
+			None => return false,
+		};
+		self.after_engine_change();
+		if let Some(plan_json) = plan_json {
+			self.transition_requested(plan_json);
+		}
+		true
+	}
+
 	fn after_engine_change(&mut self) {
 		let Some(engine) = self.engine.as_ref() else {
 			return;
@@ -737,6 +767,9 @@ impl Directory {
 	fn open_with_requested(&mut self, path: String);
 
 	#[qsignal]
+	fn transition_requested(&mut self, plan_json: String);
+
+	#[qsignal]
 	fn revision_changed(&mut self);
 
 	#[qsignal]
@@ -829,25 +862,53 @@ impl Directory {
 		let Some(engine) = self.engine.as_mut() else {
 			return false;
 		};
+		let before = engine.focus();
 		let Ok(outcome) = engine.dispatch(Command::Focus(FocusCommand::Move(direction))) else {
 			return false;
 		};
+		let after = engine.focus();
 		self.read_focus();
-		outcome.changes.focus.is_some()
+		before != after && outcome.changes.focus.is_some()
+	}
+
+	#[qslot]
+	fn set_path(&mut self, path: String) {
+		let path = PathBuf::from(path);
+		if !path.is_dir() {
+			return;
+		}
+		if let Ok(engine) = Engine::open(&path) {
+			self.engine = Some(engine);
+			self.after_engine_change();
+		}
+	}
+
+	#[qslot]
+	fn navigate(&mut self, path: String) -> bool {
+		let target = PathBuf::from(&path);
+		if !target.is_dir() {
+			return false;
+		}
+		self.navigate_command(Command::Navigate(NavigationRequest {
+			pane: PaneId(0),
+			target,
+			record_history: true,
+		}))
 	}
 
 	#[qslot]
 	fn open(&mut self, path: String) {
+		if Path::new(&path).is_dir() {
+			let _ = self.navigate(path);
+			return;
+		}
 		self.focus_path(path);
 		let _ = self.invoke(String::from("open"));
 	}
 
 	#[qslot]
 	fn go_up(&mut self) {
-		if let Some(engine) = self.engine.as_mut() {
-			let _ = engine.dispatch(Command::GoUp);
-		}
-		self.after_engine_change();
+		self.navigate_command(Command::GoUp);
 	}
 
 	#[qslot]
@@ -1300,7 +1361,14 @@ fn main() {
 		.register::<ConfigBridge>()
 		.register::<Directory>()
 		.register::<PathBridge>()
-		.set_initial_object("directory", Rc::new(RefCell::new(Directory::new(&path))));
+		.set_initial_object(
+			"leftDirectory",
+			Rc::new(RefCell::new(Directory::new(&path))),
+		)
+		.set_initial_object(
+			"rightDirectory",
+			Rc::new(RefCell::new(Directory::new(&path))),
+		);
 
 	include_bytes_qml!("qml", "hishell_qt");
 	app.load_qml_from_file("qrc:/hishell_qt/qml/Main.qml").run();
@@ -1317,6 +1385,26 @@ mod tests {
 			vec![PathBuf::from("/tmp/a b"), PathBuf::from("/tmp/c")]
 		);
 		assert!(parse_uris("").is_empty());
+	}
+
+	#[test]
+	fn transition_json_carries_the_core_relation() {
+		let plan = NavigationPlan {
+			pane: PaneId(0),
+			requested: PathBuf::from("/a/b"),
+			from: PathBuf::from("/a"),
+			to: PathBuf::from("/a/b"),
+			focus: None,
+			relation: hishell::navigation::PathRelation::Child { distance: 1 },
+			common_ancestor: PathBuf::from("/a"),
+			close: Vec::new(),
+			open: Vec::new(),
+			animated: true,
+		};
+		let json = transition_json(&plan);
+		assert!(json.contains("\"to\":\"/a/b\""), "{json}");
+		assert!(json.contains("Child"), "{json}");
+		assert!(json.contains("\"animated\":true"), "{json}");
 	}
 
 	#[test]
