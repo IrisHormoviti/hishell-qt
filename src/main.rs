@@ -385,6 +385,8 @@ fn supported_action(id: &str) -> bool {
 			| "select-all"
 			| "new-folder"
 			| "new-text-file"
+			| "duplicate"
+			| "create-link"
 			| "rename"
 			| "trash" | "delete"
 			| "destroy"
@@ -792,9 +794,21 @@ impl Directory {
 	}
 
 	#[qslot]
+	fn home_directory(&self) -> String {
+		std::env::var("HOME").unwrap_or_default()
+	}
+
+	#[qslot]
 	fn select(&mut self, path: String) {
 		if let Some(id) = self.selection_id(&path) {
 			self.apply_selection(Command::SelectOnly(id));
+		}
+	}
+
+	#[qslot]
+	fn select_range(&mut self, path: String) {
+		if let Some(id) = self.selection_id(&path) {
+			self.apply_selection(Command::SelectRange(id));
 		}
 	}
 
@@ -1167,6 +1181,15 @@ impl Directory {
 		}
 		self.refresh_now();
 		true
+	}
+
+	#[qslot]
+	fn debug_rows(&self) -> String {
+		self.rows
+			.iter()
+			.map(|row| row.name.clone())
+			.collect::<Vec<_>>()
+			.join(",")
 	}
 
 	#[qslot]

@@ -1,63 +1,170 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import org.kde.kirigami as Kirigami
 import hishell_qt
 
 ApplicationWindow {
 	id: window
-	width: 1100
-	height: 650
-	title: "hishell"
+	width: 900
+	height: 600
+	title: window.currentDirectory ? String(window.currentDirectory.path) : "hishell"
+	visible: !headless
+	color: Kirigami.Theme.backgroundColor
 
 	required property var leftDirectory
 	required property var rightDirectory
 
-	property Item activePane: null
 	property bool headless: false
-	visible: !headless
+	property string testMiddleLayout: ""
+	property var panes: []
+	property Item activePane: null
 
-	readonly property alias leftPane: leftPane
-	readonly property alias rightPane: rightPane
+
+
+	readonly property var currentDirectory: activePane ? activePane.directory : null
+	readonly property string homePath: leftDirectory ? leftDirectory.home_directory() : ""
+	readonly property var leftPane: panes.length > 0 ? panes[0] : null
+	readonly property var rightPane: panes.length > 1 ? panes[1] : null
+
+	function paneDirectory(index) {
+		return index === 0 ? leftDirectory : rightDirectory
+	}
+
+	function clearPanes() {
+		panes = []
+		activePane = null
+	}
+
+	function registerPane(pane) {
+		panes = panes.concat([pane])
+		if (!activePane)
+			activePane = pane
+	}
 
 	function switchPane(direction) {
-		if (direction === "right" && window.activePane === leftPane) {
-			window.activePane = rightPane
-			rightPane.focusFirst()
-		} else if (direction === "left" && window.activePane === rightPane) {
-			window.activePane = leftPane
-			leftPane.focusLast()
-		}
+		const index = panes.indexOf(activePane)
+		if (index < 0)
+			return
+		const next = direction === "right" ? index + 1 : index - 1
+		if (next < 0 || next >= panes.length)
+			return
+		activePane = panes[next]
+		if (direction === "right")
+			activePane.focusFirst()
+		else
+			activePane.focusLast()
 	}
 
-	SplitView {
+	function segments(path) {
+		let full = String(path)
+		const home = window.homePath
+		if (home.length > 1 && (full === home || full.startsWith(home + "/"))) {
+			const rel = full === home ? "" : full.substring(home.length + 1)
+			const parts = rel.split("/").filter(part => part.length > 0)
+			let out = [{ "name": home.split("/").pop(), "path": home }]
+			let current = home
+			for (let i = 0; i < parts.length; i++) {
+				current += "/" + parts[i]
+				out.push({ "name": parts[i], "path": current })
+			}
+			return out
+		}
+		let parts = full.split("/").filter(part => part.length > 0)
+		let out = [{ "name": "/", "path": "/" }]
+		let current = ""
+		for (let i = 0; i < parts.length; i++) {
+			current += "/" + parts[i]
+			out.push({ "name": parts[i], "path": current })
+		}
+		return out
+	}
+
+	function actionLabel(id) {
+		const labels = {
+			"open": "Open",
+			"open-with": "Open With…",
+			"navigate": "Navigate",
+			"go-up": "Go Up",
+			"refresh": "Refresh",
+			"select-all": "Select All",
+			"new-folder": "New Folder",
+			"new-text-file": "New Text File",
+			"rename": "Rename…",
+			"trash": "Move to Trash…",
+			"delete": "Delete…",
+			"destroy": "Delete Permanently…",
+			"toggle": "Toggle",
+			"rotate-image": "Rotate Clockwise"
+		}
+		return labels[id] || id
+	}
+
+
+	Shortcut {
+		sequence: "Ctrl+O"
+		onActivated: if (window.currentDirectory) window.currentDirectory.invoke("open")
+	}
+
+	Shortcut {
+		sequence: "Ctrl+Alt+O"
+		onActivated: if (window.currentDirectory) window.currentDirectory.invoke("open-with")
+	}
+
+	ColumnLayout {
+		id: content
 		anchors.fill: parent
-		orientation: Qt.Horizontal
+		spacing: 0
 
-		handle: Rectangle {
-			implicitWidth: 3
-			color: palette.mid
+		Item {
+			Layout.fillWidth: true
+			Layout.preferredHeight: Math.max(48, Kirigami.Units.gridUnit * 3)
+
+			Rectangle {
+				anchors.fill: parent
+				color: Kirigami.Theme.backgroundColor
+			}
+
+			LayoutEngine {
+				id: headerLayout
+				anchors.fill: parent
+				role: "header"
+				window: window
+				layoutString: window.currentDirectory
+					? window.currentDirectory.config.header_layout
+					: '["toolkit/PathBar","toolkit/Spacer","toolkit/MenuBar","toolkit/WindowControl"]'
+			}
 		}
 
-		FolderPane {
-			id: leftPane
-			SplitView.preferredWidth: window.width / 2
-			directory: window.leftDirectory
-			active: window.activePane === leftPane
-			onActivated: window.activePane = leftPane
-			onFocusEdge: function (direction) { window.switchPane(direction) }
+		LayoutEngine {
+			id: topLayout
+			Layout.fillWidth: true
+			Layout.fillHeight: false
+			role: "top"
+			window: window
+			layoutString: window.currentDirectory ? window.currentDirectory.config.top_layout : "[]"
 		}
 
-		FolderPane {
-			id: rightPane
-			SplitView.preferredWidth: window.width / 2
-			directory: window.rightDirectory
-			active: window.activePane === rightPane
-			onActivated: window.activePane = rightPane
-			onFocusEdge: function (direction) { window.switchPane(direction) }
+		LayoutEngine {
+			id: middleLayout
+			Layout.fillWidth: true
+			Layout.fillHeight: true
+			role: "middle"
+			window: window
+			layoutString: window.testMiddleLayout.length > 0
+				? window.testMiddleLayout
+				: (window.currentDirectory ? window.currentDirectory.config.middle_layout : '["./"]')
+		}
+
+		LayoutEngine {
+			id: bottomLayout
+			Layout.fillWidth: true
+			Layout.fillHeight: false
+			role: "bottom"
+			window: window
+			layoutString: window.currentDirectory ? window.currentDirectory.config.bottom_layout : "[]"
 		}
 	}
-
-	Component.onCompleted: window.activePane = leftPane
 
 	Timer {
 		interval: 80
@@ -77,8 +184,8 @@ ApplicationWindow {
 		repeat: true
 		running: true
 		onTriggered: {
-			leftPane.directory.poll_descriptors()
-			rightPane.directory.poll_descriptors()
+			for (let i = 0; i < window.panes.length; i++)
+				window.panes[i].directory.poll_descriptors()
 		}
 	}
 }

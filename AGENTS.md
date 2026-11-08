@@ -18,7 +18,9 @@
   (Qt frontend). Qt code lives only in the outer repository.
 - Rust backend (`src/main.rs`) + Qt6 QML frontend (`src/qml/`). Bridged via `qtbridge`.
 - Main entry: `src/main.rs` registers `ConfigBridge`, `Directory`, and `PathBridge` with `QApp`.
-- QML entry: `src/qml/Main.qml` uses Qt Quick Controls and Kirigami icons.
+- QML entry: `src/qml/Main.qml`; `LayoutEngine.qml` loads the configured
+  Header/Top/Middle/Bottom components (`PathBar`, `ShellMenuBar`, `Spacer`, `WindowControl`,
+  `FolderPane`).
 - **Prefer Rust backend over JS inside QML for code implementation whenever possible.** Use qtbridge to expose Rust
   types/functions to QML rather than writing inline JavaScript logic.
 - **Pass a `window` property to each loaded component** to avoid unqualified access in QML.

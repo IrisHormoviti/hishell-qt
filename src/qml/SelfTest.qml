@@ -94,28 +94,45 @@ Item {
 		}
 		case 6:
 			test.check("drop applied", test.testBridge.exists(test.child + "/keep.txt"))
+			main.testMiddleLayout = '["./", "./"]'
+			break
+		case 7:
+			test.check("two panes", main.panes.length === 2)
 			main.activePane = main.leftPane
 			main.switchPane("right")
 			break
-		case 7:
+		case 8:
 			test.check("pane hand-off", main.activePane === main.rightPane)
 			main.activePane = main.leftPane
 			test.check("navigate submitted", test.leftDirectory.navigate(test.child))
 			break
-		case 8:
+		case 9:
 			test.check("transition rendered", main.leftPane.transitionDirection.length > 0)
 			test.check("navigate applied", test.leftDirectory.path === test.child)
 			test.leftDirectory.go_up()
 			break
-		case 9:
+		case 10:
 			test.check("go up applied", test.leftDirectory.path === test.dir)
 			test.leftDirectory.focus_first()
 			test.gamepadBefore = test.leftDirectory.focused_path
 			main.leftPane.handleGamepad("right")
 			break
-		case 10:
+		case 11:
 			test.check("gamepad moved focus",
 				test.leftDirectory.focused_path !== test.gamepadBefore)
+			test.leftDirectory.select(test.dir + "/b.txt")
+			break
+		case 12:
+			test.check("click selects one", test.leftDirectory.selectedCount === 1
+				&& test.leftDirectory.is_selected(test.dir + "/b.txt"))
+			test.leftDirectory.toggle_select(test.dir + "/c.txt")
+			break
+		case 13:
+			test.check("ctrl-click adds", test.leftDirectory.selectedCount === 2)
+			test.leftDirectory.clear_selection()
+			break
+		case 14:
+			test.check("clear selection", test.leftDirectory.selectedCount === 0)
 			test.done = true
 			Qt.quit()
 			break

@@ -118,10 +118,14 @@ hishell/                       # pure Rust, no Qt, no Slint, no KDE
   error.rs, lib.rs
 
 hishell-qt/                    # thin qtbridge desktop frontend
-  src/main.rs      # ConfigBridge, Directory, PathBridge
-  src/qml/Main.qml         # two-pane SplitView
-  src/qml/FolderPane.qml   # one folder pane and its transitions
-  Cargo.toml                   # hishell + qtbridge only
+  src/main.rs                # ConfigBridge, Directory, PathBridge
+  src/qml/Main.qml           # window and the Header/Top/Middle/Bottom stack
+  src/qml/LayoutEngine.qml   # loads the configured layout components
+  src/qml/FolderPane.qml     # one folder pane and its transitions
+  src/qml/PathBar.qml        # breadcrumbs, in-place path editing, Here menu
+  src/qml/ShellMenuBar.qml   # Edit/New/View menus
+  src/qml/Spacer.qml, WindowControl.qml
+  Cargo.toml                 # hishell + qtbridge only
 ```
 
 ### Dependency rules
@@ -2364,7 +2368,8 @@ Out of scope. The core APIs above are the contract.
 - `timeout 30s cargo run -p hishell-qt -- /tmp` and inspect.
 - Large folder on a slow target.
 - Grid and list modes; view controls change mode, lines, size, and labels and persist.
-- Selection, keyboard movement, and the plain focus rectangle.
+- Click selects one item; Ctrl-click toggles, Shift-click ranges, Space toggles the
+  focused item. Arrow keys move the focus rectangle; only the active pane draws it.
 - Double-click/Return opens a folder; Backspace/Alt+Up goes up.
 - New folder/new text, rotate, and toggle through the context menu.
 - Trash/delete confirmation, rename, and open-with dialogs.
@@ -2372,8 +2377,12 @@ Out of scope. The core APIs above are the contract.
 - With `--features gamepad`, gamepad directions, accept, cancel, menu, select, and
   directory map to the same focus/navigation/selection actions.
 - Free placement renders each slot at its stored cell.
-- Two panes keep independent folders; an arrow at a pane edge hands focus to the other
-  pane.
+- The Header/Top/Middle/Bottom arrays from `.cfg` are loaded through `LayoutEngine`.
+- The path bar shows breadcrumbs; clicking the current crumb opens the here menu.
+- The menu bar exposes Edit/New/View and the old shortcuts (F2, Delete, F5,
+  Alt+Up, Ctrl+Shift+N, Ctrl+A, Ctrl+O, Ctrl+W, …).
+- A middle layout with two `./` entries keeps independent folders; an arrow at a pane
+  edge hands focus to the other pane.
 - Opening a folder scales the pane content in; closing it scales out, using the core
   `NavigationPlan` relation.
 - A plain path, a `file://` URI, and a file argument all open the right folder.
@@ -2383,8 +2392,9 @@ Out of scope. The core APIs above are the contract.
 - A file owned by a descriptor generator gets its generated title and icon after the
   descriptor poll.
 
-The two visible panes are `FolderPane.qml` instances over separate `Directory`/`Engine`
-models. Each pane's focus is core `Focus`; the edge hand-off is frontend input mapping.
+Each `./` entry in the Middle layout becomes a `FolderPane` over its own
+`Directory`/`Engine`; the default layout has one, and two entries create two panes.
+Each pane's focus is core `Focus`; the edge hand-off is frontend input mapping.
 `Directory::navigate` and `go_up` return the core `NavigationPlan` as JSON, and the pane
 animates from its relation.
 
@@ -2528,9 +2538,12 @@ The frontend is:
 
 - `src/main.rs` — `ConfigBridge`, `Directory`, `PathBridge`, and the
   `QApp` entry point.
-- `src/qml/Main.qml` — the two-pane `SplitView`.
+- `src/qml/Main.qml` — the window and its Header/Top/Middle/Bottom layout engines.
+- `src/qml/LayoutEngine.qml` — loads the configured layout entries.
 - `src/qml/FolderPane.qml` — one pane: Qt Quick Controls, `Kirigami.Icon`, the
   plain focus rectangle, file-operation dialogs, and the `NavigationPlan` transition.
+- `src/qml/PathBar.qml` — breadcrumbs; the current crumb opens the here menu.
+- `src/qml/ShellMenuBar.qml` — Edit/New/View menus with the old shortcuts.
 - `src/gamepad.rs` — gilrs polling adapted to `Directory` focus commands; built with
   `--features gamepad` so a host without libudev development files can still build.
 

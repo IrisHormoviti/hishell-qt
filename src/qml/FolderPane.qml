@@ -4,19 +4,20 @@ import QtQuick.Layouts
 import hishell_qt
 import org.kde.kirigami as Kirigami
 
-Item {
+Kirigami.Page {
 	id: pane
 
 	property bool active: false
+	property var window: null
+	Layout.fillWidth: true
+	Layout.fillHeight: true
+	padding: 0
+	background: Rectangle { color: Kirigami.Theme.backgroundColor }
 
 	signal activated()
 	signal focusEdge(string direction)
 
-	required property var directory
-
-	PathBridge {
-		id: pathUtils
-	}
+	property var directory: null
 
 	property var contextActions: []
 	property string transitionDirection: ""
@@ -85,6 +86,40 @@ Item {
 		return labels[id] || id
 	}
 
+	function clickTarget(path, modifiers) {
+		const directory = pane.directory
+		if (!directory)
+			return
+		pane.activated()
+		directory.focus_path(path)
+		if (modifiers & Qt.ControlModifier) {
+			directory.toggle_select(path)
+		} else if (modifiers & Qt.ShiftModifier) {
+			directory.select_range(path)
+		} else if (directory.selectionActive) {
+			directory.select(path)
+		} else if (directory.config.open_on_click) {
+			directory.open(path)
+		} else {
+			directory.select(path)
+		}
+	}
+
+	function holdTarget(path) {
+		const directory = pane.directory
+		if (!directory)
+			return
+		pane.activated()
+		directory.focus_path(path)
+		directory.select(path)
+	}
+
+	function doubleTarget(path) {
+		const directory = pane.directory
+		if (directory && !directory.config.open_on_click)
+			directory.open(path)
+	}
+
 	function isFileIcon(source) {
 		return source.indexOf("file://") === 0 || source.indexOf("/") === 0
 	}
@@ -112,13 +147,21 @@ Item {
 			if (pane.directory.focused_path.length > 0)
 				pane.directory.open(pane.directory.focused_path)
 			event.accepted = true
+		} else if (event.key === Qt.Key_Escape) {
+			pane.directory.clear_selection()
+			event.accepted = true
+		} else if (event.key === Qt.Key_Space) {
+			if (pane.directory.focused_path.length > 0)
+				pane.directory.toggle_select(pane.directory.focused_path)
+			event.accepted = true
 		} else if (event.key === Qt.Key_Backspace) {
 			pane.directory.go_up()
 			event.accepted = true
 		}
 	}
 
-	Component.onCompleted: pane.directory.focus_first()
+	Component.onCompleted: if (pane.directory)
+		pane.directory.focus_first()
 
 
 	Connections {
@@ -250,117 +293,19 @@ Item {
 	}
 
 	readonly property var spec: {
+		if (!pane.directory)
+			return ({})
 		pane.directory.revision
 		return JSON.parse(pane.directory.view_json(grid.width, grid.height, 18, 4, 18))
 	}
 
-	ColumnLayout {
+
+	Frame {
+		id: content
 		anchors.fill: parent
-		spacing: 0
-
-		RowLayout {
-			Layout.fillWidth: true
-			Layout.margins: 8
-
-			Label {
-				text: pathUtils.folder_name(pane.directory.path)
-				font.bold: true
-			}
-
-			Label {
-				text: pane.directory.path
-				elide: Text.ElideMiddle
-				Layout.fillWidth: true
-			}
-
-			Label {
-				text: pane.spec.mode + " · " + (pane.spec.lines || 0) + " lines · "
-					+ Math.round(pane.spec.icon_size || 0) + "px"
-			}
-
-			Label {
-				text: pane.directory.selectedCount + " selected"
-				visible: pane.directory.selectionActive
-			}
-
-			Button {
-				text: "Up"
-				onClicked: pane.directory.go_up()
-			}
-
-			Button {
-				text: "Select all"
-				onClicked: pane.directory.select_all()
-			}
-
-			Button {
-				text: "Clear"
-				visible: pane.directory.selectionActive
-				onClicked: pane.directory.clear_selection()
-			}
-
-			Button {
-				text: "Reload"
-				onClicked: pane.directory.refresh_async()
-			}
-		}
-
-		RowLayout {
-			Layout.fillWidth: true
-			Layout.leftMargin: 8
-			Layout.rightMargin: 8
-			Layout.bottomMargin: 8
-
-			Label { text: "View" }
-
-			ComboBox {
-				model: ["Grid", "List"]
-				Component.onCompleted: currentIndex = pane.directory.config.view_mode === "LIST" ? 1 : 0
-				onActivated: pane.directory.set_config("view_mode", index === 1 ? "LIST" : "GRID")
-			}
-
-			Label { text: "Mode" }
-
-			ComboBox {
-				model: ["Lines", "Size"]
-				Component.onCompleted: currentIndex = pane.directory.config.grid_mode === "SIZE" ? 1 : 0
-				onActivated: pane.directory.set_config("grid_mode", index === 1 ? "SIZE" : "LINES")
-			}
-
-			Label { text: "Lines" }
-
-			SpinBox {
-				from: 1
-				to: 8
-				Component.onCompleted: value = pane.directory.config.grid_lines
-				onValueModified: pane.directory.set_config("grid_lines", String(value))
-			}
-
-			Label { text: "Icon" }
-
-			SpinBox {
-				from: 16
-				to: 256
-				stepSize: 8
-				Component.onCompleted: value = pane.directory.config.grid_size
-				onValueModified: pane.directory.set_config("grid_size", String(value))
-			}
-
-			CheckBox {
-				text: "Labels"
-				Component.onCompleted: checked = pane.directory.config.show_labels
-				onToggled: pane.directory.set_config("show_labels", checked ? "true" : "false")
-			}
-
-			Item { Layout.fillWidth: true }
-		}
-
-		Frame {
-			id: content
-			Layout.fillWidth: true
-			Layout.fillHeight: true
-			Layout.margins: 8
-			transformOrigin: Item.Center
+		padding: 0
+		background: Rectangle { color: "transparent" }
+		transformOrigin: Item.Center
 
 			DropArea {
 				anchors.fill: parent
@@ -429,7 +374,7 @@ Item {
 						color: "transparent"
 						border.width: 2
 						border.color: Kirigami.Theme.highlightColor
-						visible: pane.directory.focused_path === path
+						visible: pane.active && pane.directory.focused_path === path
 					}
 
 					Column {
@@ -448,7 +393,7 @@ Item {
 						Image {
 							width: pane.spec.icon_size || 48
 							height: width
-							source: cell.icon
+							source: pane.isFileIcon(cell.icon) ? cell.icon : ""
 							fillMode: Image.PreserveAspectFit
 							visible: cell.thumb.length === 0 && pane.isFileIcon(cell.icon)
 							anchors.horizontalCenter: parent.horizontalCenter
@@ -491,16 +436,16 @@ Item {
 						acceptedButtons: Qt.LeftButton | Qt.RightButton
 						drag.target: cell
 						onClicked: function (mouse) {
-							pane.activated()
 							if (mouse.button === Qt.RightButton) {
+								pane.activated()
 								pane.directory.focus_path(cell.path)
 								contextMenu.popup()
 							} else {
-								pane.directory.focus_path(cell.path)
-								pane.directory.toggle_select(cell.path)
+								pane.clickTarget(cell.path, mouse.modifiers)
 							}
 						}
-						onDoubleClicked: pane.directory.open(cell.path)
+						onPressAndHold: pane.holdTarget(cell.path)
+						onDoubleClicked: pane.doubleTarget(cell.path)
 					}
 				}
 			}
@@ -555,7 +500,7 @@ Item {
 						color: "transparent"
 						border.width: 2
 						border.color: Kirigami.Theme.highlightColor
-						visible: pane.directory.focused_path === path
+						visible: pane.active && pane.directory.focused_path === path
 					}
 
 					RowLayout {
@@ -573,7 +518,7 @@ Item {
 						}
 
 						Image {
-							source: row.icon
+							source: pane.isFileIcon(row.icon) ? row.icon : ""
 							width: 18
 							height: 18
 							fillMode: Image.PreserveAspectFit
@@ -615,16 +560,16 @@ Item {
 						acceptedButtons: Qt.LeftButton | Qt.RightButton
 						drag.target: row
 						onClicked: function (mouse) {
-							pane.activated()
 							if (mouse.button === Qt.RightButton) {
+								pane.activated()
 								pane.directory.focus_path(row.path)
 								contextMenu.popup()
 							} else {
-								pane.directory.focus_path(row.path)
-								pane.directory.toggle_select(row.path)
+								pane.clickTarget(row.path, mouse.modifiers)
 							}
 						}
-						onDoubleClicked: pane.directory.open(row.path)
+						onPressAndHold: pane.holdTarget(row.path)
+						onDoubleClicked: pane.doubleTarget(row.path)
 					}
 				}
 			}
@@ -671,7 +616,7 @@ Item {
 						color: "transparent"
 						border.width: 2
 						border.color: Kirigami.Theme.highlightColor
-						visible: pane.directory.focused_path === modelData.path
+						visible: pane.active && pane.directory.focused_path === modelData.path
 					}
 
 					Column {
@@ -690,7 +635,7 @@ Item {
 						Image {
 							width: 48
 							height: 48
-							source: modelData.icon
+							source: pane.isFileIcon(modelData.icon) ? modelData.icon : ""
 							fillMode: Image.PreserveAspectFit
 							visible: freeSlot.thumb.length === 0 && pane.isFileIcon(modelData.icon)
 							anchors.horizontalCenter: parent.horizontalCenter
@@ -733,19 +678,18 @@ Item {
 						acceptedButtons: Qt.LeftButton | Qt.RightButton
 						drag.target: freeSlot
 						onClicked: function (mouse) {
-							pane.activated()
 							if (mouse.button === Qt.RightButton) {
+								pane.activated()
 								pane.directory.focus_path(modelData.path)
 								contextMenu.popup()
 							} else {
-								pane.directory.focus_path(modelData.path)
-								pane.directory.toggle_select(modelData.path)
+								pane.clickTarget(modelData.path, mouse.modifiers)
 							}
 						}
-						onDoubleClicked: pane.directory.open(modelData.path)
+						onPressAndHold: pane.holdTarget(modelData.path)
+						onDoubleClicked: pane.doubleTarget(modelData.path)
 					}
 				}
 			}
 		}
-	}
 }
