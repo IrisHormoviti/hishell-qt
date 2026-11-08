@@ -55,8 +55,29 @@ fn build_kde_bridge() {
 	if let Some(canberra_include) = pkg_config_include("libcanberra") {
 		build.include(canberra_include);
 	}
+	if let Some(canberra_lib) = pkg_config_libdir("libcanberra") {
+		println!("cargo:rustc-link-search=native={}", canberra_lib.display());
+	}
 	let out_dir = env::var("OUT_DIR").expect("OUT_DIR is missing");
 	build.include(&out_dir);
+
+	let kf6_prefix = env::var("KF6_PREFIX")
+		.ok()
+		.map(PathBuf::from)
+		.or_else(|| {
+			let home = env::var("HOME").ok()?;
+			let path = PathBuf::from(home).join(".local/lib/kf6-devel");
+			path.is_dir().then_some(path)
+		});
+	if let Some(prefix) = &kf6_prefix {
+		// A user-local KF6 development prefix keeps only the unversioned
+		// linker names, so point the link step at it explicitly.
+		let lib_dir = prefix.join("lib");
+		if lib_dir.is_dir() {
+			println!("cargo:rustc-link-search=native={}", lib_dir.display());
+		}
+	}
+	println!("cargo:rerun-if-env-changed=KF6_PREFIX");
 
 	for component in [
 		"KService",
@@ -67,26 +88,35 @@ fn build_kde_bridge() {
 		"KIconThemes",
 	] {
 		// KF6 headers normally live under /usr/include/KF6, but a cross build
-		// (RG DS Plus sysroot) keeps them under the sysroot prefix. Honour a
-		// KF6_INCLUDE_PATH override, then try the sysroot the pkg-config setup
-		// points at, then the plain system location.
+		// (RG DS Plus sysroot) keeps them under the sysroot prefix and a
+		// user-local development prefix keeps them under its own include dir.
+		// Honour an explicit override first.
 		let include_dir = env::var("KF6_INCLUDE_PATH")
-			.map(|base| PathBuf::from(base).join(component))
-			.or_else(|_| {
-				env::var("PKG_CONFIG_SYSROOT_DIR").map(|sysroot| {
+			.ok()
+			.map(PathBuf::from)
+			.map(|base| base.join(component))
+			.or_else(|| {
+				kf6_prefix
+					.as_ref()
+					.map(|prefix| prefix.join("include").join(component))
+					.filter(|path| path.is_dir())
+			})
+			.or_else(|| {
+				env::var("PKG_CONFIG_SYSROOT_DIR").ok().map(|sysroot| {
 					PathBuf::from(sysroot)
 						.join("usr/include/KF6")
 						.join(component)
 				})
 			})
-			.unwrap_or_else(|_| PathBuf::from(format!("/usr/include/KF6/{component}")));
+			.unwrap_or_else(|| PathBuf::from(format!("/usr/include/KF6/{component}")));
 		if !include_dir.is_dir() {
 			panic!(
 				"KDE Frameworks 6 headers not found at {}.\n\
 				Install the KF6 development packages to build hishell-qt:\n\
 				\u{20} Arch:   sudo pacman -S kservice kio\n\
 				\u{20} Debian: sudo apt install libkf6service-dev libkf6kio-dev libkf6coreaddons-dev\n\
-				\u{20} Fedora: sudo dnf install kf6-kservice-devel kf6-kio-devel kf6-kcoreaddons-devel",
+				\u{20} Fedora: sudo dnf install kf6-kservice-devel kf6-kio-devel kf6-kcoreaddons-devel\n\
+				Or set KF6_PREFIX to a prefix containing include/KF6 and lib/.",
 				include_dir.display()
 			);
 		}
@@ -135,6 +165,25 @@ fn pkg_config_include(package: &str) -> Option<PathBuf> {
 	let text = String::from_utf8_lossy(&output.stdout);
 	for flag in text.split_whitespace() {
 		if let Some(dir) = flag.strip_prefix("-I") {
+			return Some(PathBuf::from(dir));
+		}
+	}
+	None
+}
+
+/// Ask pkg-config for a package's library directory, so a library installed
+/// outside the default linker path (a Homebrew or user prefix) still links.
+fn pkg_config_libdir(package: &str) -> Option<PathBuf> {
+	let output = Command::new("pkg-config")
+		.args(["--libs-only-L", package])
+		.output()
+		.ok()?;
+	if !output.status.success() {
+		return None;
+	}
+	let text = String::from_utf8_lossy(&output.stdout);
+	for flag in text.split_whitespace() {
+		if let Some(dir) = flag.strip_prefix("-L") {
 			return Some(PathBuf::from(dir));
 		}
 	}

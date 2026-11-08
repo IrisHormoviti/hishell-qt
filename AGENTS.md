@@ -56,6 +56,7 @@
 
 - Rust toolchain + `cargo`
 - Qt6 development packages (Core, Gui, Qml, Quick)
+- A user-local KF6 development prefix is detected at `~/.local/lib/kf6-devel`; set `KF6_PREFIX` to override it.
 - CMake ≥ 3.20
 - pkg-config
 - ImageMagick (`magick` or `convert`)
