@@ -1084,6 +1084,35 @@ mod tests {
 	}
 
 	#[test]
+	fn the_adapter_pushes_its_pane_into_the_core() {
+		use super::{FocusManager, Pane};
+		use hishell::{Direction, FocusCommand, PaneId};
+
+		let mut manager = FocusManager::default();
+		manager.panes.push((
+			7,
+			Pane {
+				paths: vec![
+					String::from("/tmp/a"),
+					String::from("/tmp/b"),
+					String::from("/tmp/c"),
+				],
+				index: 0,
+				active: true,
+				columns: 2,
+				..Pane::default()
+			},
+		));
+		manager.current = 7;
+		manager.push_pane(7);
+		assert_eq!(manager.core.pane_index(PaneId(7)), 0);
+		assert!(manager.core.apply(FocusCommand::Move(Direction::Right)));
+		manager.pull_pane(7);
+		assert_eq!(manager.panes[0].1.index, 1);
+		assert_eq!(manager.panes[0].1.cursor, None);
+	}
+
+	#[test]
 	fn a_painted_path_keeps_its_own_paint() {
 		let element = paint("<path fill=\"#fff\" d=\"m0 0z\"/>", "#28b478");
 		assert!(element.contains("fill=\"#28b478\""), "{element}");
