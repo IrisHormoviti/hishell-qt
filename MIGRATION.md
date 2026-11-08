@@ -2149,8 +2149,9 @@ Status:
 
 The frontend submits file operations through `Engine::Invoke` and `Command::Run`; jobs
 run on `hishell::Jobs` and `Engine::tick` delivers their events. The qtbridge `Directory`
-refreshes its rows after a job and resets the model. The old `FileManager` adapter, its
-`poll_jobs` signals, and the drag/drop call sites are gone with the `qmetaobject` tree.
+refreshes its rows after a job and resets the model. Rename, trash/delete confirmation,
+open-with, and drag/drop copy/move/link are QML dialogs and `Directory` slots over those
+core commands.
 The frontend reads and writes its saved location and focus through
 `hishell::session::SessionStore`; the ClamOS handover markers were removed with the legacy
 frontend.
@@ -2175,8 +2176,8 @@ file/refresh/go-up/select-all/duplicate/create-link/rotate/toggle/quit-active th
 engine, and rename/open-with/destroy/number return typed `Prompt` effects. Unimplemented
 actions return `FrontendRequest`. The qtbridge `Directory` exposes
 `actions_json(menu, target)` and `invoke(action)`; the QML context menu is built from
-`Engine::actions` and dispatches `Command::Invoke`. The old `CoreActions`/
-`ActionManager.qml` renderer is gone.
+`Engine::actions` and dispatches `Command::Invoke`. Rename, trash/delete, and open-with
+prompts open Qt dialogs; the old `CoreActions`/`ActionManager.qml` renderer is gone.
 
 1. Move selection state and range/toggle semantics; dispatch `SelectionCommand`.
 2. Add `ActionId` newtype, `ActionDescriptor`, `ActionRequest`, `MenuKind` (including
@@ -2353,12 +2354,13 @@ Out of scope. The core APIs above are the contract.
 - Selection, keyboard movement, and the plain focus rectangle.
 - Double-click/Return opens a folder; Backspace/Alt+Up goes up.
 - New folder/new text, rotate, and toggle through the context menu.
+- Trash/delete confirmation, rename, and open-with dialogs.
+- Drag a file/folder onto another folder to copy, move, or link it.
 - A plain path, a `file://` URI, and a file argument all open the right folder.
 - The saved session path restores on the next start.
 - Icons: themed names and file paths.
 
-Future frontend parity (not part of the thin frontend yet): trash/delete confirmation,
-rename, open-with, drag/drop, multi-pane transitions, free placement, thumbnails,
+Future frontend parity: multi-pane transitions, free placement, thumbnails,
 AppImage/descriptor enrichment, and gamepad input. The core APIs for them remain.
 
 ## 9. Risks and mitigations

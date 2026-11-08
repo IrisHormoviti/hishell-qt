@@ -4,10 +4,12 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use hishell::platform::{AppCatalog, FreeDesktopApps};
 use hishell::{
-	ActionId, ActionRequest, ChangeSet, Command, Config, ConfigKey, ConfigValue, Direction, Engine,
-	FocusCommand, FolderDelta, FolderMode, Location, MenuKind, Metrics, PaneId, Target,
-	ViewRequest, ViewSpec, Viewport,
+	ActionId, ActionRequest, AppId, ChangeSet, Command, Config, ConfigKey, ConfigValue,
+	CopyOptions, Direction, Effect, Engine, FocusCommand, FolderDelta, FolderMode, LaunchRequest,
+	Location, MenuKind, Metrics, Op, Overwrite, PaneId, Prompt, Target, ViewRequest, ViewSpec,
+	Viewport,
 };
 use qtbridge::{
 	QApp, QListModel, QListModelBase, QModelItem, QmlObject, include_bytes_qml, qobject,
@@ -374,14 +376,32 @@ fn supported_action(id: &str) -> bool {
 	matches!(
 		id,
 		"open"
+			| "open-with"
 			| "navigate"
 			| "go-up" | "refresh"
 			| "select-all"
 			| "new-folder"
 			| "new-text-file"
+			| "rename"
+			| "trash" | "delete"
+			| "destroy"
 			| "toggle"
 			| "rotate-image"
 	)
+}
+
+fn parse_uris(text: &str) -> Vec<PathBuf> {
+	text.lines()
+		.map(str::trim)
+		.filter(|line| !line.is_empty() && !line.starts_with('#'))
+		.map(|line| {
+			if let Some(rest) = line.strip_prefix("file://") {
+				PathBuf::from(percent_decode(rest))
+			} else {
+				PathBuf::from(line)
+			}
+		})
+		.collect()
 }
 
 fn direction_from(name: &str) -> Option<Direction> {
@@ -605,6 +625,52 @@ impl Directory {
 		}
 	}
 
+	fn target_paths(&self) -> Vec<PathBuf> {
+		let Some(engine) = &self.engine else {
+			return Vec::new();
+		};
+		if let Some(selection) = engine.selection()
+			&& selection.active()
+			&& !selection.is_empty()
+		{
+			return selection
+				.items()
+				.iter()
+				.filter_map(|id| engine.item(*id))
+				.map(|item| item.path.clone())
+				.collect();
+		}
+		engine
+			.focus()
+			.and_then(|id| engine.item(id))
+			.map(|item| item.path.clone())
+			.into_iter()
+			.collect()
+	}
+
+	fn schedule_refresh(&self, millis: u64) {
+		let handle = self.get_thread_handle();
+		std::thread::spawn(move || {
+			std::thread::sleep(std::time::Duration::from_millis(millis));
+			handle.invoke_mut(|directory: &mut Directory| directory.refresh_now());
+		});
+	}
+
+	fn run_op(&mut self, op: Op) -> bool {
+		let job = match self.engine.as_mut() {
+			Some(engine) => match engine.dispatch(Command::Run(op)) {
+				Ok(outcome) => outcome.job.is_some(),
+				Err(_) => return false,
+			},
+			None => return false,
+		};
+		self.after_engine_change();
+		if job {
+			self.schedule_refresh(400);
+		}
+		true
+	}
+
 	fn selection_id(&self, path: &str) -> Option<hishell::ItemId> {
 		let engine = self.engine.as_ref()?;
 		engine.item_at(Path::new(path)).map(|item| item.id)
@@ -657,6 +723,15 @@ impl Directory {
 
 	#[qsignal]
 	fn focus_changed(&mut self);
+
+	#[qsignal]
+	fn rename_requested(&mut self, path: String, suggested: String);
+
+	#[qsignal]
+	fn trash_requested(&mut self, paths_json: String, permanent: bool);
+
+	#[qsignal]
+	fn open_with_requested(&mut self, path: String);
 
 	#[qsignal]
 	fn revision_changed(&mut self);
@@ -793,6 +868,37 @@ impl Directory {
 		let Some(action) = ActionId::from_str(&id) else {
 			return String::from("{}");
 		};
+		if action == ActionId::RENAME
+			|| action == ActionId::TRASH
+			|| action == ActionId::DELETE
+			|| action == ActionId::DESTROY
+			|| action == ActionId::OPEN_WITH
+		{
+			let paths = self.target_paths();
+			if action == ActionId::RENAME {
+				if let Some(path) = paths.first() {
+					let suggested = path
+						.file_name()
+						.map(|name| name.to_string_lossy().into_owned())
+						.unwrap_or_default();
+					self.rename_requested(path.to_string_lossy().into_owned(), suggested);
+				}
+			} else if action == ActionId::OPEN_WITH {
+				if let Some(path) = paths.first() {
+					self.open_with_requested(path.to_string_lossy().into_owned());
+				}
+			} else {
+				let paths: Vec<String> = paths
+					.iter()
+					.map(|path| path.to_string_lossy().into_owned())
+					.collect();
+				self.trash_requested(
+					serde_json::to_string(&paths).unwrap_or_else(|_| String::from("[]")),
+					action != ActionId::TRASH,
+				);
+			}
+			return String::from("{}");
+		}
 		let Some(engine) = self.engine.as_mut() else {
 			return String::from("{}");
 		};
@@ -810,18 +916,126 @@ impl Directory {
 		self.path_changed();
 		self.revision_changed();
 		self.selection_changed();
+		let effect_count = outcome.effects.len();
+		for effect in outcome.effects {
+			match effect {
+				Effect::Prompt(Prompt::Rename { path, suggested }) => {
+					self.rename_requested(path.to_string_lossy().into_owned(), suggested);
+				}
+				Effect::Prompt(Prompt::OpenWith { path }) => {
+					self.open_with_requested(path.to_string_lossy().into_owned());
+				}
+				Effect::Prompt(Prompt::Destroy { paths }) => {
+					let paths: Vec<String> = paths
+						.iter()
+						.map(|path| path.to_string_lossy().into_owned())
+						.collect();
+					self.trash_requested(
+						serde_json::to_string(&paths).unwrap_or_else(|_| String::from("[]")),
+						true,
+					);
+				}
+				_ => {}
+			}
+		}
 		if job {
-			let handle = self.get_thread_handle();
-			std::thread::spawn(move || {
-				std::thread::sleep(std::time::Duration::from_millis(250));
-				handle.invoke_mut(|directory: &mut Directory| directory.refresh_now());
-			});
+			self.schedule_refresh(250);
 		}
 		serde_json::json!({
-			"effects": outcome.effects.len(),
+			"effects": effect_count,
 			"job": job,
 		})
 		.to_string()
+	}
+
+	#[qslot]
+	fn rename(&mut self, path: String, new_name: String) -> bool {
+		self.run_op(Op::Rename {
+			path: PathBuf::from(path),
+			new_name,
+		})
+	}
+
+	#[qslot]
+	fn trash(&mut self, paths_json: String, permanent: bool) -> bool {
+		let paths: Vec<PathBuf> = serde_json::from_str::<Vec<String>>(&paths_json)
+			.unwrap_or_default()
+			.into_iter()
+			.map(PathBuf::from)
+			.collect();
+		if paths.is_empty() {
+			return false;
+		}
+		let op = if permanent {
+			Op::Delete { paths }
+		} else {
+			Op::Trash { paths }
+		};
+		self.run_op(op)
+	}
+
+	#[qslot]
+	fn drop(&mut self, uris: String, dest: String, action: String) -> bool {
+		let dest = PathBuf::from(dest);
+		if !dest.is_dir() {
+			return false;
+		}
+		let sources = parse_uris(&uris);
+		if sources.is_empty() {
+			return false;
+		}
+		let options = CopyOptions {
+			overwrite: Overwrite::Replace,
+			..CopyOptions::default()
+		};
+		let op = match action.as_str() {
+			"move" => Op::Move {
+				sources,
+				dest,
+				options,
+			},
+			"link" => Op::Link { sources, dest },
+			_ => Op::Copy {
+				sources,
+				dest,
+				options,
+			},
+		};
+		self.run_op(op)
+	}
+
+	#[qslot]
+	fn apps_json(&self, path: String) -> String {
+		let apps = FreeDesktopApps;
+		let entries: Vec<serde_json::Value> = apps
+			.apps_for(Path::new(&path))
+			.into_iter()
+			.map(|app| {
+				serde_json::json!({
+					"id": app.id.0,
+					"name": app.name,
+					"icon": match app.icon {
+						Some(hishell::IconRef::Theme(name)) => name,
+						Some(hishell::IconRef::Path(path)) => format!("file://{}", path.to_string_lossy()),
+						None => String::new(),
+					},
+				})
+			})
+			.collect();
+		serde_json::to_string(&entries).unwrap_or_else(|_| String::from("[]"))
+	}
+
+	#[qslot]
+	fn open_with(&mut self, path: String, app: String) -> bool {
+		let Some(engine) = self.engine.as_mut() else {
+			return false;
+		};
+		engine
+			.dispatch(Command::Launch(LaunchRequest::App {
+				path: PathBuf::from(path),
+				app: AppId(app),
+			}))
+			.is_ok()
 	}
 
 	#[qslot]
@@ -1045,4 +1259,26 @@ fn main() {
 
 	include_bytes_qml!("qml", "hishell_qt");
 	app.load_qml_from_file("qrc:/hishell_qt/qml/Main.qml").run();
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn uri_lists_decode_file_urls() {
+		assert_eq!(
+			parse_uris("file:///tmp/a%20b\n# comment\n/tmp/c\n"),
+			vec![PathBuf::from("/tmp/a b"), PathBuf::from("/tmp/c")]
+		);
+		assert!(parse_uris("").is_empty());
+	}
+
+	#[test]
+	fn only_implemented_actions_reach_the_menu() {
+		assert!(supported_action("rename"));
+		assert!(supported_action("trash"));
+		assert!(supported_action("open-with"));
+		assert!(!supported_action("copy"));
+	}
 }

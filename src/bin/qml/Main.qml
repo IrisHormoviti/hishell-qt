@@ -19,6 +19,26 @@ ApplicationWindow {
 
 	property var contextActions: []
 
+	function actionLabel(id) {
+		const labels = {
+			"open": "Open",
+			"open-with": "Open With…",
+			"navigate": "Navigate",
+			"go-up": "Go Up",
+			"refresh": "Refresh",
+			"select-all": "Select All",
+			"new-folder": "New Folder",
+			"new-text-file": "New Text File",
+			"rename": "Rename…",
+			"trash": "Move to Trash…",
+			"delete": "Delete…",
+			"destroy": "Delete Permanently…",
+			"toggle": "Toggle",
+			"rotate-image": "Rotate Clockwise"
+		}
+		return labels[id] || id
+	}
+
 	function isFileIcon(source) {
 		return source.indexOf("file://") === 0 || source.indexOf("/") === 0
 	}
@@ -52,6 +72,86 @@ ApplicationWindow {
 
 	Component.onCompleted: window.directory.focus_first()
 
+	Connections {
+		target: window.directory
+		function onRename_requested(path, suggested) {
+			renameDialog.targetPath = path
+			renameDialog.originalName = suggested
+			renameDialog.open()
+		}
+		function onTrash_requested(pathsJson, permanent) {
+			trashDialog.pathsJson = pathsJson
+			trashDialog.permanent = permanent
+			trashDialog.open()
+		}
+		function onOpen_with_requested(path) {
+			openWithDialog.targetPath = path
+			openWithDialog.open()
+		}
+	}
+
+	Dialog {
+		id: renameDialog
+		property string targetPath: ""
+		property string originalName: ""
+		modal: true
+		title: "Rename"
+		standardButtons: Dialog.Ok | Dialog.Cancel
+		onOpened: renameField.text = originalName
+		onAccepted: {
+			if (targetPath.length > 0 && renameField.text.length > 0
+					&& renameField.text !== originalName)
+				window.directory.rename(targetPath, renameField.text)
+		}
+
+		ColumnLayout {
+			anchors.fill: parent
+			TextField {
+				id: renameField
+				Layout.fillWidth: true
+			}
+		}
+	}
+
+	Dialog {
+		id: trashDialog
+		property string pathsJson: "[]"
+		property bool permanent: false
+		modal: true
+		title: permanent ? "Delete permanently?" : "Move to Trash?"
+		standardButtons: Dialog.Ok | Dialog.Cancel
+		onAccepted: window.directory.trash(pathsJson, permanent)
+
+		Label {
+			text: permanent ? "This cannot be undone." : "The items can be restored from the trash."
+		}
+	}
+
+	Dialog {
+		id: openWithDialog
+		property string targetPath: ""
+		property var apps: []
+		modal: true
+		title: "Open With"
+		standardButtons: Dialog.Cancel
+		onOpened: apps = JSON.parse(window.directory.apps_json(targetPath))
+
+		ColumnLayout {
+			Repeater {
+				model: openWithDialog.apps
+				Button {
+					required property var modelData
+					Layout.fillWidth: true
+					text: modelData.name
+					onClicked: {
+						window.directory.open_with(openWithDialog.targetPath, modelData.id)
+						openWithDialog.close()
+					}
+				}
+			}
+		}
+	}
+
 	Menu {
 		id: contextMenu
 		onAboutToShow: window.contextActions = JSON.parse(
@@ -62,7 +162,7 @@ ApplicationWindow {
 
 			MenuItem {
 				required property var modelData
-				text: modelData.id
+				text: window.actionLabel(modelData.id)
 				enabled: modelData.enabled
 				onTriggered: window.directory.invoke(modelData.id)
 			}
@@ -180,6 +280,18 @@ ApplicationWindow {
 			Layout.fillHeight: true
 			Layout.margins: 8
 
+			DropArea {
+				anchors.fill: parent
+				onDropped: function (drop) {
+					const action = drop.proposedAction === Qt.MoveAction ? "move"
+						: drop.proposedAction === Qt.LinkAction ? "link" : "copy"
+					const uris = drop.urls && drop.urls.length > 0
+						? drop.urls.join("\n") : drop.text
+					window.directory.drop(uris, window.directory.path, action)
+					drop.acceptProposedAction()
+				}
+			}
+
 			GridView {
 				id: grid
 				anchors.fill: parent
@@ -199,6 +311,13 @@ ApplicationWindow {
 					required property string path
 					required property string icon
 					required property bool is_directory
+
+					Drag.active: dragArea.drag.active
+					Drag.dragType: Drag.Automatic
+					Drag.supportedActions: Qt.CopyAction | Qt.MoveAction | Qt.LinkAction
+					Drag.mimeData: ({ "text/uri-list": "file://" + path })
+					Drag.hotSpot.x: 8
+					Drag.hotSpot.y: 8
 
 					readonly property bool selected: {
 						window.directory.selectionRevision
@@ -254,9 +373,26 @@ ApplicationWindow {
 						}
 					}
 
+					DropArea {
+						anchors.fill: parent
+						enabled: cell.is_directory
+						onDropped: function (drop) {
+							if (!cell.is_directory)
+								return
+							const action = drop.proposedAction === Qt.MoveAction ? "move"
+								: drop.proposedAction === Qt.LinkAction ? "link" : "copy"
+							const uris = drop.urls && drop.urls.length > 0
+								? drop.urls.join("\n") : drop.text
+							window.directory.drop(uris, cell.path, action)
+							drop.acceptProposedAction()
+						}
+					}
+
 					MouseArea {
+						id: dragArea
 						anchors.fill: parent
 						acceptedButtons: Qt.LeftButton | Qt.RightButton
+						drag.target: cell
 						onClicked: function (mouse) {
 							if (mouse.button === Qt.RightButton) {
 								window.directory.focus_path(cell.path)
@@ -287,6 +423,14 @@ ApplicationWindow {
 					required property string name
 					required property string path
 					required property string icon
+					required property bool is_directory
+
+					Drag.active: rowDrag.drag.active
+					Drag.dragType: Drag.Automatic
+					Drag.supportedActions: Qt.CopyAction | Qt.MoveAction | Qt.LinkAction
+					Drag.mimeData: ({ "text/uri-list": "file://" + path })
+					Drag.hotSpot.x: 8
+					Drag.hotSpot.y: 8
 
 					readonly property bool selected: {
 						window.directory.selectionRevision
@@ -338,9 +482,26 @@ ApplicationWindow {
 						}
 					}
 
+					DropArea {
+						anchors.fill: parent
+						enabled: row.is_directory
+						onDropped: function (drop) {
+							if (!row.is_directory)
+								return
+							const action = drop.proposedAction === Qt.MoveAction ? "move"
+								: drop.proposedAction === Qt.LinkAction ? "link" : "copy"
+							const uris = drop.urls && drop.urls.length > 0
+								? drop.urls.join("\n") : drop.text
+							window.directory.drop(uris, row.path, action)
+							drop.acceptProposedAction()
+						}
+					}
+
 					MouseArea {
+						id: rowDrag
 						anchors.fill: parent
 						acceptedButtons: Qt.LeftButton | Qt.RightButton
+						drag.target: row
 						onClicked: function (mouse) {
 							if (mouse.button === Qt.RightButton) {
 								window.directory.focus_path(row.path)
