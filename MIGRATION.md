@@ -95,32 +95,23 @@ standalone (`cargo build` inside `hishell/`).
 
 ```
 hishell/                       # pure Rust, no Qt, no Slint, no KDE
-  engine.rs                    # Engine, Deps, Command, Outcome
-  config/                      # Config, ConfigKey schema, parser, validation, writes
-  view/                        # ViewSpec, LayoutSpec, grid/list math
+  engine.rs                    # Engine, Deps, Command, Outcome, Effect
+  change.rs                    # ChangeSet, FolderDelta, ConfigDelta
+  config.rs, config_parser.rs  # Config, ConfigKey, parser, writes
+  value.rs
+  view.rs, layout.rs           # ViewSpec, grid/list math, grouped/free slots
   location.rs                  # Location = Folder(Folder) | File(File)
-  folder/                      # scan, Item, sort, group, filter, slots, selection
-  file.rs                      # single-file state, metadata, preview
-  selection.rs                 # Selection (owned by Folder)
-  action/                      # action registry, ActionRequest, availability, invocation
-  ops/                         # pure filesystem operations
-  jobs.rs                      # worker pool, JobHandle, JobOutcome, JobEvent
-  platform/                    # OS/desktop capabilities
-    mod.rs                     # capability traits + Platform
-    exec.rs                    # XDG desktop entries + Command
-    mime.rs                    # mime_guess/infer + mimeapps.list
-    apps.rs                    # default app / open-with
-    clipboard.rs               # wl-copy/xclip/xsel
-    icons.rs                   # IconRef resolution helpers
-  desktop.rs                   # .desktop parsing
-  descriptor.rs                # .directory/descriptor lookup and generation
-  thumbnail.rs                 # pure Rust thumbnails (platform may override)
-  appimage.rs, squashfs.rs
-  execution.rs, session.rs     # execution wrapper, launch lifecycle, SessionStore
-  path.rs, navigation.rs       # lexical paths, relations, transition plans
-  image.rs, destroy.rs
-  diag.rs                      # perf_mode/perf_log
-  change.rs                    # ChangeSet, FolderDelta, ConfigDelta, ...
+  folder.rs                    # scan, sort, apply config, radio helpers
+  item.rs, entry.rs, icon.rs   # Item, ItemId, IconRef, entry types, MIME icons
+  group.rs                     # date, letter, type, custom, and stash groups
+  selection.rs                 # Selection
+  navigation.rs, path.rs       # PathRelation, NavigationPlan, lexical helpers
+  history.rs, session.rs       # back/forward stacks, SessionStore
+  ops.rs, jobs.rs              # file operations and the worker pool
+  execution.rs                 # wrapper, preflight, spawner, launch lifecycle
+  platform.rs                  # capability traits and FreeDesktop implementations
+  squashfs.rs                  # AppImage support
+  error.rs, lib.rs
 
 hishell-qt/                    # standalone Qt desktop app
   src/main.rs                  # QApp setup
@@ -1474,6 +1465,10 @@ impl SessionStore {
 - The location kind is persisted, so a file location survives a restart.
 - `Engine::open` uses the store; tests use a temp directory or an in-memory implementation.
 
+Status: `hishell::session::SessionStore` exists with the versioned `SessionData` schema,
+atomic write, `load`, `save`, and `startup_location`. The engine does not construct it yet;
+the Qt adapter still reads and writes `src/session.rs` until the startup path moves over.
+
 ### 4.12 Raw mode
 
 `Mode::Raw` is an engine policy, not a frontend flag:
@@ -1654,6 +1649,12 @@ Rules:
 - `SessionStore` persists the back/forward stacks.
 - A failed or cancelled navigation is not recorded.
 - Raw and Config modes share the same history behaviour.
+
+Status: `hishell::history::History` owns the back/forward stacks and the
+oldest-to-newest snapshot used by `SessionData`. `Engine::dispatch(Command::History)` and
+`Engine::history` use it; the initial location is recorded on open and `Command::Navigate`
+records only when `record_history` is set. Persisting the stacks through `SessionStore`
+remains for the Qt startup adapter.
 
 ## 5. Qt frontend
 
@@ -1942,8 +1943,10 @@ Status:
   `GridSpec`, list/sort/group/interaction specs, and the `LINES`/`SIZE` grid math.
 - Tests cover defaults, section/scope lookup, deltas, invalid enums, config precedence,
   two engines in one process, raw mode, a file location, and both grid modes.
-- Remaining: replace the Qt `Config` QObject with a bridge over `hishell::Config`, feed
-  `FolderView` from `Engine::view`, and reroute the View menu through `ConfigKey`.
+- The qtbridge frontend mirrors `hishell::Config` through `ConfigBridge`, feeds its grid
+  from `Engine::view`, and routes view controls through `ConfigKey`.
+- Remaining: the shipping `qmetaobject` frontend still has its own `Config` QObject and
+  `Directory` scan. It moves to the bridge only once the qtbridge target reaches parity.
 
 Checkpoint:
 
@@ -1978,6 +1981,23 @@ Checkpoint:
 - `cargo tree -p hishell` still has no Qt dependencies.
 - File operations do not call the platform layer.
 - Tests inject fake `Platform`, `Spawner`, and `Clock` implementations.
+
+Status:
+
+- `hishell::platform` defines `Launcher`, `AppCatalog`, `MimeResolver`, `Thumbnailer`,
+  `SoundPlayer`, `Portal`, and the `Platform` aggregate. `Platform::free_desktop` supplies
+  the pure-Rust MIME resolver and application catalog; missing capabilities use the
+  documented fallbacks.
+- `FreeDesktopApps` scans the XDG application directories and reads `mimeapps.list` for
+  default applications. `set_default` writes the user `mimeapps.list`; the last `gio`
+  subprocess is therefore gone from the core path.
+- `hishell::execution` owns `Execution`, `LaunchId`, the wrapper, `--preflight`,
+  confirm/cancel, `HISHELL_APP_*`/`HISHELL_SCREEN`, launch markers, active launches, and
+  `quit`. `Spawner` and `Clock` are injectable.
+- `Engine` exposes `Command::Launch`, `ConfirmLaunch`, `CancelLaunch`, `QuitActive`, and
+  returns `Effect::Launch` / `Effect::LaunchEvent`.
+- Remaining: the Qt adapters still call `kde_bridge` for KDE MIME, KIO, portals, and
+  thumbnails; moving those to `Platform` implementations is frontend work.
 
 ### Phase 2 — Core `Location` and `Folder`
 
@@ -2123,8 +2143,8 @@ Status:
 - Tests cover copy trees, overwrite refusal, move/duplicate/rename/new/delete, cancellation,
   worker completion, and the engine job pump.
 
-Remaining: adapter submit/signal methods, QML async call sites, declined-drop waiting, and
-the execution service/preflight.
+The execution service/preflight is in place (`hishell::execution`, §7 Phase 1.5).
+Remaining: adapter submit/signal methods, QML async call sites, and declined-drop waiting.
 
 Checkpoint:
 
@@ -2135,6 +2155,11 @@ Checkpoint:
 - No KDE calls in the operation path.
 
 ### Phase 4 — Core `Selection` and `Actions`
+
+Status: selection state is in core (`Folder::selection`, `SelectionCommand` values in
+`Engine::dispatch`). The action registry, `ActionId`, `ActionRequest`, typed
+`Prompt`/`Notice`, and menu composition are not implemented yet; `ActionManager.qml`
+still owns enablement and visible/hidden decisions.
 
 1. Move selection state and range/toggle semantics; dispatch `SelectionCommand`.
 2. Add `ActionId` newtype, `ActionDescriptor`, `ActionRequest`, `MenuKind` (including
@@ -2167,6 +2192,9 @@ Checkpoint:
 
 ### Phase 5 — Core `Focus` state
 
+Status: not started. `FocusSpec` exists in `FolderView`, but focus navigation and pane
+state still live in `focus_manager.rs` and the QML input handlers.
+
 1. Move pane state, navigation math, and status strings.
 2. Remove top-screen publishing.
 3. Keep key/gamepad mapping, repeat/acceleration, and drag gesture state in `hishell-qt`.
@@ -2182,6 +2210,10 @@ Checkpoint:
 - Multi-pane navigation and focus-visible scrolling still work.
 
 ### Phase 6 — Native KDE UI cleanup
+
+Status: not started in the shipping app. The qtbridge preview already uses native Qt Quick
+Controls and Kirigami icons; `theme_icons.rs`, `Theme/Icon.qml`, and the accent-icon hooks
+remain for the shipping `qmetaobject` frontend.
 
 The qtbridge port runs in parallel on the `qtbridge` branch:
 
@@ -2367,15 +2399,34 @@ Out of scope. The core APIs above are the contract.
 - The app runs with `cargo run -p hishell-qt -- /tmp` and passes the manual checklist.
 - A future Slint frontend can depend on `hishell` without touching Qt.
 
+## 12. Migration status
+
+| Phase | State | Remaining |
+|---|---|---|
+| 0 — repository split | done | — |
+| 0.5 — qtbridge spike | green on x86_64 | aarch64 certification |
+| 1 — Engine, config, view | core and qtbridge done | shipping `qmetaobject` config/view swap |
+| 1.5 — platform and execution | core done | KDE adapters and portal/thumbnail/sound implementations |
+| 2 — Location and Folder | core done | descriptor roots, AppImage metadata, generator icons in core |
+| 2.5 — navigation plans | done | frontend uses the JSON shim until it moves to typed plans |
+| 3 — ops, jobs, execution | core done | adapter submit/signal methods and QML async call sites |
+| 4 — selection and actions | selection done | action registry and menus |
+| 5 — focus state | not started | core focus navigation |
+| 6 — native KDE cleanup | not started in shipping app | delete ClamOS theme stack and accent-icon hooks |
+
+The core rules hold today: `hishell` has no Qt/KDE dependency, mutations return typed
+changes and effects, and the qtbridge frontend renders from `Engine` state. The shipping
+binary remains on `qmetaobject` until the remaining phases land.
+
 ## Appendix A — Deletion checklist
 
 Rust:
 
-- [ ] `src/topscreen.rs`
-- [ ] `src/keyboard.rs`
-- [ ] `query_gio_icon` and every `Command::new("gio")` / GLib icon shell-out
-- [ ] `FileManager::{request_text_entry, poll_text_entry, cancel_text_entry, keyboard_available}`
-- [ ] `focus_manager::publish_focus`, `publish_focus_now`, `published_focus`, `focus_file`
+- [x] `src/topscreen.rs`
+- [x] `src/keyboard.rs`
+- [x] `query_gio_icon` and every `Command::new("gio")` / GLib icon shell-out
+- [x] `FileManager::{request_text_entry, poll_text_entry, cancel_text_entry, keyboard_available}`
+- [x] `focus_manager::publish_focus`, `publish_focus_now`, `published_focus`, `focus_file`
 - [ ] focus-border SVG parsing/recolouring functions
 - [ ] `src/theme_icons.rs`
 - [ ] `kde_bridge::{accent_icon, set_icon_theme, warm_icons, render_pending_icon, has_pending_icons}`
@@ -2383,9 +2434,9 @@ Rust:
 
 QML:
 
-- [ ] `CoreTheme.qml`
-- [ ] `Theme/Clamos.qml`
-- [ ] `StyleThemeBridge.qml`
+- [x] `CoreTheme.qml`
+- [x] `Theme/Clamos.qml`
+- [x] `StyleThemeBridge.qml`
 - [ ] `Theme/Icon.qml`
 - [ ] `toolkit/ViewButton.qml`
 - [ ] `toolkit/ViewDialog.qml`
@@ -2400,9 +2451,9 @@ QML:
 - [ ] `FocusBorder.qml`
 - [ ] `theme/default/focus-border.svg`
 - [ ] `FolderView.qml` top-screen timers
-- [ ] `ActionManager.qml` keyboard rename flow (`renameRequest`, `finishKeyboardRename`,
+- [x] `ActionManager.qml` keyboard rename flow (`renameRequest`, `finishKeyboardRename`,
       `renameTimer`, `poll_text_entry`, `cancel_text_entry`, `keyboard_available`)
-- [ ] regenerate `plugins.qmltypes` after removing the keyboard methods
+- [x] regenerate `plugins.qmltypes` after removing the keyboard methods
 
 ## Appendix B — Keep for now
 
