@@ -737,6 +737,17 @@ Module {
 		}
 	}
 	Component {
+		name: "ThemeIcons"
+		prototype: "QObject"
+		exports: ["Hishell/ThemeIcons 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Method {
+			name: "backend"
+			type: "string"
+		}
+	}
+	Component {
 		name: "Directory"
 		prototype: "QObject"
 		exports: ["Hishell/Directory 1.0"]
@@ -948,17 +959,6 @@ Module {
 			type: "void"
 			Parameter { name: "path"; type: "string" }
 			Parameter { name: "include_hidden"; type: "bool" }
-		}
-	}
-	Component {
-		name: "ThemeIcons"
-		prototype: "QObject"
-		exports: ["Hishell/ThemeIcons 1.0"]
-		exportMetaObjectRevisions: [256]
-
-		Method {
-			name: "backend"
-			type: "string"
 		}
 	}
 }
