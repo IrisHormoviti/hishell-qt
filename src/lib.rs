@@ -9,6 +9,7 @@
 pub mod appimage;
 pub mod config;
 pub use hishell::{config_parser, squashfs};
+pub mod core_actions;
 pub mod descriptor_generator;
 pub mod desktop_entry;
 pub mod destroy;
@@ -33,6 +34,7 @@ use qmetaobject::prelude::*;
 use std::ffi::CStr;
 
 use crate::config::Config;
+use crate::core_actions::CoreActions;
 use crate::directory::Directory;
 use crate::dragdrop_handler::DragDropHandler;
 use crate::drop_validator::DropValidator;
@@ -77,6 +79,8 @@ pub fn install() {
 	static SOUND_STR: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Sound\0") };
 	static THEMEICONS_STR: &CStr =
 		unsafe { CStr::from_bytes_with_nul_unchecked(b"ThemeIcons\0") };
+	static COREACTIONS_STR: &CStr =
+		unsafe { CStr::from_bytes_with_nul_unchecked(b"CoreActions\0") };
 
 	qmetaobject::qml_register_type::<Config>(IMPORT_NAME, 1, 0, CONFIG_STR);
 	qmetaobject::qml_register_type::<Directory>(IMPORT_NAME, 1, 0, DIRECTORY_STR);
@@ -86,6 +90,7 @@ pub fn install() {
 	qmetaobject::qml_register_type::<PathUtils>(IMPORT_NAME, 1, 0, PATHUTILS_STR);
 	qmetaobject::qml_register_type::<SelectionManager>(IMPORT_NAME, 1, 0, SELECTIONMANAGER_STR);
 	qmetaobject::qml_register_type::<FocusManager>(IMPORT_NAME, 1, 0, FOCUSMANAGER_STR);
+	qmetaobject::qml_register_type::<CoreActions>(IMPORT_NAME, 1, 0, COREACTIONS_STR);
 	qmetaobject::qml_register_type::<sound::Sound>(IMPORT_NAME, 1, 0, SOUND_STR);
 	qmetaobject::qml_register_singleton_type::<theme_icons::ThemeIcons>(
 		IMPORT_NAME, 1, 0, THEMEICONS_STR,

@@ -2174,7 +2174,12 @@ file/refresh/go-up/select-all/duplicate/create-link/rotate/toggle/quit-active th
 engine, and rename/open-with/destroy/number return typed `Prompt` effects. Unimplemented
 actions return `FrontendRequest`. The qtbridge preview exposes `actions_json(menu, target)` and `invoke(action)`;
 its context menu is built from `Engine::actions` and dispatches `Command::Invoke`.
-Remaining: replacing the shipping `ActionManager.qml` with the same renderer.
+The shipping frontend has the same adapter: `CoreActions` mirrors the target directory,
+cursor, and selection into an `Engine` and returns the serialized `ActionSpec` list.
+`ActionManager.qml` filters every group by that list, binds each action's `enabled` to the
+core spec, and invokes refresh/new folder/new text file through `Command::Invoke`; the
+remaining prompts arrive as signals. Labels, icons, shortcuts, and frontend-only actions
+(open window, edit path, search, terminal) stay in QML, as step 7 requires.
 
 1. Move selection state and range/toggle semantics; dispatch `SelectionCommand`.
 2. Add `ActionId` newtype, `ActionDescriptor`, `ActionRequest`, `MenuKind` (including
@@ -2428,7 +2433,7 @@ Out of scope. The core APIs above are the contract.
 | 2 — Location and Folder | core done | descriptor roots, AppImage metadata, generator icons in core |
 | 2.5 — navigation plans | done | frontend uses the JSON shim until it moves to typed plans |
 | 3 — ops, jobs, execution | done | — (provider commands stay synchronous by design) |
-| 4 — selection and actions | core and qtbridge preview done | shipping `ActionManager.qml` renderer |
+| 4 — selection and actions | done | presentation labels/icons/shortcuts remain in QML by design |
 | 5 — focus state | core done | adapter key/gamepad mapping and multi-pane |
 | 6 — native KDE cleanup | not started in shipping app | delete ClamOS theme stack and accent-icon hooks |
 

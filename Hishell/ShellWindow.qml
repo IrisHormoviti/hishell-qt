@@ -36,6 +36,7 @@ ApplicationWindow {
 	property alias dragDropHandler: dragDropHandler
 	property alias dropValidator: dropValidator
 	property alias fileManager: fileManager
+	property alias coreActions: coreActions
 	property alias directory: directory
 	property alias actionManager: actionManager
 	property alias sound: sound
@@ -261,6 +262,12 @@ ApplicationWindow {
 	FocusManager {
 		id: focusManager
 		window: root
+	}
+
+	// The core action registry; `ActionManager.qml` asks it which actions
+	// apply and invokes the ones it owns through it.
+	CoreActions {
+		id: coreActions
 	}
 
 	// Event sounds. ClamOS ships an XDG sound theme; this object is the only
@@ -782,16 +789,23 @@ ApplicationWindow {
 		interval: 100
 		repeat: true
 		running: root.fileManager !== null
-		onTriggered: if (root.fileManager) root.fileManager.poll_jobs()
+		onTriggered: {
+			if (root.fileManager)
+				root.fileManager.poll_jobs();
+			if (root.coreActions)
+				root.coreActions.poll();
+		}
 	}
 
 	Connections {
 		target: root.fileManager
-		function onJobFinished(id, ok, succeeded, failed) {
+		function onJob_finished(id, ok, succeeded, failed) {
+			if (root.coreActions)
+				root.coreActions.refresh();
 			if (root.directory)
 				root.directory.reload();
 		}
-		function onDropDeclined(name) {
+		function onDrop_declined(name) {
 			if (typeof root.showNotice === "function")
 				root.showNotice(qsTr("%1 was ignored by this folder.").arg(name));
 		}

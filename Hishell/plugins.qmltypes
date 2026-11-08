@@ -671,6 +671,55 @@ Module {
 		}
 	}
 	Component {
+		name: "CoreActions"
+		prototype: "QObject"
+		exports: ["Hishell/CoreActions 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Signal { name: "job_finished" }
+		Signal { name: "reload_requested" }
+		Signal { name: "navigate_requested" }
+		Signal { name: "rename_requested" }
+		Signal { name: "open_with_requested" }
+		Signal { name: "destroy_requested" }
+		Signal { name: "number_requested" }
+		Signal { name: "open_path_requested" }
+		Signal { name: "view_settings_requested" }
+		Signal { name: "launch_confirmation_requested" }
+		Signal { name: "frontend_action_requested" }
+		Signal { name: "action_failed" }
+		Method {
+			name: "sync"
+			type: "bool"
+			Parameter { name: "directory"; type: "string" }
+			Parameter { name: "focus"; type: "string" }
+			Parameter { name: "selection_json"; type: "string" }
+		}
+		Method {
+			name: "actions_json"
+			type: "string"
+			Parameter { name: "menu"; type: "string" }
+			Parameter { name: "target"; type: "string" }
+		}
+		Method {
+			name: "invoke"
+			type: "string"
+			Parameter { name: "id"; type: "string" }
+		}
+		Method {
+			name: "poll"
+			type: "void"
+		}
+		Method {
+			name: "refresh"
+			type: "void"
+		}
+		Method {
+			name: "location_path"
+			type: "string"
+		}
+	}
+	Component {
 		name: "Config"
 		prototype: "QObject"
 		exports: ["Hishell/Config 1.0"]

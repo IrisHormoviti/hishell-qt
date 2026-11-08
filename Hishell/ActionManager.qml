@@ -18,6 +18,9 @@ Item {
 	readonly property bool showShortcuts: (actionManager.directory && actionManager.directory.config) ? actionManager.directory.config.show_shortcuts : false
 	property SelectionManager selectionManager: window ? window.selectionManager : null
 	property FileManager fileManager: window ? window.fileManager : null
+	// The core action registry decides which actions apply to the current
+	// target; the menu widgets and their presentation stay here.
+	property CoreActions coreActions: window ? window.coreActions : null
 
 	// Event sounds (ClamOS XDG sound theme). Played through the window's sound
 	// object; a null window (or a missing theme) simply stays silent.
@@ -170,8 +173,141 @@ Item {
 				// No handler: the action falls back to the plain Open label.
 			}
 		}
+		actionManager.refreshCoreActions();
 	}
 
+	// Action ids the core registry owns. An id that is absent from the
+	// returned specs is not offered for this target, so a menu entry for it is
+	// hidden rather than falling back to a guess.
+	readonly property var coreActionIds: [
+		"open", "open-with", "navigate", "copy", "cut", "paste", "duplicate",
+		"create-link", "rename", "trash", "delete", "destroy", "properties",
+		"go-up", "refresh", "select-all", "view-settings", "new-folder",
+		"new-text-file", "rotate-image", "toggle", "number", "radio",
+		"set-default-app", "quit-active"
+	]
+	property var coreActionState: ({})
+	// False until the core has mirrored this target successfully; until then
+	// the existing QML predicates keep the actions usable.
+	property bool coreActionReady: false
+
+	function refreshCoreActions() {
+		const core = actionManager.coreActions;
+		const directory = actionManager.targetDirectory;
+		if (!core || !directory) {
+			actionManager.coreActionState = ({});
+			actionManager.coreActionReady = false;
+			return;
+		}
+		if (!core.sync(directory.path, actionManager.focusedPath,
+				JSON.stringify(actionManager.selectedPathList))) {
+			actionManager.coreActionState = ({});
+			actionManager.coreActionReady = false;
+			return;
+		}
+		let specs = [];
+		try {
+			specs = JSON.parse(core.actions_json("context", "auto"));
+		} catch (e) {
+			specs = [];
+		}
+		const state = ({});
+		for (let i = 0; i < specs.length; i++)
+			state[specs[i].id] = specs[i];
+		actionManager.coreActionState = state;
+		actionManager.coreActionReady = true;
+	}
+
+	function coreActionSpec(id) {
+		return id === "" ? null : (actionManager.coreActionState[id] || null);
+	}
+
+	function coreActionVisible(id, fallback) {
+		if (id === "" || !actionManager.coreActionReady)
+			return fallback;
+		const spec = actionManager.coreActionSpec(id);
+		if (spec)
+			return spec.visible;
+		return actionManager.coreActionIds.indexOf(id) === -1 ? fallback : false;
+	}
+
+	function coreActionEnabled(id, fallback) {
+		if (id === "" || !actionManager.coreActionReady)
+			return fallback;
+		const spec = actionManager.coreActionSpec(id);
+		if (spec)
+			return fallback && spec.enabled;
+		return actionManager.coreActionIds.indexOf(id) === -1 ? fallback : false;
+	}
+
+	function coreInvoke(id) {
+		const core = actionManager.coreActions;
+		if (!core)
+			return false;
+		try {
+			return String(core.invoke(id)).indexOf("\"ok\":true") !== -1;
+		} catch (e) {
+			return false;
+		}
+	}
+
+	function filterCoreActions(actions) {
+		const result = [];
+		for (let i = 0; i < actions.length; i++) {
+			const action = actions[i];
+			const id = action && action.coreId !== undefined ? String(action.coreId) : "";
+			if (actionManager.coreActionVisible(id, true))
+				result.push(action);
+		}
+		return result;
+	}
+
+	Connections {
+		target: actionManager.coreActions
+		function onReload_requested() {
+			if (actionManager.directory)
+				actionManager.directory.reload();
+		}
+		function onJob_finished(id, ok, succeeded, failed) {
+			if (actionManager.directory)
+				actionManager.directory.reload();
+		}
+		function onNavigate_requested(path) {
+			const view = actionManager.targetFolderView;
+			if (view && typeof view.navigateToPath === "function")
+				view.navigateToPath(path, null, true);
+			else if (actionManager.directory)
+				actionManager.directory.path = path;
+		}
+		function onRename_requested(path, suggested) {
+			actionManager.beginRename(path);
+		}
+		function onOpen_with_requested(path) {
+			actionManager.openWith(path);
+		}
+		function onNumber_requested(path) {
+			if (actionManager.window && typeof actionManager.window.requestNumberDialog === "function")
+				actionManager.window.requestNumberDialog(path);
+		}
+		function onDestroy_requested(pathsJson) {
+			let paths = [];
+			try {
+				paths = JSON.parse(pathsJson);
+			} catch (e) {
+				paths = [];
+			}
+			if (actionManager.window && typeof actionManager.window.requestDestroy === "function")
+				actionManager.window.requestDestroy(paths, actionManager.targetDirectory);
+		}
+		function onOpen_path_requested(path) {
+			actionManager.openAction.execute(path, null, false);
+		}
+		function onAction_failed(id, message) {
+			actionManager.showNotice(message);
+		}
+	}
+
+	Component.onCompleted: actionManager.invalidateTargetState()
 	onFocusedPathChanged: actionManager.invalidateTargetState()
 	onHasSelectionChanged: actionManager.invalidateTargetState()
 
@@ -278,20 +414,27 @@ Item {
 	// The actions for a group, resolved on demand so the descriptor array above
 	// stays constant even when the available actions change.
 	function groupActions(id) {
+		let actions;
 		switch (id) {
 		case "open":
-			return actionManager.openActions();
+			actions = actionManager.openActions();
+			break;
 		case "edit":
-			return actionManager.editGroup;
+			actions = actionManager.editGroup;
+			break;
 		case "image":
-			return actionManager.imageGroup;
+			actions = actionManager.imageGroup;
+			break;
 		case "new":
-			return actionManager.newActionsGroup;
+			actions = actionManager.newActionsGroup;
+			break;
 		case "folders":
-			return actionManager.folderTargetActionsGroup;
+			actions = actionManager.folderTargetActionsGroup;
+			break;
 		default:
-			return [];
+			actions = [];
 		}
+		return actionManager.filterCoreActions(actions);
 	}
 
 
@@ -321,7 +464,7 @@ Item {
 		// reached through a selected folder, so the view menu would miss them.
 		if (context === "directory")
 			actions = actions.concat(actionManager.directoryActionsGroup);
-		return actions;
+		return actionManager.filterCoreActions(actions);
 	}
 
 	function isMenuGroupVisible(groupId) {
@@ -352,9 +495,10 @@ Item {
 	property alias quitAction: quitAction
 	Action {
 		id: quitAction
+		property string coreId: "quit-active"
 		text: qsTr("&Quit")
 		icon.name: "process-stop"
-		enabled: actionManager.isTargetActive
+		enabled: actionManager.coreActionEnabled("quit-active", actionManager.isTargetActive)
 		onTriggered: {
 			const fm = actionManager.window ? actionManager.window.focusManager : null;
 			if (!fm || !actionManager.fileManager)
@@ -477,9 +621,10 @@ Item {
 	property alias executeAction: executeAction
 	Action {
 		id: executeAction
+		property string coreId: "open"
 		text: actionManager.isTargetRadio ? qsTr("&Select") : (actionManager.isTargetLink ? qsTr("Open &Link") : qsTr("&Execute"))
 		icon.name: actionManager.isTargetRadio ? "checkbox" : (actionManager.isTargetLink ? "open-link" : "system-run")
-		enabled: actionManager.executeAvailable
+		enabled: actionManager.coreActionEnabled("open", actionManager.executeAvailable)
 
 		function execute(targetPath: string, sourceItem: Item) {
 			const paths = targetPath !== "" ? [targetPath] : actionManager.targetPaths();
@@ -550,11 +695,12 @@ Item {
 	property alias openAction: openAction
 	Action {
 		id: openAction
+		property string coreId: "open"
 		shortcut: actionManager.showShortcuts ? "Ctrl+O" : ""
 		text: actionManager.isTargetRadio ? qsTr("&Select") : (actionManager.openApp ? qsTr("O&pen with %1").arg(actionManager.openApp.name) : qsTr("O&pen"))
 		icon.name: actionManager.isTargetRadio ? "checkbox" : (actionManager.openAppIcon !== "" && actionManager.openAppIcon.indexOf("/") === -1 ? actionManager.openAppIcon : "open-link")
 		icon.source: actionManager.openAppIcon.indexOf("/") !== -1 ? actionManager.openAppIcon : ""
-		enabled: actionManager.hasTarget
+		enabled: actionManager.coreActionEnabled("open", actionManager.hasTarget)
 
 		function execute(targetPath: string, sourceItem: Item, inNewWindow = false) {
 			const paths = targetPath !== "" ? [targetPath] : actionManager.targetPaths();
@@ -645,10 +791,11 @@ Item {
 	property alias navigateAction: navigateAction
 	Action {
 		id: navigateAction
+		property string coreId: "navigate"
 		text: qsTr("Navigate")
 		icon.name: "folder-open-symbolic"
 		shortcut: actionManager.showShortcuts ? "Shift+Return" : ""
-		enabled: actionManager.isSingleTarget
+		enabled: actionManager.coreActionEnabled("navigate", actionManager.isSingleTarget)
 
 		function execute(targetPath: string, sourceItem: Item) {
 			const paths = targetPath !== "" ? [targetPath] : actionManager.targetPaths();
@@ -679,7 +826,7 @@ Item {
 		text: qsTr("Open in Win&dow")
 		icon.name: "window-new-symbolic"
 		shortcut: actionManager.showShortcuts ? "Ctrl+N" : ""
-		enabled: actionManager.hasTarget
+		enabled: actionManager.coreActionEnabled("copy", actionManager.hasTarget)
 		onTriggered: {
 			if (!actionManager.hasTarget) {
 				actionManager.directory.open_in_new_window(actionManager.directory.path);
@@ -695,10 +842,11 @@ Item {
 	property alias openWithAction: openWithAction
 	Action {
 		id: openWithAction
+		property string coreId: "open-with"
 		text: qsTr("Open &With...")
 		icon.name: "system-run"
 		shortcut: actionManager.showShortcuts ? "Ctrl+Alt+O" : ""
-		enabled: actionManager.isSingleTarget
+		enabled: actionManager.coreActionEnabled("open-with", actionManager.isSingleTarget)
 		onTriggered: {
 			if (actionManager.isSingleTarget)
 				actionManager.openWith(actionManager.firstTargetPath);
@@ -710,10 +858,11 @@ Item {
 
 	Action {
 		id: copyAction
+		property string coreId: "copy"
 		text: qsTr("&Copy")
 		icon.name: "edit-copy"
 		shortcut: actionManager.showShortcuts ? "Ctrl+C" : ""
-		enabled: actionManager.hasTarget
+		enabled: actionManager.coreActionEnabled("cut", actionManager.hasTarget)
 		onTriggered: {
 			const paths = actionManager.targetPaths().join("\n");
 			if (actionManager.fileManager)
@@ -723,10 +872,11 @@ Item {
 
 	Action {
 		id: cutAction
+		property string coreId: "cut"
 		text: qsTr("C&ut")
 		icon.name: "edit-cut"
 		shortcut: actionManager.showShortcuts ? "Ctrl+X" : ""
-		enabled: actionManager.hasTarget
+		enabled: actionManager.coreActionEnabled("duplicate", actionManager.hasTarget)
 		onTriggered: {
 			const paths = actionManager.targetPaths().join("\n");
 			if (actionManager.fileManager)
@@ -736,10 +886,11 @@ Item {
 
 	Action {
 		id: duplicateAction
+		property string coreId: "duplicate"
 		text: qsTr("&Duplicate")
 		icon.name: "edit-copy"
 		shortcut: actionManager.showShortcuts ? "Ctrl+D" : ""
-		enabled: actionManager.hasTarget
+		enabled: actionManager.coreActionEnabled("create-link", actionManager.hasTarget)
 		onTriggered: {
 			const paths = actionManager.targetPaths();
 			let anyOk = false;
@@ -756,10 +907,11 @@ Item {
 
 	Action {
 		id: linkAction
+		property string coreId: "create-link"
 		text: qsTr("Create &Link")
 		icon.name: "edit-link"
 		shortcut: actionManager.showShortcuts ? "Ctrl+Shift+L" : ""
-		enabled: actionManager.hasTarget
+		enabled: actionManager.coreActionEnabled("properties", actionManager.hasTarget)
 		onTriggered: {
 			const paths = actionManager.targetPaths();
 			for (let i = 0; i < paths.length; i++) {
@@ -775,10 +927,11 @@ Item {
 
 	Action {
 		id: renameAction
+		property string coreId: "rename"
 		text: qsTr("&Rename")
 		icon.name: "edit-rename"
 		shortcut: actionManager.showShortcuts ? "F2" : ""
-		enabled: actionManager.targetRenameable
+		enabled: actionManager.coreActionEnabled("rename", actionManager.targetRenameable)
 		onTriggered: {
 			if (actionManager.isSingleTarget) {
 				actionManager.beginRename(actionManager.firstTargetPath);
@@ -788,10 +941,11 @@ Item {
 
 	Action {
 		id: editPermissionsAction
+		property string coreId: "properties"
 		text: qsTr("Permissions...")
 		icon.name: "edit-rename"
 		shortcut: actionManager.showShortcuts ? "Ctrl+P" : ""
-		enabled: actionManager.hasTarget
+		enabled: actionManager.coreActionEnabled("trash", actionManager.hasTarget)
 		onTriggered: {
 			// FIXME
 		}
@@ -799,6 +953,7 @@ Item {
 
 	Action {
 		id: trashAction
+		property string coreId: "trash"
 		text: qsTr("&Trash")
 		icon.name: "user-trash"
 		shortcut: actionManager.showShortcuts ? "Delete" : ""
@@ -842,10 +997,11 @@ Item {
 
 	Action {
 		id: goUpAction
+		property string coreId: "go-up"
 		text: qsTr("Go &Up")
 		icon.name: "arrow-up-symbolic"
 		shortcut: actionManager.showShortcuts ? "Alt+Up" : ""
-		enabled: actionManager.directory && actionManager.directory.path !== "/"
+		enabled: actionManager.coreActionEnabled("go-up", actionManager.directory && actionManager.directory.path !== "/")
 		onTriggered: {
 			// The back sound belongs to the back gesture, not to the action:
 			// the menu item that triggers this already plays the menu sound,
@@ -887,19 +1043,20 @@ Item {
 
 	Action {
 		id: refreshAction
+		property string coreId: "refresh"
 		text: qsTr("&Refresh")
 		icon.name: "view-refresh"
 		shortcut: actionManager.showShortcuts ? "F5" : ""
-		enabled: actionManager.directory !== null
+		enabled: actionManager.coreActionEnabled("refresh", actionManager.directory !== null)
 		onTriggered: {
 			// A folder may carry its own `Refresh=` command (a ClamOS
 			// extension): it is how the folder asks its provider for fresh
-			// contents. Run it, then reload, so the view is never left
-			// showing what the provider has already replaced.
-			if (actionManager.directory) {
+			// contents. Run it, then let the core reload the view, so the
+			// view is never left showing what the provider has replaced.
+			if (actionManager.directory)
 				actionManager.directory.run_refresh_command();
+			if (!actionManager.coreInvoke("refresh") && actionManager.directory)
 				actionManager.directory.reload();
-			}
 		}
 	}
 
@@ -937,13 +1094,14 @@ Item {
 
 	Action {
 		id: pasteAction
+		property string coreId: "paste"
 		text: {
 			const name = actionManager.pasteTargetPath.substring(actionManager.pasteTargetPath.lastIndexOf("/") + 1);
 			return name.length > 0 ? qsTr("&Paste into %1").arg(name) : qsTr("&Paste");
 		}
 		icon.name: "edit-paste"
 		shortcut: actionManager.showShortcuts ? "Ctrl+V" : ""
-		enabled: true
+		enabled: actionManager.coreActionEnabled("paste", true)
 		onTriggered: {
 			actionManager.pasteInto(actionManager.pasteTargetPath);
 		}
@@ -995,10 +1153,13 @@ Item {
 
 	Action {
 		id: newFolderAction
+		property string coreId: "new-folder"
 		text: qsTr("New Fo&lder")
 		icon.name: "folder-add"
 		shortcut: actionManager.showShortcuts ? "Ctrl+Shift+N" : ""
 		onTriggered: {
+			if (actionManager.coreInvoke("new-folder"))
+				return;
 			if (actionManager.fileManager && actionManager.directory)
 				actionManager.fileManager.new_folder(actionManager.directory.path);
 		}
@@ -1006,10 +1167,13 @@ Item {
 
 	Action {
 		id: newTextFileAction
+		property string coreId: "new-text-file"
 		text: qsTr("New &Text File")
 		icon.name: "text-plain"
 		shortcut: actionManager.showShortcuts ? "Alt+Shift+N" : ""
 		onTriggered: {
+			if (actionManager.coreInvoke("new-text-file"))
+				return;
 			if (actionManager.fileManager && actionManager.directory)
 				actionManager.fileManager.new_text_file(actionManager.directory.path);
 		}
@@ -1020,10 +1184,11 @@ Item {
 
 	Action {
 		id: rotateClockwiseAction
+		property string coreId: "rotate-image"
 		text: qsTr("Rotate &Clockwise")
 		icon.name: "object-rotate-right"
 		shortcut: actionManager.showShortcuts ? "Ctrl+R" : ""
-		enabled: actionManager.isImageTarget
+		enabled: actionManager.coreActionEnabled("rotate-image", actionManager.isImageTarget)
 		onTriggered: {
 			const paths = actionManager.targetPaths();
 			for (let i = 0; i < paths.length; i++) {
@@ -1035,10 +1200,11 @@ Item {
 
 	Action {
 		id: rotateCounterClockwiseAction
+		property string coreId: "rotate-image"
 		text: qsTr("Rotate Counter-Clock&wise")
 		icon.name: "object-rotate-left"
 		shortcut: actionManager.showShortcuts ? "Ctrl+Shift+R" : ""
-		enabled: actionManager.isImageTarget
+		enabled: actionManager.coreActionEnabled("rotate-image", actionManager.isImageTarget)
 		onTriggered: {
 			const paths = actionManager.targetPaths();
 			for (let i = 0; i < paths.length; i++) {
