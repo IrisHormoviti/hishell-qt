@@ -1985,8 +1985,8 @@ Status:
 
 - `hishell::platform` defines `Launcher`, `AppCatalog`, `MimeResolver`, `Thumbnailer`,
   `SoundPlayer`, `Portal`, and the `Platform` aggregate. `Platform::free_desktop` supplies
-  the pure-Rust MIME resolver and application catalog; missing capabilities use the
-  documented fallbacks.
+  the pure-Rust MIME resolver, application catalog, and cached image thumbnailer; missing
+  capabilities use the documented fallbacks.
 - `FreeDesktopApps` scans the XDG application directories and reads `mimeapps.list` for
   default applications. `set_default` writes the user `mimeapps.list`; the last `gio`
   subprocess is therefore gone from the core path.
@@ -2360,9 +2360,9 @@ Out of scope. The core APIs above are the contract.
   focus/navigation/selection actions.
 - A plain path, a `file://` URI, and a file argument all open the right folder.
 - The saved session path restores on the next start.
-- Icons: themed names and file paths.
+- Icons: themed names, file paths, and cached image thumbnails.
 
-Future frontend parity: multi-pane transitions, free placement, thumbnails, and
+Future frontend parity: multi-pane transitions, free placement, and
 AppImage/descriptor enrichment. The core APIs for them remain.
 
 ## 9. Risks and mitigations

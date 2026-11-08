@@ -522,12 +522,12 @@ pub struct DirectoryRow {
 	size_bytes: i64,
 	modified_time: i64,
 	created_time: i64,
-	accessed_time: i64,
 	control_kind: i32,
 	toggle_on: bool,
 	number_value: String,
 	comment: String,
 	icon_ready: bool,
+	is_image: bool,
 }
 
 pub struct Directory {
@@ -1008,6 +1008,20 @@ impl Directory {
 	}
 
 	#[qslot]
+	fn thumbnail(&self, path: String, size: i32) -> String {
+		use hishell::platform::{ThumbnailRequest, Thumbnailer};
+		hishell::FreeDesktopThumbnailer
+			.thumbnail(&ThumbnailRequest {
+				path: PathBuf::from(path),
+				size: size.max(1) as u32,
+			})
+			.ok()
+			.flatten()
+			.map(|thumbnail| format!("file://{}", thumbnail.path.to_string_lossy()))
+			.unwrap_or_default()
+	}
+
+	#[qslot]
 	fn poll_gamepad(&self) -> String {
 		gamepad::poll()
 			.map(|input| input.as_str().to_string())
@@ -1184,7 +1198,6 @@ fn row_from_item(item: &hishell::Item) -> DirectoryRow {
 		size_bytes: item.size as i64,
 		modified_time: item.modified as i64,
 		created_time: item.created as i64,
-		accessed_time: item.accessed as i64,
 		control_kind: match item.kind {
 			hishell::ItemKind::Button => 1,
 			hishell::ItemKind::Toggle => 2,
@@ -1195,6 +1208,10 @@ fn row_from_item(item: &hishell::Item) -> DirectoryRow {
 		number_value: item.number_value.clone(),
 		comment: item.comment.clone(),
 		icon_ready: true,
+		is_image: item
+			.mime
+			.as_deref()
+			.is_some_and(|mime| mime.starts_with("image/")),
 	}
 }
 

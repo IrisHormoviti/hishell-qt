@@ -340,6 +340,11 @@ ApplicationWindow {
 					required property string path
 					required property string icon
 					required property bool is_directory
+					required property bool is_image
+
+					property string thumb: ""
+					Component.onCompleted: if (is_image)
+						thumb = window.directory.thumbnail(path, 96)
 
 					Drag.active: dragArea.drag.active
 					Drag.dragType: Drag.Automatic
@@ -380,9 +385,18 @@ ApplicationWindow {
 						Image {
 							width: window.spec.icon_size || 48
 							height: width
+							source: cell.thumb
+							fillMode: Image.PreserveAspectCrop
+							visible: cell.thumb.length > 0
+							anchors.horizontalCenter: parent.horizontalCenter
+						}
+
+						Image {
+							width: window.spec.icon_size || 48
+							height: width
 							source: cell.icon
 							fillMode: Image.PreserveAspectFit
-							visible: window.isFileIcon(cell.icon)
+							visible: cell.thumb.length === 0 && window.isFileIcon(cell.icon)
 							anchors.horizontalCenter: parent.horizontalCenter
 						}
 
@@ -390,7 +404,7 @@ ApplicationWindow {
 							width: window.spec.icon_size || 48
 							height: width
 							source: cell.icon
-							visible: !window.isFileIcon(cell.icon)
+							visible: cell.thumb.length === 0 && !window.isFileIcon(cell.icon)
 							anchors.horizontalCenter: parent.horizontalCenter
 						}
 
@@ -453,6 +467,11 @@ ApplicationWindow {
 					required property string path
 					required property string icon
 					required property bool is_directory
+					required property bool is_image
+
+					property string thumb: ""
+					Component.onCompleted: if (is_image)
+						thumb = window.directory.thumbnail(path, 32)
 
 					Drag.active: rowDrag.drag.active
 					Drag.dragType: Drag.Automatic
@@ -490,18 +509,26 @@ ApplicationWindow {
 						spacing: 8
 
 						Image {
+							source: row.thumb
+							width: 24
+							height: 24
+							fillMode: Image.PreserveAspectCrop
+							visible: row.thumb.length > 0
+						}
+
+						Image {
 							source: row.icon
 							width: 18
 							height: 18
 							fillMode: Image.PreserveAspectFit
-							visible: window.isFileIcon(row.icon)
+							visible: row.thumb.length === 0 && window.isFileIcon(row.icon)
 						}
 
 						Kirigami.Icon {
 							source: row.icon
 							width: 18
 							height: 18
-							visible: !window.isFileIcon(row.icon)
+							visible: row.thumb.length === 0 && !window.isFileIcon(row.icon)
 						}
 
 						Label {
