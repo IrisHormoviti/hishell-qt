@@ -2,6 +2,7 @@
 name = "hishell-qt"
 version = "0.1.0"
 edition = "2024"
+default-run = "hishell-qt"
 
 # The app is a library so a host process can load it, and a binary so it still
 # runs standalone on a desktop with system Qt.
