@@ -1878,6 +1878,32 @@ Checkpoint:
 Go/no-go. If green, write the remaining adapters in `qtbridge`. If not, stay on
 `qmetaobject` and revisit later.
 
+#### Spike results
+
+x86_64 is green. The spike crate proved, on Qt 6.11 / qtbridge 0.4.1:
+
+- a `#[qobject(Singleton)]` singleton reachable from QML;
+- a `#[qobject(Base = QListModel)]` list model with camelCase roles consumed by a
+  `ListView` delegate;
+- a nested object property (`directory.config.gridLines`);
+- one worker event delivered on the Qt thread through `QThreadHandle::invoke_mut`;
+- embedded QML through `include_bytes_qml!` and `load_qml_from_file("qrc:/res/qml/Main.qml")`;
+- `QApp::register`, `set_initial_object`, and the model notification helpers.
+
+aarch64 is blocked for cross builds. qtbridge supports Linux on x86_64 only, and a
+cross build from x86_64 needs a host-side qmake for the target Qt. With the ClamOS
+`forky-aarch64` sysroot, qtbridge finds Qt only through a path-rewriting qmake wrapper,
+and then fails running the target `moc` because the binfmt qemu entry does not load the
+sysroot's `ld-linux-aarch64.so.1`. A native aarch64 build (device or an arm64 CI runner)
+remains untested.
+
+`qtbridge` does not generate `plugins.qmltypes`, so qmlls loses Rust type information for
+the ported adapters. The crate is LGPL-3.0-only or commercial; the repository still has no
+license file.
+
+Decision: keep `qmetaobject` for the current frontend. The core split does not depend on
+the binding, and a binding swap can happen after a native aarch64 build is proven.
+
 ### Phase 1 — Engine facade, Config, and view layout
 
 1. Create `hishell::Engine`, `Deps`, `Mode`, `OpenOptions`, `Command`, `Outcome`, and
@@ -1890,6 +1916,18 @@ Go/no-go. If green, write the remaining adapters in `qtbridge`. If not, stay on
 6. Implement both grid sizing modes from §4.2.1 (`LINES` and `SIZE`).
 7. Move grid/list metric math from `FolderGrid.qml` and `LayoutEngine.qml`.
 8. Make `ConfigBridge` a mirror; QML reads the typed `ViewSpec`.
+
+Status:
+
+- Implemented in `hishell`: `Engine`/`Deps`/`Mode`/`OpenOptions`/`RuntimeSettings`/
+  `Command`/`Outcome`/`TickResult`, `ConfigKey` (40 keys with section, scope, default, and
+  change scope), `Config`, `ConfigLoad`, `ConfigDelta`, `ConfigDiagnostic`, typed enums,
+  `Location` (`Folder`/`File`), `ViewSpec` (`FolderView`/`FileView`), `GridSizing`,
+  `GridSpec`, list/sort/group/interaction specs, and the `LINES`/`SIZE` grid math.
+- Tests cover defaults, section/scope lookup, deltas, invalid enums, config precedence,
+  two engines in one process, raw mode, a file location, and both grid modes.
+- Remaining: replace the Qt `Config` QObject with a bridge over `hishell::Config`, feed
+  `FolderView` from `Engine::view`, and reroute the View menu through `ConfigKey`.
 
 Checkpoint:
 
