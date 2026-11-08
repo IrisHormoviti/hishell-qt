@@ -1981,6 +1981,13 @@ Checkpoint:
 
 ### Phase 2 — Core `Location` and `Folder`
 
+Status: a minimal scan is in core. `hishell::folder::Folder` lists a directory into
+`Item`s (`name`, `path`, `fs_kind`, `kind`, `mime`, `icon`, sizes/times, symlink and
+dotfile flags), sorts directories first, and applies the configured sort. `Engine` keeps
+the folder, exposes `items`/`item`/`item_at`, and fills `FolderView.slots` from the
+resolved grid (or list row height). The qtbridge frontend renders those items and slots.
+Entry parsing, grouping, stash, free placement, radio groups, and adapter deltas remain.
+
 1. Move `Item`, scan, sort, group, filter, slots, radio, icon resolution.
 2. Add `Location`, `Folder`, `File`, `ItemId`, `Location::from_path`, and
    `Location::folder_or_parent`.
@@ -2113,6 +2120,8 @@ The qtbridge port runs in parallel on the `qtbridge` branch:
 - It mirrors the full folder config through `ConfigBridge`, exposes `Directory` as a
   15-role `QListModel`, uses `QThreadHandle` for the reload worker, and loads its QML from
   an embedded resource.
+- `Directory` rows come from `Engine::items`, and `view_json` returns the slot/grid
+  layout from `Engine::view`; the QML sizes its `GridView` from that result.
 - `PathBridge` exposes the core path helpers, and the shipping `PathUtils` calls the same
   core functions.
 - The shipping `hishell-qt` binary keeps `qmetaobject` until this target reaches parity.

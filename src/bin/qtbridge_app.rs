@@ -1,11 +1,13 @@
 //! A qtbridge frontend that mirrors the folder config and the directory model.
 
 use std::cell::RefCell;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::rc::Rc;
-use std::time::UNIX_EPOCH;
 
-use hishell::{Config, ConfigKey, ConfigValue, Location};
+use hishell::{
+	Command, Config, ConfigKey, ConfigValue, Engine, FolderMode, Location, Metrics, ViewRequest,
+	ViewSpec, Viewport,
+};
 use qtbridge::{
 	QApp, QListModel, QListModelBase, QModelItem, QmlObject, include_bytes_qml, qobject,
 };
@@ -441,11 +443,11 @@ pub struct DirectoryRow {
 	icon_ready: bool,
 }
 
-#[derive(Default)]
 pub struct Directory {
 	rows: Vec<DirectoryRow>,
 	path: String,
 	config: Rc<RefCell<ConfigBridge>>,
+	engine: Option<Engine>,
 	revision: i32,
 }
 
@@ -455,6 +457,7 @@ impl Directory {
 			rows: Vec::new(),
 			path: path.to_string_lossy().into_owned(),
 			config: Rc::new(RefCell::new(ConfigBridge::default())),
+			engine: Engine::open(path).ok(),
 			revision: 0,
 		};
 		directory.reload();
@@ -462,9 +465,24 @@ impl Directory {
 	}
 
 	fn reload(&mut self) {
-		self.rows = scan(Path::new(&self.path));
-		self.config.borrow_mut().load(self.path.clone());
+		if let Some(engine) = self.engine.as_mut() {
+			let _ = engine.dispatch(Command::Reload);
+			self.config.borrow_mut().apply(engine.config());
+			self.rows = engine.items().iter().map(row_from_item).collect();
+		}
+	}
+
+	fn refresh_now(&mut self) {
+		self.reload();
+		self.reset();
 		self.revision += 1;
+		self.revision_changed();
+	}
+}
+
+impl Default for Directory {
+	fn default() -> Self {
+		Self::new(Path::new("."))
 	}
 }
 
@@ -482,24 +500,67 @@ impl Directory {
 
 	#[qslot]
 	fn refresh(&mut self) {
-		self.reload();
-		self.reset();
-		self.revision += 1;
-		self.revision_changed();
+		self.refresh_now();
+	}
+
+	#[qslot]
+	fn view_json(
+		&self,
+		width: f64,
+		height: f64,
+		grid_unit: f64,
+		small_spacing: f64,
+		label_height: f64,
+	) -> String {
+		let Some(engine) = &self.engine else {
+			return String::from("{}");
+		};
+		let request = ViewRequest {
+			viewport: Viewport {
+				width,
+				height,
+				horizontal_scrollbar: 8.0,
+				vertical_scrollbar: 8.0,
+			},
+			metrics: Metrics {
+				grid_unit,
+				small_spacing,
+				medium_spacing: small_spacing * 1.5,
+				large_spacing: small_spacing * 2.0,
+				label_height,
+			},
+		};
+		match engine.view(request) {
+			ViewSpec::Folder(view) => match view.mode {
+				FolderMode::Grid(grid) => serde_json::json!({
+					"mode": "grid",
+					"lines": grid.lines,
+					"icon_size": grid.icon_size,
+					"cell_width": grid.cell.width,
+					"cell_height": grid.cell.height,
+					"gap": grid.gap,
+					"horizontal": grid.horizontal,
+					"revision": view.revision,
+				})
+				.to_string(),
+				FolderMode::List(list) => serde_json::json!({
+					"mode": "list",
+					"columns": list.columns.iter().map(|column| column.as_key()).collect::<Vec<_>>(),
+					"header": list.header,
+					"revision": view.revision,
+				})
+				.to_string(),
+			},
+			ViewSpec::File(_) => String::from("{}"),
+		}
 	}
 
 	#[qslot]
 	fn refresh_async(&self) {
-		let path = PathBuf::from(&self.path);
 		let handle = self.get_thread_handle();
 		std::thread::spawn(move || {
-			let rows = scan(&path);
-			handle.invoke_mut(move |directory: &mut Directory| {
-				directory.rows = rows;
-				directory.reset();
-				directory.revision += 1;
-				directory.revision_changed();
-			});
+			std::thread::sleep(std::time::Duration::from_millis(50));
+			handle.invoke_mut(|directory: &mut Directory| directory.refresh_now());
 		});
 	}
 }
@@ -522,60 +583,27 @@ impl QListModel for Directory {
 	fn reset_unnotified(&mut self) {}
 }
 
-fn scan(path: &Path) -> Vec<DirectoryRow> {
-	let Ok(entries) = std::fs::read_dir(path) else {
-		return Vec::new();
-	};
-	let mut rows: Vec<DirectoryRow> = entries
-		.flatten()
-		.map(|entry| {
-			let path = entry.path();
-			let metadata = entry.metadata().ok();
-			let is_directory = metadata
-				.as_ref()
-				.map(|metadata| metadata.is_dir())
-				.unwrap_or(false);
-			DirectoryRow {
-				name: entry.file_name().to_string_lossy().into_owned(),
-				path: path.to_string_lossy().into_owned(),
-				is_directory,
-				icon: if is_directory {
-					String::from("folder")
-				} else {
-					String::from("text-x-generic")
-				},
-				title: entry.file_name().to_string_lossy().into_owned(),
-				is_symlink: entry
-					.file_type()
-					.map(|kind| kind.is_symlink())
-					.unwrap_or(false),
-				size_bytes: metadata
-					.as_ref()
-					.map(|metadata| metadata.len() as i64)
-					.unwrap_or(0),
-				modified_time: metadata
-					.as_ref()
-					.and_then(|metadata| metadata.modified().ok())
-					.and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-					.map(|duration| duration.as_millis() as i64)
-					.unwrap_or(0),
-				created_time: 0,
-				accessed_time: 0,
-				control_kind: 0,
-				toggle_on: false,
-				number_value: String::new(),
-				comment: String::new(),
-				icon_ready: true,
-			}
-		})
-		.collect();
-	rows.sort_by(|left, right| {
-		right
-			.is_directory
-			.cmp(&left.is_directory)
-			.then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
-	});
-	rows
+fn row_from_item(item: &hishell::Item) -> DirectoryRow {
+	DirectoryRow {
+		name: item.name.clone(),
+		path: item.path.to_string_lossy().into_owned(),
+		is_directory: item.fs_kind == hishell::FsKind::Directory,
+		icon: match &item.icon {
+			hishell::IconRef::Theme(name) => name.clone(),
+			hishell::IconRef::Path(path) => path.to_string_lossy().into_owned(),
+		},
+		title: item.title.clone(),
+		is_symlink: item.is_symlink,
+		size_bytes: item.size as i64,
+		modified_time: item.modified as i64,
+		created_time: item.created as i64,
+		accessed_time: item.accessed as i64,
+		control_kind: 0,
+		toggle_on: false,
+		number_value: String::new(),
+		comment: item.comment.clone(),
+		icon_ready: true,
+	}
 }
 
 fn main() {

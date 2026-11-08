@@ -16,6 +16,11 @@ ApplicationWindow {
 		id: pathUtils
 	}
 
+	readonly property var spec: {
+		window.directory.revision
+		return JSON.parse(window.directory.view_json(grid.width, grid.height, 18, 4, 18))
+	}
+
 	ColumnLayout {
 		anchors.fill: parent
 		spacing: 0
@@ -36,7 +41,8 @@ ApplicationWindow {
 			}
 
 			Label {
-				text: window.directory.config.grid_mode + " · " + window.directory.config.grid_lines + " lines"
+				text: window.spec.mode + " · " + (window.spec.lines || 0) + " lines · "
+					+ Math.round(window.spec.icon_size || 0) + "px"
 			}
 
 			Button {
@@ -50,26 +56,39 @@ ApplicationWindow {
 			Layout.fillHeight: true
 			Layout.margins: 8
 
-			ListView {
+			GridView {
+				id: grid
 				anchors.fill: parent
 				clip: true
 				model: window.directory
+				cellWidth: window.spec.cell_width || 96
+				cellHeight: window.spec.cell_height || 96
 
-				delegate: RowLayout {
+				delegate: Item {
 					required property string name
 					required property bool is_directory
 
-					width: ListView.view.width
+					width: grid.cellWidth
+					height: grid.cellHeight
 
-					Label {
-						text: is_directory ? "folder" : "file"
-						opacity: 0.6
-					}
+					Column {
+						anchors.centerIn: parent
+						spacing: 4
 
-					Label {
-						text: name
-						elide: Text.ElideRight
-						Layout.fillWidth: true
+						Rectangle {
+							width: window.spec.icon_size || 48
+							height: width
+							radius: 6
+							anchors.horizontalCenter: parent.horizontalCenter
+							color: is_directory ? "#d9b45b" : "#7a8b99"
+						}
+
+						Label {
+							width: grid.cellWidth - 8
+							text: name
+							elide: Text.ElideMiddle
+							horizontalAlignment: Text.AlignHCenter
+						}
 					}
 				}
 			}
