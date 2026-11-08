@@ -174,6 +174,27 @@ pub fn accent_icon(
 	None
 }
 
+/// Render an icon on the calling (GUI) thread, returning the cached PNG on the
+/// first request. Used where a binding needs the finished path immediately.
+pub fn accent_icon_now(
+	name: &str,
+	size: u32,
+	accent: (u8, u8, u8),
+	text: (u8, u8, u8),
+) -> Option<String> {
+	if name.is_empty() || size == 0 {
+		return None;
+	}
+	let key = (name.to_string(), size, accent, text);
+	if let Some(cached) = ACCENT_ICONS.lock().unwrap().get(&key) {
+		return cached.clone();
+	}
+	let value = accent_icon_cached(name, size, accent, text)
+		.or_else(|| accent_icon_uncached(name, size, accent, text));
+	ACCENT_ICONS.lock().unwrap().insert(key, value.clone());
+	value
+}
+
 /// Render one queued icon on the calling (GUI) thread. Returns false when the
 /// queue is empty.
 pub fn render_pending_icon() -> bool {

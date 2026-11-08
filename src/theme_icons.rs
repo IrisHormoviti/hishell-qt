@@ -38,7 +38,7 @@ pub struct ThemeIcons {
 			{
 				return source;
 			}
-			crate::kde_bridge::accent_icon(
+			crate::kde_bridge::accent_icon_now(
 				&source,
 				size.max(1) as u32,
 				parse_color(&accent),
