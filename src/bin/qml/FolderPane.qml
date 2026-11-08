@@ -21,6 +21,16 @@ Item {
 	property var contextActions: []
 	property string transitionDirection: ""
 
+	readonly property alias renameDialogOpen: renameDialog.visible
+	readonly property alias trashDialogOpen: trashDialog.visible
+	readonly property alias openWithDialogOpen: openWithDialog.visible
+
+	function closeDialogs() {
+		renameDialog.close()
+		trashDialog.close()
+		openWithDialog.close()
+	}
+
 	onActiveChanged: if (active) {
 		if (spec.free === true || spec.mode === "grid")
 			grid.forceActiveFocus()

@@ -2290,6 +2290,12 @@ Out of scope. The core APIs above are the contract.
 
 ### Automated
 
+- Run `HISHELL_QT_BIN=target/debug/hishell-qt scripts/smoke-test.sh`; it checks startup,
+  session persistence, thumbnails, and a descriptor generator end to end.
+- Run `HISHELL_QT_BIN=target/debug/hishell-qt scripts/ui-test.sh`; it drives rename,
+  trash, and open-with dialogs, drag/drop copy, cross-pane hand-off, the `NavigationPlan`
+  transition, and gamepad focus movement.
+
 - `cargo test -p hishell` for config parsing, scan, sort, group, layout, selection,
   actions, icon refs, and ops.
 - Move the existing 74 `#[test]` functions out of QObject modules into core modules.
@@ -2468,6 +2474,15 @@ The "Remaining" column is empty: the pure `hishell` core plus the `qtbridge` fro
 the whole crate. `qmetaobject`, the ClamOS theme stack, and the old QML are deleted.
 aarch64 certification remains a release-pipeline gate: no aarch64 cross toolchain is part
 of this checkout.
+
+## 14. External release gates
+
+- **aarch64 core.** With `gcc-aarch64-linux-gnu` and `sysroot-aarch64-*-glibc`
+  installed, `cargo build --target aarch64-unknown-linux-gnu` in `hishell/` succeeds.
+  Build with `CFLAGS="" CXXFLAGS=""` when a user config injects host include paths.
+- **aarch64 frontend.** `qtbridge` needs an aarch64 Qt 6.10+ development sysroot. The
+  Fedora cross sysroot has glibc but no Qt, so the frontend link is a release-pipeline
+  certificate, not a source change. x86_64 is green.
 
 ## Appendix A — Deletion checklist
 

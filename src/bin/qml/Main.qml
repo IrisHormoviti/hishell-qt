@@ -7,13 +7,17 @@ ApplicationWindow {
 	id: window
 	width: 1100
 	height: 650
-	visible: true
 	title: "hishell"
 
 	required property var leftDirectory
 	required property var rightDirectory
 
 	property Item activePane: null
+	property bool headless: false
+	visible: !headless
+
+	readonly property alias leftPane: leftPane
+	readonly property alias rightPane: rightPane
 
 	function switchPane(direction) {
 		if (direction === "right" && window.activePane === leftPane) {

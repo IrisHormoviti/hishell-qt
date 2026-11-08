@@ -1141,6 +1141,11 @@ impl Directory {
 	}
 
 	#[qslot]
+	fn item_count(&self) -> i32 {
+		self.rows.len() as i32
+	}
+
+	#[qslot]
 	fn poll_descriptors(&mut self) -> bool {
 		let epoch = hishell::descriptor_generator::results_epoch();
 		if epoch == self.last_descriptor_epoch {
@@ -1372,7 +1377,88 @@ fn initial_path(argument: Option<String>) -> PathBuf {
 	}
 }
 
+#[derive(Default)]
+pub struct TestBridge {
+	root: String,
+	passes: usize,
+	failures: Vec<String>,
+}
+
+#[qobject]
+impl TestBridge {
+	qproperty!("root", Member = root);
+
+	#[qslot]
+	fn exists(&self, path: String) -> bool {
+		Path::new(&path).exists()
+	}
+
+	#[qslot]
+	fn pass(&mut self, name: String) {
+		self.passes += 1;
+		println!("SELFTEST PASS {name}");
+	}
+
+	#[qslot]
+	fn fail(&mut self, name: String, message: String) {
+		self.failures.push(format!("{name}: {message}"));
+		println!("SELFTEST FAIL {name}: {message}");
+	}
+}
+
+fn self_test() {
+	let root = std::env::temp_dir().join(format!("hishell-selftest-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&root);
+	let dir = root.join("dir");
+	let child = dir.join("child");
+	std::fs::create_dir_all(&child).unwrap();
+	std::fs::write(dir.join("a.txt"), b"a").unwrap();
+	std::fs::write(dir.join("b.txt"), b"b").unwrap();
+	std::fs::write(dir.join("c.txt"), b"c").unwrap();
+	std::fs::write(dir.join("keep.txt"), b"keep").unwrap();
+
+	let mut app = QApp::new();
+	let bridge = Rc::new(RefCell::new(TestBridge {
+		root: root.to_string_lossy().into_owned(),
+		..TestBridge::default()
+	}));
+	app.application_name("hishell-qt-selftest")
+		.register::<TestBridge>()
+		.register::<Directory>()
+		.register::<PathBridge>()
+		.set_initial_object("leftDirectory", Rc::new(RefCell::new(Directory::new(&dir))))
+		.set_initial_object(
+			"rightDirectory",
+			Rc::new(RefCell::new(Directory::new(&dir))),
+		)
+		.set_initial_object("testBridge", bridge.clone());
+
+	include_bytes_qml!("qml", "hishell_qt");
+	app.load_qml_from_file("qrc:/hishell_qt/qml/SelfTest.qml")
+		.run();
+
+	let bridge = bridge.borrow();
+	println!(
+		"SELFTEST RESULT passes={} failures={}",
+		bridge.passes,
+		bridge.failures.len()
+	);
+	for failure in &bridge.failures {
+		println!("SELFTEST FAILURE {failure}");
+	}
+	let failed = !bridge.failures.is_empty();
+	drop(bridge);
+	if failed {
+		std::process::exit(1);
+	}
+	let _ = std::fs::remove_dir_all(root);
+}
+
 fn main() {
+	if std::env::var_os("HISHELL_SELF_TEST").is_some() {
+		self_test();
+		return;
+	}
 	let path = initial_path(std::env::args().nth(1));
 	gamepad::init();
 	let mut app = QApp::new();

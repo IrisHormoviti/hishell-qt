@@ -44,6 +44,17 @@ Planned features:
 - [X] Right click context menu
 - [X] "Open as" dialog
 
+## Testing
+
+With a built binary in `HISHELL_QT_BIN`:
+
+```sh
+scripts/smoke-test.sh   # startup, session, thumbnails, descriptor generator
+scripts/ui-test.sh      # dialogs, drag/drop, panes, transition, gamepad
+```
+
+Both run headless with `QT_QPA_PLATFORM=offscreen`.
+
 ## Descriptors and generators
 
 > Descriptor generators live in the `hishell` core and the qtbridge frontend polls their
