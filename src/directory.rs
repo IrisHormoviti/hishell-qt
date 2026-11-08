@@ -34,57 +34,6 @@ unsafe extern "C" {
 /// runs at the timer's rate; re-resolving icons is throttled to this.
 const ICON_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
-fn query_gio_icon(path: &str) -> Option<String> {
-	// `gio info ""` inspects the working directory and reports a folder icon.
-	if path.trim().is_empty() {
-		return None;
-	}
-
-	if let Ok(output) = Command::new("gio").arg("info").arg(path).output() {
-		if output.status.success() {
-			let out = String::from_utf8_lossy(&output.stdout);
-			for line in out.lines() {
-				if line.contains("standard::icon") {
-					// Try to extract a reasonable icon token from the line.
-					// First, look for quoted tokens.
-					if let Some(start) = line.find('\'') {
-						if let Some(end_rel) = line[start + 1..].find('\'') {
-							let icon = &line[start + 1..start + 1 + end_rel];
-							if !icon.is_empty() {
-								return Some(icon.to_string());
-							}
-						}
-					}
-
-					// If no quoted token, split the remainder into candidate tokens
-					if let Some(pos) = line.find(':') {
-						let rem = line[pos + 1..].trim();
-						// split on common separators and examine candidates
-						for raw in rem.split(|c: char| {
-							c == '[' || c == ']' || c == ',' || c == ' ' || c == '\'' || c == '"'
-						}) {
-							let tok = raw.trim();
-							if tok.is_empty() {
-								continue;
-							}
-							// prefer tokens that look like icon names (contain '-') or short words
-							if tok.contains('-')
-								|| (tok.len() <= 20
-									&& tok
-										.chars()
-										.all(|c| c.is_alphanumeric() || c == '.' || c == '_'))
-							{
-								return Some(tok.to_string());
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-	None
-}
-
 fn normalize_path(path: &Path, current_dir: &str) -> PathBuf {
 	let mut result = PathBuf::new();
 
@@ -2385,8 +2334,8 @@ pub fn get_item_comment(path: &Path) -> String {
 }
 
 pub fn get_icon(path: &str) -> String {
-	// An empty path would make `gio info` inspect the current working directory,
-	// so bail out before any filesystem or gio lookup can happen.
+	// An empty path would resolve to the current working directory, so bail
+	// out before any filesystem lookup can happen.
 	if path.trim().is_empty() {
 		return "text-x-generic".to_string();
 	}
@@ -2427,52 +2376,22 @@ pub fn get_icon(path: &str) -> String {
 		return "open-link".to_string();
 	}
 
-	// Prefer system icons via `gio` when available, caching per-extension. Files
-	// without an extension (README, Makefile, .bashrc, ...) are cached per-name:
-	// mime_guess reports them all as application/octet-stream, so a mime-keyed
-	// cache would let the first one resolved decide the icon for all the others.
-	let mime = from_path(path)
-		.first_or_octet_stream()
-		.essence_str()
-		.to_string();
-	let key = if let Some(ext) = Path::new(path).extension().and_then(|e| e.to_str()) {
-		format!("ext:{}", ext.to_lowercase())
-	} else {
-		let name = path_buf
-			.file_name()
-			.and_then(|n| n.to_str())
-			.unwrap_or(path)
-			.to_lowercase();
-		format!("name:{}", name)
-	};
-
+	let key = path.to_string();
 	if let Some(cached) = ICON_CACHE.lock().unwrap().get(&key) {
 		return cached.clone();
 	}
 
 	// A content type owned by a descriptor generator keeps that generator's
-	// placeholder even when no descriptor could be produced. Otherwise the
-	// `gio` icon (the bare type name, which the theme may not ship) would win
-	// and the file would look generic.
+	// placeholder even when no descriptor could be produced.
 	if let Some(icon) = crate::descriptor_generator::placeholder_icon(path_buf) {
 		ICON_CACHE.lock().unwrap().insert(key, icon.clone());
 		return icon;
 	}
 
-	if let Some(icon) = query_gio_icon(path) {
-		ICON_CACHE.lock().unwrap().insert(key.clone(), icon.clone());
-		return icon;
-	}
-
-	// fallback: map common mime types to generic icons
-	let icon = if mime.starts_with("image/") {
-		"image-x-generic".to_string()
-	} else if mime.starts_with("video/") {
-		"video-x-generic".to_string()
-	} else {
-		"text-x-generic".to_string()
+	let icon = match hishell::icon::for_path(path_buf) {
+		hishell::IconRef::Theme(name) => name,
+		hishell::IconRef::Path(path) => format!("file://{}", path.to_string_lossy()),
 	};
-
 	ICON_CACHE.lock().unwrap().insert(key, icon.clone());
 	icon
 }

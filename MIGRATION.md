@@ -2003,6 +2003,11 @@ or a path relative to the entry, and plain files get an icon from their MIME typ
 folder, item keys rescan, and view keys only bump the revision. The qtbridge frontend
 drives view mode, grid mode, lines, icon size, and labels through that path.
 
+Plain-file icons no longer shell out to `gio`: `hishell::icon` maps extensions with
+`mime_guess`, sniffs extensionless files with `infer`, and returns the themed icon name.
+`directory::get_icon` uses it after the entry, AppImage, descriptor, and generator lookups.
+`gio mime` remains only in the default-application setter until `AppCatalog` lands.
+
 Entry parsing, grouping, stash, free placement, radio groups, and adapter deltas remain.
 
 1. Move `Item`, scan, sort, group, filter, slots, radio, icon resolution.
