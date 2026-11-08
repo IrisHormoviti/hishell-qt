@@ -2048,9 +2048,10 @@ Radio membership and value helpers live in core; invoking the radio command belo
 execution service. Folder changes carry `FolderDelta::Reset` or an order-only `Items` delta,
 and the qtbridge adapter applies them to its rows.
 
-Descriptor generators, AppImage metadata, and directory-descriptor enrichment were
-retired with the `qmetaobject` frontend. The core `Entry` and `squashfs` APIs remain the
-contract for a future frontend that needs them.
+AppImage metadata and directory/file descriptors live in core: `appimage` reads the
+embedded desktop entry and extracts its icon, `descriptor` indexes XDG and runtime
+descriptor roots, and `Folder::scan` applies both when no `.directory` exists. Descriptor
+generators remain a future frontend enrichment.
 
 1. Move `Item`, scan, sort, group, filter, slots, radio, icon resolution.
 2. Add `Location`, `Folder`, `File`, `ItemId`, `Location::from_path`, and
@@ -2360,10 +2361,11 @@ Out of scope. The core APIs above are the contract.
   focus/navigation/selection actions.
 - A plain path, a `file://` URI, and a file argument all open the right folder.
 - The saved session path restores on the next start.
-- Icons: themed names, file paths, and cached image thumbnails.
+- Icons and titles: themed names, file paths, cached image thumbnails, AppImage
+  embedded entries/icons, and XDG directory/file descriptors.
 
-Future frontend parity: multi-pane transitions, free placement, and
-AppImage/descriptor enrichment. The core APIs for them remain.
+Future frontend parity: multi-pane transitions and free placement. The core APIs for
+them remain.
 
 ## 9. Risks and mitigations
 
