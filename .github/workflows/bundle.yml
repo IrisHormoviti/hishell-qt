@@ -39,7 +39,9 @@ jobs:
             libgl1-mesa-dev \
             pkg-config \
             qt6-base-dev \
+            qt6-base-private-dev \
             qt6-declarative-dev \
+            qt6-declarative-private-dev \
             libqt6opengl6-dev \
             qml6-module-qtquick \
             qml6-module-qtquick-controls \
@@ -72,6 +74,9 @@ jobs:
         run: |
           chmod +x bundle.sh
           CARGO_TARGET_DIR=target/user_build ./bundle.sh ${{ matrix.arch }}
+
+      - name: Build qtbridge target
+        run: cargo build --features qtbridge --bin hishell-qt-bridge --target-dir target/bridge
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

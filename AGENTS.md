@@ -5,6 +5,7 @@
 - Clone with `git clone --recurse-submodules`; the pure core lives in the `hishell/` submodule.
 - **Core build**: `cargo build` inside `hishell/` (no Qt or system dependencies).
 - **Build**: `cargo build` in the repository root (Rust + Qt6, no separate QML compilation)
+- **qtbridge target**: `cargo build --features qtbridge --bin hishell-qt-bridge` (Qt 6.10+ with private headers); it is a parallel frontend, not the shipping binary.
 - **QML is embedded at compile time** via `qmetaobject::qrc!` in `src/main.rs`. `build.rs` only watches `src/`, so editing a `.qml` file alone does not trigger a rebuild. After QML changes, `touch src/main.rs` (or `cargo clean -p hishell-qt`) before `cargo build`, or the running binary keeps the old QML.
 - **Run**: `cargo run` or `cargo run -- /path/to/folder`
     - Accepts `file://` URIs which are percent-decoded to absolute paths.
