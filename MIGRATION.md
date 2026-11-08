@@ -2212,11 +2212,17 @@ Checkpoint:
 
 ### Phase 5 — Core `Focus` state
 
-Status: core focus state is in `hishell::focus` (`Focus`, `FocusCommand`, `Direction`).
-`Engine::dispatch(Command::Focus)` implements first/last/move/set/clear and returns
-`FocusDelta`; `FolderView.focus` reads it and `Command::Focus(Activate)` returns
-`Effect::FocusActivate`. Remaining: the Qt key/gamepad mapping still drives
-`focus_manager.rs`, and pane state is single-pane until the adapter switches over.
+Status: `hishell::focus` owns per-pane state (`PaneFocus`: order, columns,
+horizontal/free-placement positions, empty-slot cursor, and geometry) and the navigation
+math. `FocusCommand` carries `Register`, `Release`, `ActivatePane`, `SetOrder`,
+`SetPositions`, `SetGrid`, `SetGeometry`, `SetEmptySlots`, `SetIndex`, `SetCursor`,
+`First`, `Last`, `Move`, `Set`, `Clear`, and `Activate`. `Engine::dispatch(Command::Focus)`
+keeps pane 0 in sync with the folder and returns `FocusDelta`; `FocusCommand::Activate`
+returns `Effect::FocusActivate`. The shipping `FocusManager` pushes its pane into the core
+before `focus_first`/`focus_last`/`move_focus`/`set_index` and applies the returned cursor;
+edge hand-off between panes is `Focus::handoff`, using the geometry the adapter supplies.
+Key/gamepad mapping, repeat/acceleration, drag gestures, and view handles stay in the
+adapter.
 
 1. Move pane state, navigation math, and status strings.
 2. Remove top-screen publishing.
@@ -2434,7 +2440,7 @@ Out of scope. The core APIs above are the contract.
 | 2.5 — navigation plans | done | frontend uses the JSON shim until it moves to typed plans |
 | 3 — ops, jobs, execution | done | — (provider commands stay synchronous by design) |
 | 4 — selection and actions | done | presentation labels/icons/shortcuts remain in QML by design |
-| 5 — focus state | core done | adapter key/gamepad mapping and multi-pane |
+| 5 — focus state | done | — |
 | 6 — native KDE cleanup | not started in shipping app | delete ClamOS theme stack and accent-icon hooks |
 
 The core rules hold today: `hishell` has no Qt/KDE dependency, mutations return typed

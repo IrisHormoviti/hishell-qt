@@ -1,9 +1,10 @@
 use crate::gamepad::Input;
+use hishell::{Direction, Focus, FocusCommand, ItemId, PaneId};
 use once_cell::sync::Lazy;
 use qmetaobject::{QUrl, QVariantList, prelude::*};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Instant;
 
@@ -341,104 +342,6 @@ impl Pane {
 			.cloned()
 			.unwrap_or_default()
 	}
-
-	fn rows(&self) -> i32 {
-		let count = self.count();
-		if count == 0 {
-			return 1;
-		}
-		if self.has_positions() {
-			return self
-				.positions
-				.iter()
-				.map(|(_, row)| row + 1)
-				.max()
-				.unwrap_or(1)
-				.max(1);
-		}
-		let stride = self.columns.max(1);
-		if self.horizontal {
-			stride
-		} else {
-			(count + stride - 1) / stride
-		}
-	}
-
-	fn grid_columns(&self) -> i32 {
-		let count = self.count();
-		if count == 0 {
-			return 1;
-		}
-		if self.has_positions() {
-			return self
-				.positions
-				.iter()
-				.map(|(column, _)| column + 1)
-				.max()
-				.unwrap_or(1)
-				.max(1);
-		}
-		let stride = self.columns.max(1);
-		if self.horizontal {
-			(count + stride - 1) / stride
-		} else {
-			stride
-		}
-	}
-
-	fn row_column(&self) -> (i32, i32) {
-		let count = self.count();
-		if count == 0 {
-			return (0, 0);
-		}
-		if self.has_positions() {
-			// An empty-cell cursor has no index; report its cell.
-			if let Some((column, row)) = self.cursor
-				&& self.index < 0
-			{
-				return (row, column);
-			}
-			let index = self.index.clamp(0, count - 1);
-			let (column, row) = self.positions[index as usize];
-			return (row, column);
-		}
-		let stride = self.columns.max(1);
-		let index = self.index.clamp(0, count - 1);
-		if self.horizontal {
-			(index % stride, index / stride)
-		} else {
-			(index / stride, index % stride)
-		}
-	}
-
-	fn index_at(&self, row: i32, column: i32) -> i32 {
-		let count = self.count();
-		if count == 0 {
-			return -1;
-		}
-		if self.has_positions() {
-			// Enter at the item closest to the requested visual cell.
-			let mut best = 0;
-			let mut best_distance = i64::MAX;
-			for (index, &(c, r)) in self.positions.iter().enumerate() {
-				let distance = (r - row).abs() as i64 + (c - column).abs() as i64;
-				if distance < best_distance {
-					best_distance = distance;
-					best = index as i32;
-				}
-			}
-			return best;
-		}
-		let row = row.clamp(0, self.rows() - 1);
-		let column = column.clamp(0, self.grid_columns() - 1);
-		let stride = self.columns.max(1);
-		let index = if self.horizontal {
-			column * stride + row
-		} else {
-			row * stride + column
-		};
-		index.clamp(0, count - 1)
-	}
 }
 
 #[derive(QObject, Default)]
@@ -456,7 +359,6 @@ pub struct FocusManager {
 	focus_on_empty: qt_property!(bool; NOTIFY focus_changed),
 	focused_column: qt_property!(i32; NOTIFY focus_changed),
 	focused_row: qt_property!(i32; NOTIFY focus_changed),
-	focus_status: qt_property!(String; READ get_focus_status NOTIFY focus_changed),
 	window: qt_property!(QVariant),
 	view_focused: qt_property!(bool; NOTIFY focus_changed),
 	current_pane: qt_property!(i32; NOTIFY focus_changed),
@@ -488,6 +390,9 @@ pub struct FocusManager {
 	quit_requested: qt_signal!(),
 
 	panes: Vec<(i32, Pane)>,
+	// Pane state and navigation math are owned by the core; the adapter
+	// pushes its view of the pane before a command and applies the result.
+	core: Focus,
 	next_id: i32,
 	current: i32,
 	// Saved focus to re-apply once a file view loads it, and whether the saved
@@ -570,6 +475,7 @@ pub struct FocusManager {
 				}
 			}
 
+			self.push_pane(id);
 			self.sync();
 		}
 	),
@@ -584,6 +490,7 @@ pub struct FocusManager {
 				return;
 			}
 			pane.columns = columns;
+			self.push_pane(id);
 			self.sync();
 		}
 	),
@@ -617,6 +524,7 @@ pub struct FocusManager {
 					row.clamp(0, (pane.grid_rows - 1).max(0)),
 				));
 			}
+			self.push_pane(id);
 		}
 	),
 
@@ -633,6 +541,7 @@ pub struct FocusManager {
 					row.min(pane.grid_rows - 1),
 				));
 			}
+			self.push_pane(id);
 			self.sync();
 		}
 	),
@@ -654,6 +563,7 @@ pub struct FocusManager {
 				pane.index = if pane.count() > 0 { 0 } else { -1 };
 				pane.sync_cursor_to_index();
 			}
+			self.push_pane(id);
 			self.sync();
 		}
 	),
@@ -663,6 +573,7 @@ pub struct FocusManager {
 			if let Some(pane) = self.pane_mut(id) {
 				pane.horizontal = horizontal;
 			}
+			self.push_pane(id);
 		}
 	),
 
@@ -674,6 +585,7 @@ pub struct FocusManager {
 				pane.width = width;
 				pane.height = height;
 			}
+			self.push_pane(id);
 		}
 	),
 
@@ -759,36 +671,20 @@ pub struct FocusManager {
 	focus_first: qt_method!(
 		fn focus_first(&mut self) {
 			let id = self.current;
-			let index = self.pane(id).and_then(|pane| {
-				if pane.has_positions() {
-					visual_edge(&pane.positions, true)
-				} else if pane.count() > 0 {
-					Some(0)
-				} else {
-					None
-				}
-			});
-			if let Some(index) = index {
-				self.set_index(id, index as i32);
-			}
+			self.push_pane(id);
+			self.core.apply(FocusCommand::First);
+			self.pull_pane(id);
+			self.sync();
 		}
 	),
 
 	focus_last: qt_method!(
 		fn focus_last(&mut self) {
 			let id = self.current;
-			let index = self.pane(id).and_then(|pane| {
-				if pane.has_positions() {
-					visual_edge(&pane.positions, false)
-				} else if pane.count() > 0 {
-					Some(pane.count() as usize - 1)
-				} else {
-					None
-				}
-			});
-			if let Some(index) = index {
-				self.set_index(id, index as i32);
-			}
+			self.push_pane(id);
+			self.core.apply(FocusCommand::Last);
+			self.pull_pane(id);
+			self.sync();
 		}
 	),
 
@@ -995,74 +891,80 @@ impl FocusManager {
 		}
 	}
 
-	/// Nearest pane lying on the given side of the one the focus is leaving.
-	fn neighbour(&self, from_id: i32, from: &Pane, direction: &str) -> Option<i32> {
-		let overlaps = |a: f64, a_end: f64, b: f64, b_end: f64| a < b_end - 1.0 && b < a_end - 1.0;
-		let from_x_end = from.x + from.width;
-		let from_y_end = from.y + from.height;
-		let mut best: Option<(f64, i32)> = None;
-
-		for (id, pane) in &self.panes {
-			if *id == from_id || pane.count() == 0 {
-				continue;
-			}
-			let x_end = pane.x + pane.width;
-			let y_end = pane.y + pane.height;
-
-			let (eligible, gap, here, there) = match direction {
-				"left" => (
-					x_end <= from.x + 1.0 && overlaps(pane.y, y_end, from.y, from_y_end),
-					from.x - x_end,
-					from.y + from.height / 2.0,
-					pane.y + pane.height / 2.0,
-				),
-				"right" => (
-					pane.x >= from_x_end - 1.0 && overlaps(pane.y, y_end, from.y, from_y_end),
-					pane.x - from_x_end,
-					from.y + from.height / 2.0,
-					pane.y + pane.height / 2.0,
-				),
-				"up" => (
-					y_end <= from.y + 1.0 && overlaps(pane.x, x_end, from.x, from_x_end),
-					from.y - y_end,
-					from.x + from.width / 2.0,
-					pane.x + pane.width / 2.0,
-				),
-				"down" => (
-					pane.y >= from_y_end - 1.0 && overlaps(pane.x, x_end, from.x, from_x_end),
-					pane.y - from_y_end,
-					from.x + from.width / 2.0,
-					pane.x + pane.width / 2.0,
-				),
-				_ => continue,
-			};
-
-			if !eligible {
-				continue;
-			}
-			// Prefer the pane best aligned with the one being left, then the
-			// smallest gap.
-			let distance = (there - here).abs() * 1000.0 + gap.abs();
-			if best.is_none_or(|(best_distance, _)| distance < best_distance) {
-				best = Some((distance, *id));
-			}
-		}
-
-		best.map(|(_, id)| id)
+	fn set_index(&mut self, id: i32, index: i32) {
+		let pane_id = PaneId(id as u32);
+		self.push_pane(id);
+		self.core.apply(FocusCommand::SetIndex {
+			pane: pane_id,
+			index,
+		});
+		self.pull_pane(id);
+		self.sync();
 	}
 
-	fn set_index(&mut self, id: i32, index: i32) {
-		let Some(pane) = self.pane_mut(id) else {
+	/// Copy the adapter's pane state into the core before a navigation
+	/// command. The core owns the order, columns, positions, and cursor; the
+	/// adapter keeps the view handles and geometry.
+	fn push_pane(&mut self, id: i32) {
+		let Some(pane) = self.pane(id).cloned() else {
 			return;
 		};
-		let count = pane.count();
-		if count == 0 {
-			return;
+		let pane_id = PaneId(id as u32);
+		self.core.apply(FocusCommand::Register(pane_id));
+		self.core.apply(FocusCommand::SetOrder {
+			pane: pane_id,
+			order: pane
+				.paths
+				.iter()
+				.map(|path| ItemId::for_path(Path::new(path)))
+				.collect(),
+			columns: pane.columns.max(1) as usize,
+			horizontal: pane.horizontal,
+		});
+		self.core.apply(FocusCommand::SetPositions {
+			pane: pane_id,
+			positions: pane.positions.clone(),
+		});
+		self.core.apply(FocusCommand::SetGrid {
+			pane: pane_id,
+			columns: pane.grid_columns,
+			rows: pane.grid_rows,
+		});
+		self.core.apply(FocusCommand::SetGeometry {
+			pane: pane_id,
+			x: pane.x,
+			y: pane.y,
+			width: pane.width,
+			height: pane.height,
+		});
+		self.core.apply(FocusCommand::SetEmptySlots {
+			pane: pane_id,
+			enabled: pane.empty_slots,
+		});
+		if pane.index < 0 && pane.cursor.is_some() {
+			self.core.apply(FocusCommand::SetCursor {
+				pane: pane_id,
+				cursor: pane.cursor,
+			});
+		} else {
+			self.core.apply(FocusCommand::SetIndex {
+				pane: pane_id,
+				index: pane.index,
+			});
 		}
-		pane.index = index.clamp(0, count - 1);
-		pane.active = true;
-		pane.sync_cursor_to_index();
-		self.sync();
+		self.core.apply(FocusCommand::ActivatePane(pane_id));
+	}
+
+	/// Apply the core's cursor back to the adapter's pane.
+	fn pull_pane(&mut self, id: i32) {
+		let pane_id = PaneId(id as u32);
+		let index = self.core.pane_index(pane_id);
+		let cursor = self.core.pane_cursor(pane_id);
+		if let Some(pane) = self.pane_mut(id) {
+			pane.index = index;
+			pane.cursor = cursor;
+			pane.active = index >= 0 || cursor.is_some();
+		}
 	}
 
 	/// Moves the cursor inside the focused pane, handing the focus over to a
@@ -1093,160 +995,18 @@ impl FocusManager {
 			return true;
 		}
 
-		let stride = pane.columns.max(1);
-		let index = pane.index.clamp(0, count - 1);
-
-		// Free placement with empty slots moves cell by cell, so the cursor can
-		// rest on an empty cell. Falling off the grid hands off to a neighbour
-		// below, the same as any other grid edge.
-		let free_empty = pane.has_positions() && pane.empty_slots;
-		if free_empty {
-			let (column, row) = pane.cursor_cell();
-			let (next_column, next_row) = match direction {
-				"right" => (column + 1, row),
-				"left" => (column - 1, row),
-				"down" => (column, row + 1),
-				"up" => (column, row - 1),
-				_ => (column, row),
-			};
-			if next_column >= 0
-				&& next_row >= 0
-				&& next_column < pane.grid_columns
-				&& next_row < pane.grid_rows
-				&& (next_column, next_row) != (column, row)
-			{
-				if let Some(entry) = self.pane_mut(current_id) {
-					entry.place_cursor(next_column, next_row);
-				}
-				self.sync();
-				return true;
-			}
-		}
-
-		let target = if free_empty {
-			index
-		} else if pane.has_positions() {
-			nearest_in_direction(&pane.positions, index as usize, direction)
-				.map_or(index, |target| target as i32)
-		} else if pane.horizontal {
-			// Items fill a column first, then move on to the next column.
-			let row = index % stride;
-			let column = index / stride;
-			match direction {
-				"down" => {
-					if row + 1 < stride && index + 1 < count {
-						index + 1
-					} else {
-						index
-					}
-				}
-				"up" => {
-					if row > 0 {
-						index - 1
-					} else {
-						index
-					}
-				}
-				"right" => {
-					if index + stride < count {
-						index + stride
-					} else {
-						index
-					}
-				}
-				"left" => {
-					if column > 0 {
-						index - stride
-					} else {
-						index
-					}
-				}
-				_ => index,
-			}
-		} else {
-			// Items fill a row first, then move on to the next row.
-			let row = index / stride;
-			let column = index % stride;
-			match direction {
-				"right" => {
-					if column + 1 < stride && index + 1 < count {
-						index + 1
-					} else {
-						index
-					}
-				}
-				"left" => {
-					if column > 0 {
-						index - 1
-					} else {
-						index
-					}
-				}
-				"down" => {
-					if index + stride < count {
-						index + stride
-					} else {
-						index
-					}
-				}
-				"up" => {
-					if row > 0 {
-						index - stride
-					} else {
-						index
-					}
-				}
-				_ => index,
-			}
+		let Some(core_direction) = direction_value(direction) else {
+			return false;
 		};
-
-		if target != index {
-			if let Some(entry) = self.pane_mut(current_id) {
-				entry.index = target;
-				entry.sync_cursor_to_index();
-			}
+		self.push_pane(current_id);
+		if self.core.apply(FocusCommand::Move(core_direction)) {
+			let next = self.core.pane().0 as i32;
+			self.current = next;
+			self.pull_pane(next);
 			self.sync();
 			return true;
 		}
-
-		let Some(neighbour_id) = self.neighbour(current_id, &pane, direction) else {
-			return false;
-		};
-		let Some(neighbour) = self.pane(neighbour_id).cloned() else {
-			return false;
-		};
-
-		let (row, column) = pane.row_column();
-		let entry = match direction {
-			"right" => neighbour.index_at(row, 0),
-			"left" => neighbour.index_at(row, neighbour.grid_columns() - 1),
-			"down" => neighbour.index_at(0, column),
-			"up" => neighbour.index_at(neighbour.rows() - 1, column),
-			_ => 0,
-		};
-
-		self.current = neighbour_id;
-		if let Some(pane) = self.pane_mut(neighbour_id) {
-			pane.index = entry.max(0);
-			pane.active = true;
-		}
-		self.sync();
-		true
-	}
-
-	fn get_focus_status(&self) -> String {
-		// Only read by external introspection; QML does not use it. Building
-		// this JSON on every cursor step was pure overhead, so it is built on
-		// demand instead.
-		let status = serde_json::json!({
-			"active": self.focus_active,
-			"index": self.focused_index,
-			"path": self.focused_path,
-			"count": self.item_count,
-			"columns": self.grid_columns,
-			"pane": self.current_pane,
-		});
-		serde_json::to_string(&status).unwrap_or_default()
+		false
 	}
 }
 
@@ -1272,50 +1032,14 @@ fn bottom_shot_url() -> QUrl {
 
 /// Nearest item in the given direction from `index`, by visual grid position.
 /// Items closer to the movement axis win when the forward distance is similar.
-fn nearest_in_direction(positions: &[(i32, i32)], index: usize, direction: &str) -> Option<usize> {
-	let (column, row) = positions[index];
-	let mut best: Option<(i64, usize)> = None;
-	for (candidate, &(c, r)) in positions.iter().enumerate() {
-		if candidate == index {
-			continue;
-		}
-		let (forward, aside) = match direction {
-			"right" => (c - column, (r - row).abs()),
-			"left" => (column - c, (r - row).abs()),
-			"down" => (r - row, (c - column).abs()),
-			"up" => (row - r, (c - column).abs()),
-			_ => return None,
-		};
-		if forward <= 0 {
-			continue;
-		}
-		let score = forward as i64 + aside as i64 * 3;
-		if best.is_none_or(|(best_score, _)| score < best_score) {
-			best = Some((score, candidate));
-		}
+fn direction_value(direction: &str) -> Option<Direction> {
+	match direction {
+		"left" => Some(Direction::Left),
+		"right" => Some(Direction::Right),
+		"up" => Some(Direction::Up),
+		"down" => Some(Direction::Down),
+		_ => None,
 	}
-	best.map(|(_, candidate)| candidate)
-}
-
-/// Index of the item at the top-left (or bottom-right) of the visual grid.
-fn visual_edge(positions: &[(i32, i32)], first: bool) -> Option<usize> {
-	let mut best: Option<(i32, i32, usize)> = None;
-	for (index, &(column, row)) in positions.iter().enumerate() {
-		let better = match best {
-			None => true,
-			Some((best_row, best_column, _)) => {
-				if first {
-					(row, column) < (best_row, best_column)
-				} else {
-					(row, column) > (best_row, best_column)
-				}
-			}
-		};
-		if better {
-			best = Some((row, column, index));
-		}
-	}
-	best.map(|(_, _, index)| index)
 }
 
 fn qt_key(input: Input) -> Option<i32> {

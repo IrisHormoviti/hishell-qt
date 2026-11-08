@@ -394,7 +394,6 @@ Module {
 		Property { name: "focus_on_empty"; type: "bool"; isReadonly: true }
 		Property { name: "focused_column"; type: "int"; isReadonly: true }
 		Property { name: "focused_row"; type: "int"; isReadonly: true }
-		Property { name: "focus_status"; type: "string"; isReadonly: true }
 		Property { name: "window"; type: "QVariant"; isReadonly: true }
 		Property { name: "view_focused"; type: "bool"; isReadonly: true }
 		Property { name: "current_pane"; type: "int"; isReadonly: true }
