@@ -3,18 +3,11 @@ use once_cell::sync::Lazy;
 use qmetaobject::{QUrl, QVariantList, prelude::*};
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Instant;
 
 const FOCUS_BORDER_SVG: &str = include_str!("../theme/default/focus-border.svg");
-
-/// File the host polls for the focused item, from `HISHELL_SESSION_FOCUS`.
-/// Rewritten atomically on every change; the host (e.g. a top screen) renders
-/// its icon and title.
-fn focus_file() -> String {
-	crate::session::focus_file()
-}
 
 static BORDER_SOURCES: Lazy<Mutex<HashMap<String, String>>> =
 	Lazy::new(|| Mutex::new(HashMap::new()));
@@ -497,8 +490,6 @@ pub struct FocusManager {
 	panes: Vec<(i32, Pane)>,
 	next_id: i32,
 	current: i32,
-	// Last document published to the top screen, for change detection.
-	published_focus: String,
 	// Saved focus to re-apply once a file view loads it, and whether the saved
 	// session has already been consulted (only the shell's own first view
 	// restores it).
@@ -713,15 +704,6 @@ pub struct FocusManager {
 	persist_focus: qt_method!(
 		fn persist_focus(&self) {
 			crate::session::save_focus(&self.focused_path);
-		}
-	),
-
-	/// Publish the focused item for the top screen. Called a moment after the
-	/// cursor settles: the document needs the item's title and icon, which are
-	/// not free, and the top screen polls at 200 ms anyway.
-	publish_focus_now: qt_method!(
-		fn publish_focus_now(&mut self) {
-			self.publish_focus();
 		}
 	),
 
@@ -1010,68 +992,6 @@ impl FocusManager {
 				signal_time.as_micros(),
 				self.focused_path
 			);
-		}
-	}
-
-	/// Publishes the focused item for the top screen: title and icon, resolved
-	/// the same way the model resolves them (`directory::get_item_title` /
-	/// `get_icon`), so both screens always agree. The document is compared as a
-	/// whole, so a thumbnail finishing in the background republishes too, and
-	/// the file is only rewritten when something actually changed. An empty
-	/// focus publishes empty fields, which the top screen shows as no card.
-	fn publish_focus(&mut self) {
-		let path = self.focused_path.clone();
-		let (title, icon, comment, banner) = if path.is_empty() {
-			(String::new(), String::new(), String::new(), None)
-		} else {
-			// Use a thumbnail that already exists (the file view requests the
-			// visible ones). Requesting one here queued a new job on every
-			// cursor move, which competed with the shell while the user was
-			// stepping through a folder; a miss keeps the themed icon.
-			let thumbnail = crate::thumbnailer::result_for(&path);
-			let icon = thumbnail.unwrap_or_else(|| crate::directory::get_icon(&path));
-			let banner = crate::topscreen::banner_for(Path::new(&path), &icon);
-			(
-				crate::directory::get_item_title(Path::new(&path)),
-				icon,
-				crate::directory::get_item_comment(Path::new(&path)),
-				banner,
-			)
-		};
-		let document = serde_json::json!({
-			"title": title,
-			"comment": comment,
-			"icon": icon,
-			"path": path,
-			"model": banner.as_ref().map(|banner| banner.model.as_str()).unwrap_or(""),
-			"model_icon_texture": banner
-				.as_ref()
-				.and_then(|banner| banner.icon_texture.as_deref())
-				.unwrap_or(""),
-			"model_icon": banner
-				.as_ref()
-				.and_then(|banner| banner.icon_art.as_deref())
-				.unwrap_or(""),
-			"model_scale": banner.as_ref().map_or(1.0, |banner| banner.scale),
-			"model_animate": banner.as_ref().map_or(true, |banner| banner.animate),
-		})
-		.to_string();
-		if document == self.published_focus {
-			return;
-		}
-		self.published_focus = document.clone();
-
-		let target = focus_file();
-		if target.is_empty() {
-			return;
-		}
-		if let Some(parent) = Path::new(&target).parent() {
-			let _ = fs::create_dir_all(parent);
-		}
-		// Write-and-rename so a poll never sees a half-written file.
-		let temporary = PathBuf::from(format!("{target}.tmp"));
-		if fs::write(&temporary, document).is_ok() {
-			let _ = fs::rename(&temporary, target);
 		}
 	}
 

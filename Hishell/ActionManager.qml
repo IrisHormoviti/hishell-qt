@@ -1063,30 +1063,14 @@ Item {
 		}
 	}
 
-	// Rename: ask the system keyboard when it is running. The keyboard already
-	// draws the text with an OK/Cancel bar, and it covers the touch panel, so a
-	// dialog with a second text field would only be hidden underneath it. The
-	// dialog stays as the fallback for systems without ClamOS's keyboard, and
-	// for a keyboard that dies while a request is pending.
+	// Rename always uses the Qt dialog.
 	property string renamePath: ""
 	property string renameOriginal: ""
-	property string renameRequest: ""
 
 	function beginRename(filePath) {
 		if (!actionManager.fileManager || !actionManager.fileManager.can_rename(filePath))
 			return;
-		if (actionManager.renameRequest !== "")
-			return;
 		const name = String(actionManager.fileManager.rename_display_name(filePath));
-		const id = String(actionManager.fileManager.request_text_entry(qsTr("Rename"), name, "stem"));
-		if (id !== "") {
-			actionManager.renamePath = filePath;
-			actionManager.renameOriginal = name;
-			actionManager.renameRequest = id;
-			renameTimer.missing = 0;
-			renameTimer.restart();
-			return;
-		}
 		actionManager.showRenameDialog(filePath, name);
 	}
 
@@ -1129,79 +1113,6 @@ Item {
 				actionManager.targetDirectory.reload();
 		}
 		return "";
-	}
-
-	function finishKeyboardRename(status, text) {
-		const filePath = actionManager.renamePath;
-		const originalName = actionManager.renameOriginal;
-		actionManager.renamePath = "";
-		actionManager.renameOriginal = "";
-		actionManager.renameRequest = "";
-		if (filePath === "")
-			return;
-		if (status === "cancel") {
-			actionManager.playSound("dialog-cancel");
-			return;
-		}
-		if (status !== "ok")
-			return;
-		const error = actionManager.renameTo(filePath, originalName, String(text || ""));
-		if (error !== "") {
-			actionManager.playSound("dialog-error");
-			actionManager.showNotice(error);
-		}
-	}
-
-	// Poll the keyboard's response. A request is only abandoned when the
-	// keyboard stops answering its liveness marker; there is no timeout while
-	// someone is typing.
-	Timer {
-		id: renameTimer
-		interval: 120
-		repeat: true
-		running: false
-		property int missing: 0
-
-		function fallBackToDialog() {
-			const filePath = actionManager.renamePath;
-			const originalName = actionManager.renameOriginal;
-			const id = actionManager.renameRequest;
-			actionManager.renamePath = "";
-			actionManager.renameOriginal = "";
-			actionManager.renameRequest = "";
-			stop();
-			if (id !== "" && actionManager.fileManager)
-				actionManager.fileManager.cancel_text_entry(id);
-			if (filePath !== "")
-				actionManager.showRenameDialog(filePath, originalName);
-		}
-
-		onTriggered: {
-			const fm = actionManager.fileManager;
-			if (actionManager.renameRequest === "" || !fm) {
-				stop();
-				return;
-			}
-			if (!fm.keyboard_available()) {
-				if (++missing < 10)
-					return;
-				fallBackToDialog();
-				return;
-			}
-			missing = 0;
-			let result = {
-				status: "pending"
-			};
-			try {
-				result = JSON.parse(fm.poll_text_entry(actionManager.renameRequest));
-			} catch (e) {
-				return;
-			}
-			if (result.status === "pending")
-				return;
-			stop();
-			actionManager.finishKeyboardRename(result.status, result.text || "");
-		}
 	}
 
 	Dialog {

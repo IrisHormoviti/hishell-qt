@@ -21,7 +21,6 @@ pub mod focus_manager;
 pub mod gamepad;
 pub mod image_utils;
 pub mod kde_bridge;
-pub mod keyboard;
 pub mod launch;
 pub mod path_utils;
 pub mod selection_manager;
@@ -29,7 +28,6 @@ pub mod session;
 pub mod sound;
 pub mod theme_icons;
 pub mod thumbnailer;
-pub mod topscreen;
 
 use qmetaobject::prelude::*;
 use std::ffi::CStr;

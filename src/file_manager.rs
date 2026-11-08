@@ -501,49 +501,6 @@ pub struct FileManager {
 		}
 	),
 
-	/// Ask the system keyboard for a string. Returns the request id, or an
-	/// empty string when no keyboard is available; callers then use their own
-	/// dialog, which is also the path on a system without ClamOS.
-	request_text_entry: qt_method!(
-		fn request_text_entry(&self, prompt: String, text: String, cursor: String) -> String {
-			crate::keyboard::request(&prompt, &text, &cursor).unwrap_or_default()
-		}
-	),
-
-	/// The outcome of a request as JSON: `{"status":"pending"}`,
-	/// `{"status":"ok","text":"..."}` or `{"status":"cancel"}`.
-	poll_text_entry: qt_method!(
-		fn poll_text_entry(&self, id: String) -> String {
-			match crate::keyboard::poll(&id) {
-				crate::keyboard::Poll::Pending => {
-					serde_json::json!({ "status": "pending" }).to_string()
-				}
-				crate::keyboard::Poll::Accepted(text) => {
-					serde_json::json!({ "status": "ok", "text": text }).to_string()
-				}
-				crate::keyboard::Poll::Cancelled => {
-					serde_json::json!({ "status": "cancel" }).to_string()
-				}
-			}
-		}
-	),
-
-	/// Withdraw a request the keyboard has not answered yet.
-	cancel_text_entry: qt_method!(
-		fn cancel_text_entry(&self, id: String) {
-			crate::keyboard::cancel(&id);
-		}
-	),
-
-	/// Whether the system keyboard is running. The shell polls this while a
-	/// request is pending, so it can fall back to its dialog if the keyboard
-	/// dies or was never there.
-	keyboard_available: qt_method!(
-		fn keyboard_available(&self) -> bool {
-			crate::keyboard::available()
-		}
-	),
-
 	/// Rename a file or directory, or change a provider entry's label through
 	/// its `Rename=` command.  Returns a JSON status object:
 	/// `{"ok":bool,"error":string}`.

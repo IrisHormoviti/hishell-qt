@@ -1050,36 +1050,6 @@ Item {
 		onTriggered: folderView.keepFocusInView()
 	}
 
-	// Publish the focused item for the top screen after the cursor settles.
-	// The title/icon lookup and the tiny-file write are not needed on every
-	// step of a held direction; the top screen polls at 200 ms regardless.
-	Timer {
-		id: topScreenFocusTimer
-		interval: 60
-		repeat: false
-		onTriggered: {
-			const fm = folderView.focusManager;
-			if (fm)
-				fm.publish_focus_now();
-		}
-	}
-
-	// A generated descriptor reaches the index on a worker after the cursor
-	// has settled, and its icon file appears beside it. Re-publish the focus
-	// on a slow timer so the top screen picks up the generated title, comment
-	// and 3D banner without a cursor move; `publish_focus` compares the whole
-	// document and only writes when something changed.
-	Timer {
-		interval: 2000
-		repeat: true
-		running: folderView.visible
-		onTriggered: {
-			const fm = folderView.focusManager;
-			if (fm)
-				fm.publish_focus_now();
-		}
-	}
-
 	// Persist the cursor after it settles. Saving on every step wrote the
 	// session file from the GUI thread on every key press.
 	Timer {
@@ -1311,7 +1281,6 @@ Item {
 				}
 				saveFocusTimer.restart();
 			}
-			topScreenFocusTimer.restart();
 			// Keep the window's item actions pointed at the pane holding the
 			// cursor, even when the keyboard sits elsewhere (popup, dialog).
 			// Assigning the same view again still emits a change and re-runs
@@ -1430,11 +1399,7 @@ Item {
 					return;
 				const pollStarted = Date.now();
 				folderView.directory.poll_thumbnails();
-				// A new descriptor changes the focused item's title/icon
-				// without moving the cursor. Publish it again so the top
-				// screen uses the generated art and name immediately.
-				if (folderView.directory.poll_descriptors())
-					topScreenFocusTimer.restart();
+				folderView.directory.poll_descriptors();
 				folderView.directory.poll_changes();
 				if (Date.now() - pollStarted > 20)
 					folderView.perfLog("nav poll " + (Date.now() - pollStarted) + "ms");
