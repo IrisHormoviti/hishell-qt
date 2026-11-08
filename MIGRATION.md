@@ -2078,6 +2078,18 @@ Checkpoint:
 7. Keep snapshots, timing, easing, transforms, cancellation, and focus/scroll reveal in
    the frontend.
 
+Status:
+
+- `hishell::navigation` defines `PathRelation`, `NavigationRequest`, `NavigationPlan`,
+  `NavStep`, `NavDirection`, and `SlotAnchor`.
+- `Engine::relation`, `navigation_plan`, `anchor_for`, and `closest_visible_parent` query
+  them; `Command::Navigate`/`Command::GoUp` reload the destination and return
+  `Effect::Navigate(plan)`. `anchor_for` resolves against the last `Engine::view` result.
+- The Qt JSON shim in `hishell::path::navigation_plan` now projects the typed plan instead
+  of duplicating the step composition.
+- Tests cover same/child/parent/sibling/unrelated relations, child/parent/cousin steps, a
+  file target landing in its parent with a focus, navigation effects, and anchor lookup.
+
 Checkpoint:
 
 - Child, parent, sibling, cousin, and unrelated paths produce the expected close/open
