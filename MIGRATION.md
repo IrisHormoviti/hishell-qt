@@ -1985,7 +1985,16 @@ Status: a minimal scan is in core. `hishell::folder::Folder` lists a directory i
 `Item`s (`name`, `path`, `fs_kind`, `kind`, `mime`, `icon`, sizes/times, symlink and
 dotfile flags), sorts directories first, and applies the configured sort. `Engine` keeps
 the folder, exposes `items`/`item`/`item_at`, and fills `FolderView.slots` from the
-resolved grid (or list row height). The qtbridge frontend renders those items and slots.
+resolved grid (or list row height). `ItemId` is derived from the path, so ids survive a
+rescan while the path remains.
+
+Selection lives in the folder (`Selection`): `select_only`, `toggle`, `range_to`,
+`select_all`, `clear`, and `retain`, with the visible order as the range order. `Engine`
+exposes `selection()` and dispatches `SelectOnly`, `ToggleSelection`, `SelectRange`,
+`SelectAll`, `ClearSelection`, and `SetSelectionActive`. A reload carries the selection
+over and drops ids that left the folder. The qtbridge frontend renders the items, slots,
+and selection.
+
 Entry parsing, grouping, stash, free placement, radio groups, and adapter deltas remain.
 
 1. Move `Item`, scan, sort, group, filter, slots, radio, icon resolution.
@@ -2122,6 +2131,8 @@ The qtbridge port runs in parallel on the `qtbridge` branch:
   an embedded resource.
 - `Directory` rows come from `Engine::items`, and `view_json` returns the slot/grid
   layout from `Engine::view`; the QML sizes its `GridView` from that result.
+- Selection is dispatched back into `Engine` and mirrored as `selectionActive`,
+  `selectedCount`, and `selectionRevision` for QML.
 - `PathBridge` exposes the core path helpers, and the shipping `PathUtils` calls the same
   core functions.
 - The shipping `hishell-qt` binary keeps `qmetaobject` until this target reaches parity.

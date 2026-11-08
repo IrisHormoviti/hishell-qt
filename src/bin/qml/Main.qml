@@ -45,6 +45,22 @@ ApplicationWindow {
 					+ Math.round(window.spec.icon_size || 0) + "px"
 			}
 
+			Label {
+				text: window.directory.selectedCount + " selected"
+				visible: window.directory.selectionActive
+			}
+
+			Button {
+				text: "Select all"
+				onClicked: window.directory.select_all()
+			}
+
+			Button {
+				text: "Clear"
+				visible: window.directory.selectionActive
+				onClicked: window.directory.clear_selection()
+			}
+
 			Button {
 				text: "Reload"
 				onClicked: window.directory.refresh_async()
@@ -65,11 +81,26 @@ ApplicationWindow {
 				cellHeight: window.spec.cell_height || 96
 
 				delegate: Item {
+					id: cell
 					required property string name
+					required property string path
 					required property bool is_directory
+
+					readonly property bool selected: {
+						window.directory.selectionRevision
+						return window.directory.is_selected(path)
+					}
 
 					width: grid.cellWidth
 					height: grid.cellHeight
+
+					Rectangle {
+						anchors.fill: parent
+						anchors.margins: 2
+						radius: 6
+						color: cell.selected ? "#8a6ff0" : "transparent"
+						opacity: cell.selected ? 0.28 : 0
+					}
 
 					Column {
 						anchors.centerIn: parent
@@ -89,6 +120,11 @@ ApplicationWindow {
 							elide: Text.ElideMiddle
 							horizontalAlignment: Text.AlignHCenter
 						}
+					}
+
+					MouseArea {
+						anchors.fill: parent
+						onClicked: window.directory.toggle_select(cell.path)
 					}
 				}
 			}

@@ -449,6 +449,9 @@ pub struct Directory {
 	config: Rc<RefCell<ConfigBridge>>,
 	engine: Option<Engine>,
 	revision: i32,
+	selection_active: bool,
+	selected_count: i32,
+	selection_revision: i32,
 }
 
 impl Directory {
@@ -459,6 +462,9 @@ impl Directory {
 			config: Rc::new(RefCell::new(ConfigBridge::default())),
 			engine: Engine::open(path).ok(),
 			revision: 0,
+			selection_active: false,
+			selected_count: 0,
+			selection_revision: 0,
 		};
 		directory.reload();
 		directory
@@ -475,8 +481,36 @@ impl Directory {
 	fn refresh_now(&mut self) {
 		self.reload();
 		self.reset();
+		self.read_selection();
 		self.revision += 1;
 		self.revision_changed();
+		self.selection_changed();
+	}
+
+	fn read_selection(&mut self) {
+		if let Some(engine) = &self.engine {
+			let selection = engine.selection();
+			self.selection_active = selection
+				.map(|selection| selection.active())
+				.unwrap_or(false);
+			self.selected_count = selection
+				.map(|selection| selection.count() as i32)
+				.unwrap_or(0);
+		}
+	}
+
+	fn selection_id(&self, path: &str) -> Option<hishell::ItemId> {
+		let engine = self.engine.as_ref()?;
+		engine.item_at(Path::new(path)).map(|item| item.id)
+	}
+
+	fn apply_selection(&mut self, command: Command) {
+		if let Some(engine) = self.engine.as_mut() {
+			let _ = engine.dispatch(command);
+		}
+		self.read_selection();
+		self.selection_revision += 1;
+		self.selection_changed();
 	}
 }
 
@@ -491,12 +525,68 @@ impl Directory {
 	qproperty!("config", Member = config);
 	qproperty!("path", Member = path, Notify = path_changed);
 	qproperty!("revision", Member = revision, Notify = revision_changed);
+	qproperty!(
+		"selectionActive",
+		Member = selection_active,
+		Notify = selection_changed
+	);
+	qproperty!(
+		"selectedCount",
+		Member = selected_count,
+		Notify = selection_changed
+	);
+	qproperty!(
+		"selectionRevision",
+		Member = selection_revision,
+		Notify = selection_changed
+	);
 
 	#[qsignal]
 	fn path_changed(&mut self);
 
 	#[qsignal]
 	fn revision_changed(&mut self);
+
+	#[qsignal]
+	fn selection_changed(&mut self);
+
+	#[qslot]
+	fn is_selected(&self, path: String) -> bool {
+		let Some(engine) = &self.engine else {
+			return false;
+		};
+		let Some(item) = engine.item_at(Path::new(&path)) else {
+			return false;
+		};
+		engine
+			.selection()
+			.map(|selection| selection.contains(item.id))
+			.unwrap_or(false)
+	}
+
+	#[qslot]
+	fn select(&mut self, path: String) {
+		if let Some(id) = self.selection_id(&path) {
+			self.apply_selection(Command::SelectOnly(id));
+		}
+	}
+
+	#[qslot]
+	fn toggle_select(&mut self, path: String) {
+		if let Some(id) = self.selection_id(&path) {
+			self.apply_selection(Command::ToggleSelection(id));
+		}
+	}
+
+	#[qslot]
+	fn select_all(&mut self) {
+		self.apply_selection(Command::SelectAll);
+	}
+
+	#[qslot]
+	fn clear_selection(&mut self) {
+		self.apply_selection(Command::ClearSelection);
+	}
 
 	#[qslot]
 	fn refresh(&mut self) {
