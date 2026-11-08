@@ -118,9 +118,9 @@ hishell/                       # pure Rust, no Qt, no Slint, no KDE
   error.rs, lib.rs
 
 hishell-qt/                    # thin qtbridge desktop frontend
-  src/bin/qtbridge_app.rs      # ConfigBridge, Directory, PathBridge
-  src/bin/qml/Main.qml         # two-pane SplitView
-  src/bin/qml/FolderPane.qml   # one folder pane and its transitions
+  src/main.rs      # ConfigBridge, Directory, PathBridge
+  src/qml/Main.qml         # two-pane SplitView
+  src/qml/FolderPane.qml   # one folder pane and its transitions
   Cargo.toml                   # hishell + qtbridge only
 ```
 
@@ -2250,7 +2250,7 @@ border is a plain Qt rectangle.
 
 The frontend now runs on qtbridge:
 
-- `src/bin/qtbridge_app.rs` is the `hishell-qt` binary and is built with plain
+- `src/main.rs` is the `hishell-qt` binary and is built with plain
   `cargo build`.
 - It mirrors the full folder config through `ConfigBridge`, exposes `Directory` as a
   15-role `QListModel`, uses `QThreadHandle` for the reload worker, and loads its QML from
@@ -2369,8 +2369,8 @@ Out of scope. The core APIs above are the contract.
 - New folder/new text, rotate, and toggle through the context menu.
 - Trash/delete confirmation, rename, and open-with dialogs.
 - Drag a file/folder onto another folder to copy, move, or link it.
-- Gamepad directions, accept, cancel, menu, select, and directory map to the same
-  focus/navigation/selection actions.
+- With `--features gamepad`, gamepad directions, accept, cancel, menu, select, and
+  directory map to the same focus/navigation/selection actions.
 - Free placement renders each slot at its stored cell.
 - Two panes keep independent folders; an arrow at a pane edge hands focus to the other
   pane.
@@ -2526,12 +2526,13 @@ Removed with the `qmetaobject` frontend:
 
 The frontend is:
 
-- `src/bin/qtbridge_app.rs` — `ConfigBridge`, `Directory`, `PathBridge`, and the
+- `src/main.rs` — `ConfigBridge`, `Directory`, `PathBridge`, and the
   `QApp` entry point.
-- `src/bin/qml/Main.qml` — the two-pane `SplitView`.
-- `src/bin/qml/FolderPane.qml` — one pane: Qt Quick Controls, `Kirigami.Icon`, the
+- `src/qml/Main.qml` — the two-pane `SplitView`.
+- `src/qml/FolderPane.qml` — one pane: Qt Quick Controls, `Kirigami.Icon`, the
   plain focus rectangle, file-operation dialogs, and the `NavigationPlan` transition.
-- `src/gamepad.rs` — gilrs polling adapted to `Directory` focus commands.
+- `src/gamepad.rs` — gilrs polling adapted to `Directory` focus commands; built with
+  `--features gamepad` so a host without libudev development files can still build.
 
 The old QML tree, `sound.rs`, and the frontend copies of `appimage.rs`,
 `directory_descriptor.rs`, `descriptor_generator.rs`, and `thumbnailer.rs` were removed.

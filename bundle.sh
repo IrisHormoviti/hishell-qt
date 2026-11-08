@@ -61,7 +61,7 @@ TARGET_DIR="${CARGO_TARGET_DIR:-target/user_build}"
 if [ "$RUST_TARGET" = "aarch64-unknown-linux-gnu" ]; then
 	export CXXFLAGS_aarch64_unknown_linux_gnu="-I/usr/include"
 fi
-cargo build --release --target "$RUST_TARGET" --target-dir "$TARGET_DIR"
+cargo build --release --features gamepad --target "$RUST_TARGET" --target-dir "$TARGET_DIR"
 
 rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR/lib" "$DIST_DIR/qtplugins" "$DIST_DIR/qml"

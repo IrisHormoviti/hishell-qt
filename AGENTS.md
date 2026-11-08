@@ -6,7 +6,8 @@
 - **Core build**: `cargo build` inside `hishell/` (no Qt or system dependencies).
 - **Build**: `cargo build` in the repository root (Rust + Qt6, no separate QML compilation)
 - **Qt dependency**: `qtbridge` (Qt 6.10+ with private headers). The `hishell-qt` binary is the qtbridge frontend.
-- **QML is embedded at compile time** via `include_bytes_qml!` in `src/bin/qtbridge_app.rs`. Rebuild after QML changes; the debug binary picks up the new resource.
+- **QML is embedded at compile time** via `include_bytes_qml!` in `src/main.rs`. Rebuild after QML changes; the debug binary picks up the new resource.
+- **Gamepad**: `cargo build --features gamepad`; the release bundle enables it. Default builds omit `gilrs`/`libudev`.
 - **Run**: `cargo run` or `cargo run -- /path/to/folder`
     - Accepts `file://` URIs which are percent-decoded to absolute paths.
 - **CMake** is present in a `build/` directory but the default workflow is Cargo-only.
@@ -15,9 +16,9 @@
 
 - Two repositories: `hishell` (pure Rust core, the `hishell/` submodule) and `hishell-qt`
   (Qt frontend). Qt code lives only in the outer repository.
-- Rust backend (`src/bin/qtbridge_app.rs`) + Qt6 QML frontend (`src/bin/qml/`). Bridged via `qtbridge`.
-- Main entry: `src/bin/qtbridge_app.rs` registers `ConfigBridge`, `Directory`, and `PathBridge` with `QApp`.
-- QML entry: `src/bin/qml/Main.qml` uses Qt Quick Controls and Kirigami icons.
+- Rust backend (`src/main.rs`) + Qt6 QML frontend (`src/qml/`). Bridged via `qtbridge`.
+- Main entry: `src/main.rs` registers `ConfigBridge`, `Directory`, and `PathBridge` with `QApp`.
+- QML entry: `src/qml/Main.qml` uses Qt Quick Controls and Kirigami icons.
 - **Prefer Rust backend over JS inside QML for code implementation whenever possible.** Use qtbridge to expose Rust
   types/functions to QML rather than writing inline JavaScript logic.
 - **Pass a `window` property to each loaded component** to avoid unqualified access in QML.
@@ -25,7 +26,7 @@
 
 ## Rust-exposed QML Types
 
-- QML types are exposed from the `#[qobject]` impls in `src/bin/qtbridge_app.rs` and registered in `QApp`.
+- QML types are exposed from the `#[qobject]` impls in `src/main.rs` and registered in `QApp`.
 
 ## Configuration
 
@@ -70,7 +71,7 @@
 - Always validate with `cargo run` and a timeout before considering a task done.
 
 - **qmlls**: QML language linter for validating `.qml` files and catching syntax/type errors early
-    - Usage: `timeout 30s qmlls --no-cmake-calls -E QML_IMPORT_PATH=/home/iris/Projects/hishell-qt:qml -I . src/bin/qml/*.qml; status=$status; printf 'qmlls exit: %s\n' $status; exit $status`
+    - Usage: `timeout 30s qmlls --no-cmake-calls -E QML_IMPORT_PATH=/home/iris/Projects/hishell-qt:qml -I . src/qml/*.qml; status=$status; printf 'qmlls exit: %s\n' $status; exit $status`
     - No output = no errors found
 
 - **cargo fmt**: Ensures consistent tab indentation across all files (Rust and QML)

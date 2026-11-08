@@ -1,6 +1,6 @@
 //! A qtbridge frontend that mirrors the folder config and the directory model.
 
-#[path = "../gamepad.rs"]
+#[cfg(feature = "gamepad")]
 mod gamepad;
 
 use std::cell::RefCell;
@@ -1086,9 +1086,16 @@ impl Directory {
 
 	#[qslot]
 	fn poll_gamepad(&self) -> String {
-		gamepad::poll()
-			.map(|input| input.as_str().to_string())
-			.unwrap_or_default()
+		#[cfg(feature = "gamepad")]
+		{
+			return gamepad::poll()
+				.map(|input| input.as_str().to_string())
+				.unwrap_or_default();
+		}
+		#[cfg(not(feature = "gamepad"))]
+		{
+			String::new()
+		}
 	}
 
 	#[qslot]
@@ -1460,6 +1467,7 @@ fn main() {
 		return;
 	}
 	let path = initial_path(std::env::args().nth(1));
+	#[cfg(feature = "gamepad")]
 	gamepad::init();
 	let mut app = QApp::new();
 	app.application_name("hishell-qt")

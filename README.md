@@ -27,8 +27,8 @@ All these things would be able to be set per folder using a few dot files, allow
 ## About hishell-qt
 This is meant to be a reference implementation for this Hishell spec, which I might also use in other projects. This app is strictly a file manager, made in QT and Kirigami, with the backend written in Rust.
 
-The frontend is now the thin `qtbridge` app in `src/bin/qtbridge_app.rs` with
-`src/bin/qml/Main.qml`; it renders core state from the `hishell` submodule. The old
+The frontend is now the thin `qtbridge` app in `src/main.rs` with
+`src/qml/Main.qml`; it renders core state from the `hishell` submodule. The old
 `qmetaobject`/ClamOS QML frontend and its descriptor, thumbnail, drag/drop, and theme
 modules were removed. Those enrichments remain future work on the thin frontend.
 
@@ -53,7 +53,8 @@ scripts/smoke-test.sh   # startup, session, thumbnails, descriptor generator
 scripts/ui-test.sh      # dialogs, drag/drop, panes, transition, gamepad
 ```
 
-Both run headless with `QT_QPA_PLATFORM=offscreen`.
+Both run headless with `QT_QPA_PLATFORM=offscreen`. The gamepad build is
+`cargo build --features gamepad`; `bundle.sh` enables it.
 
 ## Descriptors and generators
 
