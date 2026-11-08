@@ -638,6 +638,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "filetime"
+version = "0.2.29"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c287a33c7f0a620c38e641e7f60827713987b3c0f26e8ddc9462cc69cf75759"
+dependencies = [
+ "cfg-if",
+ "libc",
+]
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -778,14 +788,18 @@ checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 name = "hishell"
 version = "0.1.0"
 dependencies = [
+ "crossbeam-channel",
  "dirs",
+ "filetime",
  "flate2",
+ "image",
  "infer",
  "libc",
  "mime_guess",
  "once_cell",
  "serde",
  "serde_json",
+ "trash",
  "zstd",
 ]
 

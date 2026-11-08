@@ -2110,6 +2110,22 @@ Checkpoint:
 5. Update `ActionManager.qml` call sites.
 6. Move declined-drop waiting and execution preflight off the UI thread.
 
+Status:
+
+- `hishell::ops` implements copy, move (with a cross-device copy+remove fallback), link,
+  paste, rename, trash, delete, new folder, new text file, duplicate, rotate image, toggle,
+  and number updates. `Destroy` reports `Unsupported` until provider commands move into
+  execution.
+- `hishell::jobs` runs the operations on a bounded worker pool with `JobEvent`s and
+  `CancelToken`; `Jobs::drain` is the frontend pump.
+- `Engine::dispatch(Command::Run)` submits an operation, `Command::CancelJob` cancels it,
+  and `Engine::tick` returns `Effect::Job` events.
+- Tests cover copy trees, overwrite refusal, move/duplicate/rename/new/delete, cancellation,
+  worker completion, and the engine job pump.
+
+Remaining: adapter submit/signal methods, QML async call sites, declined-drop waiting, and
+the execution service/preflight.
+
 Checkpoint:
 
 - Long copy/move/trash does not freeze the UI.
