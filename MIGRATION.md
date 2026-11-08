@@ -2480,9 +2480,10 @@ of this checkout.
 - **aarch64 core.** With `gcc-aarch64-linux-gnu` and `sysroot-aarch64-*-glibc`
   installed, `cargo build --target aarch64-unknown-linux-gnu` in `hishell/` succeeds.
   Build with `CFLAGS="" CXXFLAGS=""` when a user config injects host include paths.
-- **aarch64 frontend.** `qtbridge` needs an aarch64 Qt 6.10+ development sysroot. The
-  Fedora cross sysroot has glibc but no Qt, so the frontend link is a release-pipeline
-  certificate, not a source change. x86_64 is green.
+- **aarch64 frontend.** `qtbridge` needs an aarch64 target sysroot with Qt 6.10+
+  development files and libudev; the Fedora cross sysroot has glibc but neither, so the
+  frontend build stops in `libudev-sys`. This is a release-pipeline certificate, not a
+  source change. x86_64 is green.
 
 ## Appendix A — Deletion checklist
 
