@@ -5,8 +5,8 @@ use std::path::Path;
 use std::rc::Rc;
 
 use hishell::{
-	Command, Config, ConfigKey, ConfigValue, Engine, FolderMode, Location, Metrics, ViewRequest,
-	ViewSpec, Viewport,
+	ChangeSet, Command, Config, ConfigKey, ConfigValue, Engine, FolderDelta, FolderMode, Location,
+	Metrics, ViewRequest, ViewSpec, Viewport,
 };
 use qtbridge::{
 	QApp, QListModel, QListModelBase, QModelItem, QmlObject, include_bytes_qml, qobject,
@@ -484,11 +484,12 @@ impl Directory {
 	}
 
 	fn reload(&mut self) {
-		if let Some(engine) = self.engine.as_mut() {
-			let _ = engine.dispatch(Command::Reload);
-			self.config.borrow_mut().apply(engine.config());
-			self.rows = engine.items().iter().map(row_from_item).collect();
-		}
+		let Some(engine) = self.engine.as_mut() else {
+			return;
+		};
+		let outcome = engine.dispatch(Command::Reload).ok();
+		self.config.borrow_mut().apply(engine.config());
+		self.rows = rows_after(engine, outcome.as_ref().map(|outcome| &outcome.changes));
 	}
 
 	fn refresh_now(&mut self) {
@@ -599,18 +600,14 @@ impl Directory {
 		let Some(value) = qml_config_value(key, &value) else {
 			return false;
 		};
-		let changed = self
-			.engine
-			.as_mut()
-			.map(|engine| engine.dispatch(Command::SetConfig { key, value }).is_ok())
-			.unwrap_or(false);
-		if !changed {
+		let Some(engine) = self.engine.as_mut() else {
 			return false;
-		}
-		if let Some(engine) = &self.engine {
-			self.config.borrow_mut().apply(engine.config());
-			self.rows = engine.items().iter().map(row_from_item).collect();
-		}
+		};
+		let Ok(outcome) = engine.dispatch(Command::SetConfig { key, value }) else {
+			return false;
+		};
+		self.config.borrow_mut().apply(engine.config());
+		self.rows = rows_after(engine, Some(&outcome.changes));
 		self.read_selection();
 		self.reset();
 		self.revision += 1;
@@ -670,6 +667,14 @@ impl Directory {
 					"cell_height": grid.cell.height,
 					"gap": grid.gap,
 					"horizontal": grid.horizontal,
+					"grouped": !view.headers.is_empty(),
+					"headers": view.headers.iter().map(|header| serde_json::json!({
+						"title": header.title,
+						"x": header.rect.x,
+						"y": header.rect.y,
+						"width": header.rect.width,
+						"height": header.rect.height,
+					})).collect::<Vec<_>>(),
 					"revision": view.revision,
 				})
 				.to_string(),
@@ -713,6 +718,25 @@ impl QListModel for Directory {
 	fn reset_unnotified(&mut self) {}
 }
 
+/// Apply the folder delta to the existing rows. A reset, or an order that no
+/// longer matches the item set, rebuilds the rows; an order-only delta reuses
+/// the payloads the model already has.
+fn rows_after(engine: &Engine, changes: Option<&ChangeSet>) -> Vec<DirectoryRow> {
+	match changes.map(|changes| &changes.folder) {
+		Some(FolderDelta::Items { order, .. }) => {
+			let rows: Option<Vec<DirectoryRow>> = order
+				.iter()
+				.map(|id| engine.item(*id).map(row_from_item))
+				.collect();
+			match rows {
+				Some(rows) if rows.len() == engine.items().len() => rows,
+				_ => engine.items().iter().map(row_from_item).collect(),
+			}
+		}
+		_ => engine.items().iter().map(row_from_item).collect(),
+	}
+}
+
 fn row_from_item(item: &hishell::Item) -> DirectoryRow {
 	DirectoryRow {
 		name: item.name.clone(),
@@ -720,7 +744,7 @@ fn row_from_item(item: &hishell::Item) -> DirectoryRow {
 		is_directory: item.fs_kind == hishell::FsKind::Directory,
 		icon: match &item.icon {
 			hishell::IconRef::Theme(name) => name.clone(),
-			hishell::IconRef::Path(path) => path.to_string_lossy().into_owned(),
+			hishell::IconRef::Path(path) => format!("file://{}", path.to_string_lossy()),
 		},
 		title: item.title.clone(),
 		is_symlink: item.is_symlink,
@@ -728,9 +752,14 @@ fn row_from_item(item: &hishell::Item) -> DirectoryRow {
 		modified_time: item.modified as i64,
 		created_time: item.created as i64,
 		accessed_time: item.accessed as i64,
-		control_kind: 0,
-		toggle_on: false,
-		number_value: String::new(),
+		control_kind: match item.kind {
+			hishell::ItemKind::Button => 1,
+			hishell::ItemKind::Toggle => 2,
+			hishell::ItemKind::Number => 3,
+			_ => 0,
+		},
+		toggle_on: item.toggle_on,
+		number_value: item.number_value.clone(),
 		comment: item.comment.clone(),
 		icon_ready: true,
 	}

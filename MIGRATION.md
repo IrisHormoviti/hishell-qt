@@ -2013,7 +2013,21 @@ style can leave `QIcon::themeName()` at an internal name with no `index.theme`, 
 `KIconLoader` return null icons; `init_icon_theme` and the accent-icon renderer fall back
 to `breeze`/`breeze-dark` (by palette) or `hicolor`.
 
-Entry parsing, grouping, stash, free placement, radio groups, and adapter deltas remain.
+Entry parsing resolves `Type=Application|Link|Directory|Button|Toggle|Number|Radio|File`.
+A folder's `.directory` can make it an Application, Link, or control; a `Type=File`
+descriptor or `<file>.desktop` sidecar attaches its `Name`/`Comment`/`Icon`/`MimeType` to
+the file and is not listed itself. Unknown types and invalid targets produce diagnostics.
+`ScanOptions` carries raw mode and the hidden-entry policy.
+
+`Folder::apply_config` sorts by the configured key/date/name modes and assigns display
+groups (date, letters, type, custom, stash). `Engine::view` returns grouped slots and header
+rects, and free-placement slots when `Sort = FREE`. Free positions are persisted through
+`SetFreePosition`, `SetFreePositions`, `RenameFreePosition`, and `ResetFreePositions`.
+Radio membership and value helpers live in core; invoking the radio command belongs to the
+execution service. Folder changes carry `FolderDelta::Reset` or an order-only `Items` delta,
+and the qtbridge adapter applies them to its rows.
+
+Descriptor roots, AppImage metadata, and generator icons remain outside core.
 
 1. Move `Item`, scan, sort, group, filter, slots, radio, icon resolution.
 2. Add `Location`, `Folder`, `File`, `ItemId`, `Location::from_path`, and
