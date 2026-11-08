@@ -65,24 +65,28 @@ impl ConfigBridge {
 	qproperty!("icon", Member = icon, Notify = changed);
 	qproperty!("wallpaper", Member = wallpaper, Notify = changed);
 	qproperty!("maximized", Member = maximized, Notify = changed);
-	qproperty!("topLayout", Member = top_layout, Notify = changed);
-	qproperty!("middleLayout", Member = middle_layout, Notify = changed);
-	qproperty!("bottomLayout", Member = bottom_layout, Notify = changed);
-	qproperty!("headerLayout", Member = header_layout, Notify = changed);
-	qproperty!("nativeMenubar", Member = native_menubar, Notify = changed);
-	qproperty!("nativeMenus", Member = native_menus, Notify = changed);
-	qproperty!("nativeTitlebar", Member = native_titlebar, Notify = changed);
-	qproperty!("nativeDrag", Member = native_drag, Notify = changed);
-	qproperty!("showShortcuts", Member = show_shortcuts, Notify = changed);
+	qproperty!("top_layout", Member = top_layout, Notify = changed);
+	qproperty!("middle_layout", Member = middle_layout, Notify = changed);
+	qproperty!("bottom_layout", Member = bottom_layout, Notify = changed);
+	qproperty!("header_layout", Member = header_layout, Notify = changed);
+	qproperty!("native_menubar", Member = native_menubar, Notify = changed);
+	qproperty!("native_menus", Member = native_menus, Notify = changed);
+	qproperty!(
+		"native_titlebar",
+		Member = native_titlebar,
+		Notify = changed
+	);
+	qproperty!("native_drag", Member = native_drag, Notify = changed);
+	qproperty!("show_shortcuts", Member = show_shortcuts, Notify = changed);
 	qproperty!(
 		"executionWrapper",
 		Member = execution_wrapper,
 		Notify = changed
 	);
-	qproperty!("screenName", Member = screen, Notify = changed);
-	qproperty!("gridMode", Member = grid_mode, Notify = changed);
-	qproperty!("gridSize", Member = grid_size, Notify = changed);
-	qproperty!("gridLines", Member = lines, Notify = changed);
+	qproperty!("screen_name", Member = screen, Notify = changed);
+	qproperty!("grid_mode", Member = grid_mode, Notify = changed);
+	qproperty!("grid_size", Member = grid_size, Notify = changed);
+	qproperty!("grid_lines", Member = lines, Notify = changed);
 	qproperty!(
 		"gridHorizontalAlign",
 		Member = grid_horizontal_align,
@@ -98,45 +102,49 @@ impl ConfigBridge {
 		Member = scroll_direction,
 		Notify = changed
 	);
-	qproperty!("viewMode", Member = view_mode, Notify = changed);
-	qproperty!("listColumns", Member = list_columns, Notify = changed);
-	qproperty!("listHeader", Member = list_header, Notify = changed);
-	qproperty!("showLabels", Member = show_labels, Notify = changed);
+	qproperty!("view_mode", Member = view_mode, Notify = changed);
+	qproperty!("list_columns", Member = list_columns, Notify = changed);
+	qproperty!("list_header", Member = list_header, Notify = changed);
+	qproperty!("show_labels", Member = show_labels, Notify = changed);
 	qproperty!(
 		"gridLabelsBesidesIcons",
 		Member = grid_labels_beside_icons,
 		Notify = changed
 	);
-	qproperty!("labelText", Member = label_text, Notify = changed);
+	qproperty!("label_text", Member = label_text, Notify = changed);
 	qproperty!("sort", Member = sort, Notify = changed);
-	qproperty!("sortDateMode", Member = sort_date_mode, Notify = changed);
-	qproperty!("sortAlphaMode", Member = sort_alpha_mode, Notify = changed);
-	qproperty!("groupMode", Member = group, Notify = changed);
+	qproperty!("sort_date_mode", Member = sort_date_mode, Notify = changed);
+	qproperty!(
+		"sort_alpha_mode",
+		Member = sort_alpha_mode,
+		Notify = changed
+	);
+	qproperty!("group_mode", Member = group, Notify = changed);
 	qproperty!("groups", Member = groups, Notify = changed);
-	qproperty!("showStash", Member = show_stash, Notify = changed);
-	qproperty!("stashShown", Member = stash_shown, Notify = changed);
-	qproperty!("stashDotfiles", Member = stash_dotfiles, Notify = changed);
+	qproperty!("show_stash", Member = show_stash, Notify = changed);
+	qproperty!("stash_shown", Member = stash_shown, Notify = changed);
+	qproperty!("stash_dotfiles", Member = stash_dotfiles, Notify = changed);
 	qproperty!(
 		"freePlacementPositions",
 		Member = free_placement_positions,
 		Notify = changed
 	);
-	qproperty!("centerFocus", Member = center_focus, Notify = changed);
+	qproperty!("center_focus", Member = center_focus, Notify = changed);
 	qproperty!(
 		"smoothScrolling",
 		Member = smooth_scrolling,
 		Notify = changed
 	);
-	qproperty!("openOnClick", Member = open_on_click, Notify = changed);
+	qproperty!("open_on_click", Member = open_on_click, Notify = changed);
 	qproperty!(
 		"focusEmptySlots",
 		Member = focus_empty_slots,
 		Notify = changed
 	);
-	qproperty!("radioEnabled", Member = radio_enabled, Notify = changed);
-	qproperty!("radioOnly", Member = radio_only, Notify = changed);
-	qproperty!("radioSelected", Member = radio_selected, Notify = changed);
-	qproperty!("radioExec", Member = radio_exec, Notify = changed);
+	qproperty!("radio_enabled", Member = radio_enabled, Notify = changed);
+	qproperty!("radio_only", Member = radio_only, Notify = changed);
+	qproperty!("radio_selected", Member = radio_selected, Notify = changed);
+	qproperty!("radio_exec", Member = radio_exec, Notify = changed);
 	qproperty!(
 		"changedRevision",
 		Member = changed_revision,
@@ -345,20 +353,71 @@ impl ConfigBridge {
 
 fn key_from_qml(name: &str) -> Option<ConfigKey> {
 	match name {
-		"gridMode" => Some(ConfigKey::GridMode),
-		"gridSize" => Some(ConfigKey::GridSize),
-		"gridLines" => Some(ConfigKey::Lines),
-		"viewMode" => Some(ConfigKey::ViewMode),
-		"showLabels" => Some(ConfigKey::ShowLabels),
-		"gridLabelsBesidesIcons" => Some(ConfigKey::GridLabelsBesidesIcons),
-		"labelText" => Some(ConfigKey::LabelText),
+		"grid_mode" => Some(ConfigKey::GridMode),
+		"grid_size" => Some(ConfigKey::GridSize),
+		"grid_lines" => Some(ConfigKey::Lines),
+		"view_mode" => Some(ConfigKey::ViewMode),
+		"show_labels" => Some(ConfigKey::ShowLabels),
+		"grid_labels_beside_icons" => Some(ConfigKey::GridLabelsBesidesIcons),
+		"label_text" => Some(ConfigKey::LabelText),
 		"sort" => Some(ConfigKey::Sort),
-		"groupMode" => Some(ConfigKey::Group),
-		"showStash" => Some(ConfigKey::ShowStash),
-		"centerFocus" => Some(ConfigKey::CenterFocus),
-		"smoothScrolling" => Some(ConfigKey::SmoothScrolling),
-		"openOnClick" => Some(ConfigKey::OpenOnClick),
+		"group_mode" => Some(ConfigKey::Group),
+		"show_stash" => Some(ConfigKey::ShowStash),
+		"center_focus" => Some(ConfigKey::CenterFocus),
+		"smooth_scrolling" => Some(ConfigKey::SmoothScrolling),
+		"open_on_click" => Some(ConfigKey::OpenOnClick),
 		_ => None,
+	}
+}
+
+#[derive(Default)]
+pub struct PathBridge {}
+
+#[qobject]
+impl PathBridge {
+	#[qslot]
+	fn get_segments(&self, path: String) -> String {
+		hishell::path::segments(&path)
+	}
+
+	#[qslot]
+	fn path_for_index(&self, current_path: String, idx: i32) -> String {
+		hishell::path::path_for_index(&current_path, idx)
+	}
+
+	#[qslot]
+	fn folder_name(&self, path: String) -> String {
+		hishell::path::folder_name(&path)
+	}
+
+	#[qslot]
+	fn normalize_path(&self, path: String) -> String {
+		hishell::path::normalize(&path)
+	}
+
+	#[qslot]
+	fn navigation_plan(&self, from: String, to: String) -> String {
+		hishell::path::navigation_plan(&from, &to)
+	}
+
+	#[qslot]
+	fn parent_path(&self, path: String) -> String {
+		hishell::path::parent(&path)
+	}
+
+	#[qslot]
+	fn path_exists(&self, base: String, text: String) -> bool {
+		hishell::path::exists(&base, &text)
+	}
+
+	#[qslot]
+	fn resolve_path(&self, base: String, spec: String) -> String {
+		hishell::path::resolve(&base, &spec)
+	}
+
+	#[qslot]
+	fn complete_path(&self, base: String, text: String, limit: i32) -> String {
+		hishell::path::complete(&base, &text, limit)
 	}
 }
 
@@ -525,6 +584,7 @@ fn main() {
 	app.application_name("hishell-qt-bridge")
 		.register::<ConfigBridge>()
 		.register::<Directory>()
+		.register::<PathBridge>()
 		.set_initial_object(
 			"directory",
 			Rc::new(RefCell::new(Directory::new(Path::new(&path)))),

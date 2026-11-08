@@ -1513,6 +1513,13 @@ file manager.
 
 Path arithmetic and transition planning are core, because they are not presentation:
 
+`hishell::path` holds the lexical helpers (`segments`, `path_for_index`,
+`folder_name`, `normalize`, `parent`, `resolve`, `exists`, `complete`) and the current
+JSON-shaped `navigation_plan`. `hishell-qt`'s `PathUtils` and the qtbridge `PathBridge`
+both delegate to it, so the shipping frontend and the migration target share one
+implementation. The typed `NavigationPlan` below is the next step; it replaces the JSON
+projection without changing the arithmetic.
+
 ```rust
 pub enum NavDirection { Close, Open }
 
@@ -2106,6 +2113,8 @@ The qtbridge port runs in parallel on the `qtbridge` branch:
 - It mirrors the full folder config through `ConfigBridge`, exposes `Directory` as a
   15-role `QListModel`, uses `QThreadHandle` for the reload worker, and loads its QML from
   an embedded resource.
+- `PathBridge` exposes the core path helpers, and the shipping `PathUtils` calls the same
+  core functions.
 - The shipping `hishell-qt` binary keeps `qmetaobject` until this target reaches parity.
 
 1. Replace `ViewButton`, `ViewDialog`, `ViewMenu`, `ViewSlider`, `ViewActions`,

@@ -12,6 +12,10 @@ ApplicationWindow {
 
 	required property var directory
 
+	PathBridge {
+		id: pathUtils
+	}
+
 	ColumnLayout {
 		anchors.fill: parent
 		spacing: 0
@@ -21,13 +25,18 @@ ApplicationWindow {
 			Layout.margins: 8
 
 			Label {
+				text: pathUtils.folder_name(window.directory.path)
+				font.bold: true
+			}
+
+			Label {
 				text: window.directory.path
 				elide: Text.ElideMiddle
 				Layout.fillWidth: true
 			}
 
 			Label {
-				text: window.directory.config.gridMode + " · " + window.directory.config.gridLines + " lines"
+				text: window.directory.config.grid_mode + " · " + window.directory.config.grid_lines + " lines"
 			}
 
 			Button {
