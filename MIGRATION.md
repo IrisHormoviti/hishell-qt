@@ -86,11 +86,12 @@ These are settled and should not be revisited during the migration.
 ## 2. Non-goals
 
 - Building the Slint frontend in this migration.
-- Preserving the ClamOS look in the Qt app.
-- Preserving the ClamOS system-keyboard request IPC in the Qt app.
+- Preserving the ClamOS look in the qtbridge frontend (the shipping `qmetaobject` shell
+  keeps it until the bridge replaces it; §13).
+- Preserving the ClamOS system-keyboard request IPC in the qtbridge frontend.
 - Moving QML animation, delegate construction, drag gestures, or dialog painting into core.
 - Moving key, gamepad, pointer, touch, shortcut, or text-entry input handling into core.
-- Keeping `qmetaobject` after the binding migration unless the spike fails.
+- Replacing `qmetaobject` before the qtbridge target reaches parity.
 - Preserving the old host-loading library contract.
 
 ## 3. Target architecture
@@ -2431,10 +2432,12 @@ Out of scope. The core APIs above are the contract.
   renders prompts and forwards confirmation/cancellation.
 - `hishell-qt` contains only adapters, QML, input handling, and Qt-only hooks.
 - File operations run on workers and never block the UI thread.
-- The Qt app uses native KDE widgets, theme, and icons.
+- The qtbridge frontend uses native KDE widgets, theme, and icons. The shipping
+  `qmetaobject` shell retains its ClamOS theme until the bridge replaces it (§13).
 - The ClamOS keyboard request IPC is gone; rename uses the Qt dialog.
-- `topscreen`, the custom focus border, the ClamOS theme backend, and the custom
-  `View*`/`SegmentedButtons` widgets are gone.
+- `topscreen` is gone. The shipping shell's focus border, ClamOS theme backend, and
+  `View*`/`SegmentedButtons` widgets are retained until it is replaced (§13); the qtbridge
+  frontend uses none of them.
 - Icons resolve correctly as either theme names or absolute paths, with no `gio`
   subprocess.
 - Path relations and navigation plans live in core; the frontend only snapshots and
