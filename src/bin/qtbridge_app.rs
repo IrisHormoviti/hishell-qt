@@ -1,11 +1,11 @@
 //! A qtbridge frontend that mirrors the folder config and the directory model.
 
 use std::cell::RefCell;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use hishell::{
-	ActionId, ActionRequest, ChangeSet, Command, Config, ConfigKey, ConfigValue, Engine,
+	ActionId, ActionRequest, ChangeSet, Command, Config, ConfigKey, ConfigValue, Direction, Engine,
 	FocusCommand, FolderDelta, FolderMode, Location, MenuKind, Metrics, PaneId, Target,
 	ViewRequest, ViewSpec, Viewport,
 };
@@ -367,6 +367,33 @@ fn qml_config_value(key: ConfigKey, value: &str) -> Option<ConfigValue> {
 	}
 }
 
+/// Actions the thin frontend has a UI for. Core may recommend more; the
+/// frontend decides what to render, so prompts and clipboard actions wait for
+/// their dialogs.
+fn supported_action(id: &str) -> bool {
+	matches!(
+		id,
+		"open"
+			| "navigate"
+			| "go-up" | "refresh"
+			| "select-all"
+			| "new-folder"
+			| "new-text-file"
+			| "toggle"
+			| "rotate-image"
+	)
+}
+
+fn direction_from(name: &str) -> Option<Direction> {
+	match name {
+		"left" => Some(Direction::Left),
+		"right" => Some(Direction::Right),
+		"up" => Some(Direction::Up),
+		"down" => Some(Direction::Down),
+		_ => None,
+	}
+}
+
 fn menu_kind(name: &str) -> Option<MenuKind> {
 	match name {
 		"main" => Some(MenuKind::Main),
@@ -489,6 +516,7 @@ pub struct Directory {
 	selection_active: bool,
 	selected_count: i32,
 	selection_revision: i32,
+	focused_path: String,
 }
 
 impl Directory {
@@ -502,8 +530,10 @@ impl Directory {
 			selection_active: false,
 			selected_count: 0,
 			selection_revision: 0,
+			focused_path: String::new(),
 		};
 		directory.reload();
+		save_session(&directory.path);
 		directory
 	}
 
@@ -517,10 +547,48 @@ impl Directory {
 	}
 
 	fn refresh_now(&mut self) {
+		if let Some(engine) = self.engine.as_mut() {
+			let _ = engine.tick();
+		}
 		self.reload();
 		self.reset();
 		self.read_selection();
+		self.read_focus();
 		self.revision += 1;
+		self.revision_changed();
+		self.selection_changed();
+	}
+
+	fn read_focus(&mut self) {
+		let path = self
+			.engine
+			.as_ref()
+			.and_then(|engine| {
+				engine
+					.focus()
+					.and_then(|id| engine.item(id))
+					.map(|item| item.path.to_string_lossy().into_owned())
+			})
+			.unwrap_or_default();
+		if self.focused_path != path {
+			self.focused_path = path;
+			self.focus_changed();
+		}
+	}
+
+	fn after_engine_change(&mut self) {
+		let Some(engine) = self.engine.as_ref() else {
+			return;
+		};
+		self.path = engine.location().path().to_string_lossy().into_owned();
+		save_session(&self.path);
+		self.config.borrow_mut().apply(engine.config());
+		self.rows = rows_after(engine, None);
+		self.read_selection();
+		self.read_focus();
+		self.reset();
+		self.revision += 1;
+		self.path_changed();
 		self.revision_changed();
 		self.selection_changed();
 	}
@@ -578,9 +646,17 @@ impl Directory {
 		Member = selection_revision,
 		Notify = selection_changed
 	);
+	qproperty!(
+		"focused_path",
+		Member = focused_path,
+		Notify = focus_changed
+	);
 
 	#[qsignal]
 	fn path_changed(&mut self);
+
+	#[qsignal]
+	fn focus_changed(&mut self);
 
 	#[qsignal]
 	fn revision_changed(&mut self);
@@ -648,6 +724,52 @@ impl Directory {
 			pane: PaneId(0),
 			path: std::path::PathBuf::from(path),
 		}));
+		self.read_focus();
+	}
+
+	#[qslot]
+	fn focus_first(&mut self) {
+		if let Some(engine) = self.engine.as_mut() {
+			let _ = engine.dispatch(Command::Focus(FocusCommand::First));
+		}
+		self.read_focus();
+	}
+
+	#[qslot]
+	fn focus_last(&mut self) {
+		if let Some(engine) = self.engine.as_mut() {
+			let _ = engine.dispatch(Command::Focus(FocusCommand::Last));
+		}
+		self.read_focus();
+	}
+
+	#[qslot]
+	fn move_focus(&mut self, direction: String) -> bool {
+		let Some(direction) = direction_from(&direction) else {
+			return false;
+		};
+		let Some(engine) = self.engine.as_mut() else {
+			return false;
+		};
+		let Ok(outcome) = engine.dispatch(Command::Focus(FocusCommand::Move(direction))) else {
+			return false;
+		};
+		self.read_focus();
+		outcome.changes.focus.is_some()
+	}
+
+	#[qslot]
+	fn open(&mut self, path: String) {
+		self.focus_path(path);
+		let _ = self.invoke(String::from("open"));
+	}
+
+	#[qslot]
+	fn go_up(&mut self) {
+		if let Some(engine) = self.engine.as_mut() {
+			let _ = engine.dispatch(Command::GoUp);
+		}
+		self.after_engine_change();
 	}
 
 	#[qslot]
@@ -661,8 +783,9 @@ impl Directory {
 		let Some(target) = target_kind(&target) else {
 			return String::from("[]");
 		};
-		serde_json::to_string(&engine.actions(&ActionRequest { menu, target }))
-			.unwrap_or_else(|_| String::from("[]"))
+		let mut actions = engine.actions(&ActionRequest { menu, target });
+		actions.retain(|spec| supported_action(spec.id.as_str()));
+		serde_json::to_string(&actions).unwrap_or_else(|_| String::from("[]"))
 	}
 
 	#[qslot]
@@ -681,6 +804,7 @@ impl Directory {
 		self.config.borrow_mut().apply(engine.config());
 		self.rows = rows_after(engine, Some(&outcome.changes));
 		self.read_selection();
+		self.read_focus();
 		self.reset();
 		self.revision += 1;
 		self.path_changed();
@@ -850,18 +974,74 @@ fn row_from_item(item: &hishell::Item) -> DirectoryRow {
 	}
 }
 
+fn save_session(path: &str) {
+	let store = hishell::SessionStore::default();
+	let mut data = store.load();
+	if data.path != Path::new(path) {
+		data.path = PathBuf::from(path);
+		let _ = store.save(&data);
+	}
+}
+
+fn percent_decode(input: &str) -> String {
+	let mut out = String::with_capacity(input.len());
+	let bytes = input.as_bytes();
+	let mut index = 0;
+	while index < bytes.len() {
+		if bytes[index] == b'%' && index + 2 < bytes.len() {
+			let high = (bytes[index + 1] as char).to_digit(16);
+			let low = (bytes[index + 2] as char).to_digit(16);
+			if let (Some(high), Some(low)) = (high, low) {
+				out.push((high * 16 + low) as u8 as char);
+				index += 3;
+				continue;
+			}
+		}
+		out.push(bytes[index] as char);
+		index += 1;
+	}
+	out
+}
+
+fn initial_path(argument: Option<String>) -> PathBuf {
+	let mut argument = argument.unwrap_or_else(|| String::from("."));
+	if let Some(rest) = argument.strip_prefix("file://") {
+		argument = percent_decode(rest);
+	}
+	if argument == "~" || argument.starts_with("~/") {
+		if let Ok(home) = std::env::var("HOME") {
+			argument = if argument == "~" {
+				home
+			} else {
+				format!("{}{}", home, &argument[1..])
+			};
+		}
+	}
+	let path = PathBuf::from(&argument);
+	let absolute = if path.is_absolute() {
+		path
+	} else {
+		std::env::current_dir()
+			.map(|cwd| cwd.join(path))
+			.unwrap_or_else(|_| PathBuf::from(argument))
+	};
+	let saved = hishell::SessionStore::default().startup_location(&absolute);
+	let path = saved.path().to_path_buf();
+	if path.is_file() {
+		path.parent().map(Path::to_path_buf).unwrap_or(path)
+	} else {
+		path
+	}
+}
+
 fn main() {
-	let path = std::env::args().nth(1).unwrap_or_else(|| String::from("."));
+	let path = initial_path(std::env::args().nth(1));
 	let mut app = QApp::new();
-	hishell_qt::kde_bridge::init_icon_theme();
-	app.application_name("hishell-qt-bridge")
+	app.application_name("hishell-qt")
 		.register::<ConfigBridge>()
 		.register::<Directory>()
 		.register::<PathBridge>()
-		.set_initial_object(
-			"directory",
-			Rc::new(RefCell::new(Directory::new(Path::new(&path)))),
-		);
+		.set_initial_object("directory", Rc::new(RefCell::new(Directory::new(&path))));
 
 	include_bytes_qml!("qml", "hishell_qt");
 	app.load_qml_from_file("qrc:/hishell_qt/qml/Main.qml").run();

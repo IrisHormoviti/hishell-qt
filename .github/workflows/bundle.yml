@@ -75,11 +75,6 @@ jobs:
           chmod +x bundle.sh
           CARGO_TARGET_DIR=target/user_build ./bundle.sh ${{ matrix.arch }}
 
-      - name: Build qtbridge target
-        run: |
-          command -v qmake || sudo ln -sf "$(command -v qmake6)" /usr/local/bin/qmake
-          cargo build --features qtbridge --bin hishell-qt-bridge --target-dir target/bridge
-
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:

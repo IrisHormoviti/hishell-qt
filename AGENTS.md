@@ -5,8 +5,8 @@
 - Clone with `git clone --recurse-submodules`; the pure core lives in the `hishell/` submodule.
 - **Core build**: `cargo build` inside `hishell/` (no Qt or system dependencies).
 - **Build**: `cargo build` in the repository root (Rust + Qt6, no separate QML compilation)
-- **qtbridge target**: `cargo build --features qtbridge --bin hishell-qt-bridge` (Qt 6.10+ with private headers); it is a parallel frontend, not the shipping binary.
-- **QML is embedded at compile time** via `qmetaobject::qrc!` in `src/main.rs`. `build.rs` only watches `src/`, so editing a `.qml` file alone does not trigger a rebuild. After QML changes, `touch src/main.rs` (or `cargo clean -p hishell-qt`) before `cargo build`, or the running binary keeps the old QML.
+- **Qt dependency**: `qtbridge` (Qt 6.10+ with private headers). The `hishell-qt` binary is the qtbridge frontend.
+- **QML is embedded at compile time** via `include_bytes_qml!` in `src/bin/qtbridge_app.rs`. Rebuild after QML changes; the debug binary picks up the new resource.
 - **Run**: `cargo run` or `cargo run -- /path/to/folder`
     - Accepts `file://` URIs which are percent-decoded to absolute paths.
 - **CMake** is present in a `build/` directory but the default workflow is Cargo-only.
@@ -15,26 +15,17 @@
 
 - Two repositories: `hishell` (pure Rust core, the `hishell/` submodule) and `hishell-qt`
   (Qt frontend). Qt code lives only in the outer repository.
-- Rust backend (`src/`) + Qt6 QML frontend (`Hishell/`). Bridged via `qmetaobject`.
-- Main entry: `src/main.rs` registers `Config`, `Directory`, `FileManager`, `DragHandler`, `DropValidator`, `PathUtils`,
-  `LayoutEngine`, `SelectionManager`, `FocusManager` types for Qt.
-- QML entry: `Hishell/ShellWindow.qml` uses Kirigami application window; layouts are driven by `.cfg` config files.
-- **Prefer Rust backend over JS inside QML for code implementation whenever possible.** Use qmetaobject to expose Rust
+- Rust backend (`src/bin/qtbridge_app.rs`) + Qt6 QML frontend (`src/bin/qml/`). Bridged via `qtbridge`.
+- Main entry: `src/bin/qtbridge_app.rs` registers `ConfigBridge`, `Directory`, and `PathBridge` with `QApp`.
+- QML entry: `src/bin/qml/Main.qml` uses Qt Quick Controls and Kirigami icons.
+- **Prefer Rust backend over JS inside QML for code implementation whenever possible.** Use qtbridge to expose Rust
   types/functions to QML rather than writing inline JavaScript logic.
 - **Pass a `window` property to each loaded component** to avoid unqualified access in QML.
 - **Be very mindful about the comments you add, don't write anything unessecary**
 
 ## Rust-exposed QML Types
 
-- When adding or modifying types exposed from Rust to QML, ensure they are properly registered in
-  `Hishell/plugins.qmltypes`.
-- QML types are registered in `src/main.rs` via `qmetaobject::qml_register_type` calls.
-- The `Hishell/plugins.qmltypes` file lists the types available to QML imports; keep it in sync with what is
-  registered in Rust.
-- New modules: `drag_handler.rs`, `selection_manager.rs`, `focus_manager.rs`, `gamepad.rs`, `path_utils.rs`,
-  `drop_validator.rs`, `layout_engine.rs`, `descriptor_generator.rs`
-- AppImage desktop entries and icons are read directly from the appended SquashFS image by
-  `appimage.rs` + `hishell::squashfs`; no external tools are involved.
+- QML types are exposed from the `#[qobject]` impls in `src/bin/qtbridge_app.rs` and registered in `QApp`.
 
 ## Configuration
 
@@ -79,7 +70,7 @@
 - Always validate with `cargo run` and a timeout before considering a task done.
 
 - **qmlls**: QML language linter for validating `.qml` files and catching syntax/type errors early
-    - Usage: `timeout 30s qmlls --no-cmake-calls -E QML_IMPORT_PATH=/home/iris/Projects/hishell-qt:qml -I . Hishell/*.qml; status=$status; printf 'qmlls exit: %s\n' $status; exit $status`
+    - Usage: `timeout 30s qmlls --no-cmake-calls -E QML_IMPORT_PATH=/home/iris/Projects/hishell-qt:qml -I . src/bin/qml/*.qml; status=$status; printf 'qmlls exit: %s\n' $status; exit $status`
     - No output = no errors found
 
 - **cargo fmt**: Ensures consistent tab indentation across all files (Rust and QML)
@@ -91,7 +82,7 @@
 
 ## State Synchronization Notes (QML/Rust)
 
-- For complex state passing between QML and Rust via qmetaobject, relying on direct property bindings during component
+- For complex state passing between QML and Rust via qtbridge, relying on direct property bindings during component
   declaration can lead to timing or syntax errors.
 - Best practice dictates consolidating related state into a single, structured property (e.g., JSON string). This
   consolidated property should be updated in the backend logic whenever any underlying state changes.

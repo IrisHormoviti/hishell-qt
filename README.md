@@ -27,6 +27,11 @@ All these things would be able to be set per folder using a few dot files, allow
 ## About hishell-qt
 This is meant to be a reference implementation for this Hishell spec, which I might also use in other projects. This app is strictly a file manager, made in QT and Kirigami, with the backend written in Rust.
 
+The frontend is now the thin `qtbridge` app in `src/bin/qtbridge_app.rs` with
+`src/bin/qml/Main.qml`; it renders core state from the `hishell` submodule. The old
+`qmetaobject`/ClamOS QML frontend and its descriptor, thumbnail, drag/drop, and theme
+modules were removed. Those enrichments remain future work on the thin frontend.
+
 The toolkit-agnostic core lives in the [hishell](https://github.com/IrisHormoviti/hishell) repository and is checked out here as the `hishell/` submodule.
 Planned features:
 - [ ] Everything in the hishell spec
@@ -40,6 +45,9 @@ Planned features:
 - [X] "Open as" dialog
 
 ## Descriptors and generators
+
+> These features belonged to the removed `qmetaobject` frontend. The core `Entry` and
+> `squashfs` APIs remain the contract for a future frontend that reintroduces them.
 
 A descriptor is a desktop entry that names another path and gives it a title,
 comment and icon, without writing anything beside that path:

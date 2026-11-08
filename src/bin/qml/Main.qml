@@ -19,6 +19,39 @@ ApplicationWindow {
 
 	property var contextActions: []
 
+	function isFileIcon(source) {
+		return source.indexOf("file://") === 0 || source.indexOf("/") === 0
+	}
+
+	function handleKey(event) {
+		if (event.key === Qt.Key_Left) {
+			window.directory.move_focus("left")
+			event.accepted = true
+		} else if (event.key === Qt.Key_Right) {
+			window.directory.move_focus("right")
+			event.accepted = true
+		} else if (event.key === Qt.Key_Up) {
+			if (event.modifiers & Qt.AltModifier) {
+				window.directory.go_up()
+			} else {
+				window.directory.move_focus("up")
+			}
+			event.accepted = true
+		} else if (event.key === Qt.Key_Down) {
+			window.directory.move_focus("down")
+			event.accepted = true
+		} else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+			if (window.directory.focused_path.length > 0)
+				window.directory.open(window.directory.focused_path)
+			event.accepted = true
+		} else if (event.key === Qt.Key_Backspace) {
+			window.directory.go_up()
+			event.accepted = true
+		}
+	}
+
+	Component.onCompleted: window.directory.focus_first()
+
 	Menu {
 		id: contextMenu
 		onAboutToShow: window.contextActions = JSON.parse(
@@ -68,6 +101,11 @@ ApplicationWindow {
 			Label {
 				text: window.directory.selectedCount + " selected"
 				visible: window.directory.selectionActive
+			}
+
+			Button {
+				text: "Up"
+				onClicked: window.directory.go_up()
 			}
 
 			Button {
@@ -146,9 +184,14 @@ ApplicationWindow {
 				id: grid
 				anchors.fill: parent
 				clip: true
+				focus: true
 				model: window.directory
 				cellWidth: window.spec.cell_width || 96
 				cellHeight: window.spec.cell_height || 96
+
+				Keys.onPressed: function (event) {
+					window.handleKey(event)
+				}
 
 				delegate: Item {
 					id: cell
@@ -169,18 +212,37 @@ ApplicationWindow {
 						anchors.fill: parent
 						anchors.margins: 2
 						radius: 6
-						color: cell.selected ? "#8a6ff0" : "transparent"
+						color: Kirigami.Theme.highlightColor
 						opacity: cell.selected ? 0.28 : 0
+					}
+
+					Rectangle {
+						anchors.fill: parent
+						anchors.margins: 1
+						color: "transparent"
+						border.width: 2
+						border.color: Kirigami.Theme.highlightColor
+						visible: window.directory.focused_path === path
 					}
 
 					Column {
 						anchors.centerIn: parent
 						spacing: 4
 
+						Image {
+							width: window.spec.icon_size || 48
+							height: width
+							source: cell.icon
+							fillMode: Image.PreserveAspectFit
+							visible: window.isFileIcon(cell.icon)
+							anchors.horizontalCenter: parent.horizontalCenter
+						}
+
 						Kirigami.Icon {
 							width: window.spec.icon_size || 48
 							height: width
 							source: cell.icon
+							visible: !window.isFileIcon(cell.icon)
 							anchors.horizontalCenter: parent.horizontalCenter
 						}
 
@@ -203,6 +265,7 @@ ApplicationWindow {
 								window.directory.toggle_select(cell.path)
 							}
 						}
+						onDoubleClicked: window.directory.open(cell.path)
 					}
 				}
 			}
@@ -210,8 +273,13 @@ ApplicationWindow {
 			ListView {
 				anchors.fill: parent
 				clip: true
+				focus: true
 				visible: window.spec.mode !== "grid"
 				model: window.directory
+
+				Keys.onPressed: function (event) {
+					window.handleKey(event)
+				}
 
 				delegate: Rectangle {
 					id: row
@@ -226,7 +294,20 @@ ApplicationWindow {
 
 					width: ListView.view.width
 					height: 30
-					color: row.selected ? "#8a6ff0" : "transparent"
+					color: row.selected ? Qt.rgba(
+						Kirigami.Theme.highlightColor.r,
+						Kirigami.Theme.highlightColor.g,
+						Kirigami.Theme.highlightColor.b,
+						0.28) : "transparent"
+
+					Rectangle {
+						anchors.fill: parent
+						anchors.margins: 1
+						color: "transparent"
+						border.width: 2
+						border.color: Kirigami.Theme.highlightColor
+						visible: window.directory.focused_path === path
+					}
 
 					RowLayout {
 						anchors.fill: parent
@@ -234,10 +315,19 @@ ApplicationWindow {
 						anchors.rightMargin: 6
 						spacing: 8
 
+						Image {
+							source: row.icon
+							width: 18
+							height: 18
+							fillMode: Image.PreserveAspectFit
+							visible: window.isFileIcon(row.icon)
+						}
+
 						Kirigami.Icon {
 							source: row.icon
 							width: 18
 							height: 18
+							visible: !window.isFileIcon(row.icon)
 						}
 
 						Label {
@@ -258,6 +348,7 @@ ApplicationWindow {
 								window.directory.toggle_select(row.path)
 							}
 						}
+						onDoubleClicked: window.directory.open(row.path)
 					}
 				}
 			}

@@ -11,10 +11,9 @@ The goal is that all behaviour that is not presentation lives in `hishell`, and 
 same core without reimplementing file management, config, selection, actions, layout, or
 file operations.
 
-The migration deliverable is the pure core plus the `qtbridge` frontend, which is the
-native Qt Quick target. The shipping `qmetaobject` binary is the production shell and keeps
-its ClamOS theme and host integrations until the bridge replaces it. Decisions 4–6 below
-describe the `qtbridge` target; §13 records the retained shipping surface.
+The migration deliverable is the pure core plus the `qtbridge` frontend. `hishell-qt` is
+now that frontend: the `qmetaobject` app, its adapters, and its ClamOS theme have been
+removed.
 
 ## 1. Locked decisions
 
@@ -29,16 +28,15 @@ These are settled and should not be revisited during the migration.
 3. **File operations are pure Rust and asynchronous.**
    `hishell::ops` performs the work with Rust crates; `hishell::jobs` runs it on a worker
    pool and delivers completion/progress events. No KDE in the operation path.
-4. **ClamOS-specific visuals are removed from the qtbridge frontend.**
+4. **ClamOS-specific visuals are removed from the frontend.**
    `topscreen`, the custom focus border, the ClamOS theme backend, and the custom
-   `ViewButton`/`ViewDialog`/`ViewMenu`/`ViewSlider`/`SegmentedButtons` stack are absent
-   from it.
-5. **The qtbridge frontend uses native KDE widgets and theme.**
+   `ViewButton`/`ViewDialog`/`ViewMenu`/`ViewSlider`/`SegmentedButtons` stack are gone.
+5. **The frontend uses native KDE widgets and theme.**
    `Kirigami.Theme`, `Kirigami.Units`, `Kirigami.Icon`, Qt Quick Controls with the host
    style. No custom `CoreTheme`.
 6. **The fancy focus border is ClamOS-only.**
-   The qtbridge frontend uses an ordinary focus rectangle. The shipping `qmetaobject`
-   shell keeps the SVG until it is replaced (§13).
+   The frontend draws an ordinary focus rectangle; the SVG and its recolouring code are
+   deleted.
 7. **Icons distinguish theme names from paths.**
    `IconRef::Theme(name)` is resolved by the frontend's native icon theme.
    `IconRef::Path(path)` is always an absolute path/URI for icons that are real files.
@@ -47,9 +45,8 @@ These are settled and should not be revisited during the migration.
 8. **The Qt frontend owns the application and event loop.**
    The current host-loading contract (`install`/`setup_process`/`load(engine)`) is
    dropped. `hishell-qt` is a standalone binary.
-9. **The Qt binding migrates to Qt Bridge for Rust (`qtbridge`), not CXX-Qt.**
-   Target Qt is 6.10+ and confirmed. The migration keeps `qmetaobject` as a fallback until
-   the `qtbridge` spike passes.
+9. **The Qt binding is Qt Bridge for Rust (`qtbridge`), not CXX-Qt.**
+   Target Qt is 6.10+ and confirmed. `qmetaobject` has been removed from the crate.
 10. **A `hishell` location may be a folder or a file.**
     The core models both through `Location`. Folder-only features (listing, sorting,
     grouping, slots, free placement, radio groups, selection) apply only to folder
@@ -86,12 +83,11 @@ These are settled and should not be revisited during the migration.
 ## 2. Non-goals
 
 - Building the Slint frontend in this migration.
-- Preserving the ClamOS look in the qtbridge frontend (the shipping `qmetaobject` shell
-  keeps it until the bridge replaces it; §13).
-- Preserving the ClamOS system-keyboard request IPC in the qtbridge frontend.
+- Preserving the ClamOS look in the frontend.
+- Preserving the ClamOS system-keyboard request IPC in the frontend.
 - Moving QML animation, delegate construction, drag gestures, or dialog painting into core.
 - Moving key, gamepad, pointer, touch, shortcut, or text-entry input handling into core.
-- Replacing `qmetaobject` before the qtbridge target reaches parity.
+- Keeping `qmetaobject`.
 - Preserving the old host-loading library contract.
 
 ## 3. Target architecture
@@ -121,20 +117,17 @@ hishell/                       # pure Rust, no Qt, no Slint, no KDE
   squashfs.rs                  # AppImage support
   error.rs, lib.rs
 
-hishell-qt/                    # standalone Qt desktop app
-  src/main.rs                  # QApp setup
-  src/adapters/                # Directory, ConfigBridge, FileManager, Focus, Selection, Drag
-  src/input/                   # keys, gamepad, pointer/touch, text entry
-  src/qt_hooks.rs/.cpp         # the small remaining Qt-only hooks
-  build.rs                     # only if qtbridge/C++ needs it
-  Hishell/**.qml               # QML frontend
+hishell-qt/                    # thin qtbridge desktop frontend
+  src/bin/qtbridge_app.rs      # ConfigBridge, Directory, PathBridge
+  src/bin/qml/Main.qml         # Qt Quick UI
+  Cargo.toml                   # hishell + qtbridge only
 ```
 
 ### Dependency rules
 
-- `hishell` must not depend on `qmetaobject`, `qttypes`, `qtbridge`, `slint`, KDE, or C++.
+- `hishell` must not depend on `qtbridge`, `qttypes`, `slint`, KDE, or C++.
 - `hishell` may depend on crates such as `serde`, `image`, `zip`, `trash`, `walkdir`.
-- `hishell-qt` depends on `hishell` only, plus Qt/KDE crates for its own adapters.
+- `hishell-qt` depends on `hishell` and `qtbridge`.
 - A future `hishell-slint` depends on `hishell` and may inject its own platform impl.
 - Core exposes traits and ships the default pure-Rust implementation; it never links a
   frontend.
@@ -838,8 +831,8 @@ Rules:
 - Selection operations take `ItemId`; core resolves the path and row index.
 - The frontend emits `SelectionCommand` values through `Engine::dispatch`; it never
   mutates the selected set directly.
-- `SelectionStatus` is a typed view struct; adapters serialize it. The Qt
-  `SelectionManager` mirrors it into the existing properties.
+- `SelectionStatus` is a typed view struct; adapters serialize it. The qtbridge
+  `Directory` mirrors it into its selection properties.
 - `range_to` selects from the current anchor to `id`, inclusive, in visible order. The
   anchor is the last explicitly selected item, or the focused item when none has been
   selected; hidden/filtered items are skipped.
@@ -1473,9 +1466,8 @@ impl SessionStore {
 - The location kind is persisted, so a file location survives a restart.
 - `Engine::open` uses the store; tests use a temp directory or an in-memory implementation.
 
-Status: `hishell::session::SessionStore` exists with the versioned `SessionData` schema,
-atomic write, `load`, `save`, and `startup_location`. The engine does not construct it yet;
-the Qt adapter still reads and writes `src/session.rs` until the startup path moves over.
+Status: `hishell::session::SessionStore` has the versioned `SessionData` schema, atomic
+write, `load`, `save`, and `startup_location`. The frontend uses it for the saved path.
 
 ### 4.12 Raw mode
 
@@ -1883,16 +1875,15 @@ Checkpoint:
 1. Branch from Phase 0.
 2. Port one singleton (`ConfigBridge` or a tiny test singleton).
 3. Port `Directory` as a `QListModel` with the existing role names.
-4. Load `Hishell/ShellWindow.qml` through `include_bytes_qml!` and
-   `load_qml_from_file`.
+4. Load the bridge QML through `include_bytes_qml!` and `load_qml_from_file`.
 5. Verify nested `directory.config`.
 6. Deliver one worker event through `QThreadHandle`.
 7. Build aarch64 and x86_64.
 8. Confirm `build.rs`/moc for the remaining Qt hooks coexists.
 9. Assess `plugins.qmltypes`/qmlls loss.
 
-Go/no-go. If green, write the remaining adapters in `qtbridge`. If not, stay on
-`qmetaobject` and revisit later.
+The spike passed; the bridge became the `hishell-qt` binary and the `qmetaobject`
+frontend was removed.
 
 #### Spike results
 
@@ -1925,9 +1916,8 @@ unused and move out of the model.
 name. QML embedded from a sibling directory must live under the invoking source directory
 (or be passed a normalised path).
 
-Decision: the `qmetaobject` frontend stays the shipping app, and the qtbridge frontend is
-built as a parallel target (`--features qtbridge --bin hishell-qt-bridge`) until it reaches
-parity. aarch64 is not a gate for the Qt app.
+Decision: `qtbridge` is the shipping frontend. The `qmetaobject` app was deleted rather
+than kept as a fallback. aarch64 remains a release-pipeline gate.
 
 ### Phase 1 — Engine facade, Config, and view layout
 
@@ -1953,9 +1943,9 @@ Status:
   two engines in one process, raw mode, a file location, and both grid modes.
 - The qtbridge frontend mirrors `hishell::Config` through `ConfigBridge`, feeds its grid
   from `Engine::view`, and routes view controls through `ConfigKey`.
-- Parity note: the legacy `qmetaobject` frontend keeps its own `Config` QObject and
-  `Directory` scan until it is replaced by the qtbridge target (§13). The migration
-  deliverable — core config/view plus the qtbridge `ConfigBridge` — is complete.
+- The shipping `Directory` adapter is backed by `Engine`; `ConfigBridge` mirrors
+  `hishell::Config` and the view spec comes from `Engine::view`. No separate config or
+  scan implementation remains in the frontend.
 
 Checkpoint:
 
@@ -2005,13 +1995,8 @@ Status:
   `quit`. `Spawner` and `Clock` are injectable.
 - `Engine` exposes `Command::Launch`, `ConfirmLaunch`, `CancelLaunch`, `QuitActive`, and
   returns `Effect::Launch` / `Effect::LaunchEvent`.
-- The shipping `launch.rs` is a thin adapter over `Execution`: wrapper, preflight,
-  confirm/cancel, environment, launch markers, active items, and quit live in core. Only
-  `spawn_direct` stays frontend-side because provider commands wait on the child.
-- Parity note: the legacy `qmetaobject` frontend still calls `kde_bridge` for KDE MIME,
-  KIO, portals, and thumbnails. Those are host integrations of that frontend, not core
-  capability gaps (§13); the core `Platform` ships FreeDesktop implementations and the
-  qtbridge target uses them.
+- The frontend launches through `Engine::Invoke`/`Execution`; the old `launch.rs` and
+  `kde_bridge` adapters are gone.
 
 ### Phase 2 — Core `Location` and `Folder`
 
@@ -2063,9 +2048,9 @@ Radio membership and value helpers live in core; invoking the radio command belo
 execution service. Folder changes carry `FolderDelta::Reset` or an order-only `Items` delta,
 and the qtbridge adapter applies them to its rows.
 
-Descriptor roots, AppImage metadata, and generator icons remain in the legacy
-`qmetaobject` frontend (§13); the qtbridge target reads items, entries, and icons through
-the core APIs, so they are not core migration debt.
+Descriptor generators, AppImage metadata, and directory-descriptor enrichment were
+retired with the `qmetaobject` frontend. The core `Entry` and `squashfs` APIs remain the
+contract for a future frontend that needs them.
 
 1. Move `Item`, scan, sort, group, filter, slots, radio, icon resolution.
 2. Add `Location`, `Folder`, `File`, `ItemId`, `Location::from_path`, and
@@ -2123,9 +2108,9 @@ Status:
 - `Engine::relation`, `navigation_plan`, `anchor_for`, and `closest_visible_parent` query
   them; `Command::Navigate`/`Command::GoUp` reload the destination and return
   `Effect::Navigate(plan)`. `anchor_for` resolves against the last `Engine::view` result.
-- The Qt JSON shim in `hishell::path::navigation_plan` now projects the typed plan instead
-  of duplicating the step composition. The shipping `qmetaobject` frontend still calls that
-  shim; it is a legacy adapter surface, not a second plan implementation (§13).
+- The JSON helper in `hishell::path::navigation_plan` projects the typed plan for
+  frontends that want a string result; it is not a second plan implementation. The
+  qtbridge `PathBridge` exposes it.
 - Tests cover same/child/parent/sibling/unrelated relations, child/parent/cousin steps, a
   file target landing in its parent with a focus, navigation effects, and anchor lookup.
 
@@ -2162,18 +2147,13 @@ Status:
 - Tests cover copy trees, overwrite refusal, move/duplicate/rename/new/delete, cancellation,
   worker completion, and the engine job pump.
 
-The shipping `FileManager` submits copy, duplicate, new folder, new text file, create
-link, trash, delete, rotate, paste, drop/copy/move/link, and rename through
-`hishell::Jobs`; `poll_jobs` emits `job_started`/`job_finished`/`job_cancelled`, and
-`ShellWindow.qml` reloads the visible folder on completion. Virtual-folder drops register
-their pending names with the job; a worker waits for the provider settle and queues declined
-names, which `poll_jobs` emits on the UI thread. `ShellWindow.qml` shows the declined name in
-the notice banner.
-Provider-owned `Destroy=`/`Rename=` entries and symlink/link fallbacks keep their
-synchronous path because they call a provider command rather than touch storage.
-The shipping shell reads and writes its saved location and focus through
-`hishell::session::SessionStore`; only the host handover markers (suspend, hide, return
-frame, focus file, active revision, input grab) stay in `src/session.rs`.
+The frontend submits file operations through `Engine::Invoke` and `Command::Run`; jobs
+run on `hishell::Jobs` and `Engine::tick` delivers their events. The qtbridge `Directory`
+refreshes its rows after a job and resets the model. The old `FileManager` adapter, its
+`poll_jobs` signals, and the drag/drop call sites are gone with the `qmetaobject` tree.
+The frontend reads and writes its saved location and focus through
+`hishell::session::SessionStore`; the ClamOS handover markers were removed with the legacy
+frontend.
 
 Checkpoint:
 
@@ -2193,14 +2173,10 @@ location scope, subjects, and recommended menu, and reports `enabled`/`disabled_
 `Command::Invoke(ActionId)` routes open/navigate/trash/delete/new folder/new text
 file/refresh/go-up/select-all/duplicate/create-link/rotate/toggle/quit-active through the
 engine, and rename/open-with/destroy/number return typed `Prompt` effects. Unimplemented
-actions return `FrontendRequest`. The qtbridge preview exposes `actions_json(menu, target)` and `invoke(action)`;
-its context menu is built from `Engine::actions` and dispatches `Command::Invoke`.
-The shipping frontend has the same adapter: `CoreActions` mirrors the target directory,
-cursor, and selection into an `Engine` and returns the serialized `ActionSpec` list.
-`ActionManager.qml` filters every group by that list, binds each action's `enabled` to the
-core spec, and invokes refresh/new folder/new text file through `Command::Invoke`; the
-remaining prompts arrive as signals. Labels, icons, shortcuts, and frontend-only actions
-(open window, edit path, search, terminal) stay in QML, as step 7 requires.
+actions return `FrontendRequest`. The qtbridge `Directory` exposes
+`actions_json(menu, target)` and `invoke(action)`; the QML context menu is built from
+`Engine::actions` and dispatches `Command::Invoke`. The old `CoreActions`/
+`ActionManager.qml` renderer is gone.
 
 1. Move selection state and range/toggle semantics; dispatch `SelectionCommand`.
 2. Add `ActionId` newtype, `ActionDescriptor`, `ActionRequest`, `MenuKind` (including
@@ -2239,11 +2215,10 @@ math. `FocusCommand` carries `Register`, `Release`, `ActivatePane`, `SetOrder`,
 `SetPositions`, `SetGrid`, `SetGeometry`, `SetEmptySlots`, `SetIndex`, `SetCursor`,
 `First`, `Last`, `Move`, `Set`, `Clear`, and `Activate`. `Engine::dispatch(Command::Focus)`
 keeps pane 0 in sync with the folder and returns `FocusDelta`; `FocusCommand::Activate`
-returns `Effect::FocusActivate`. The shipping `FocusManager` pushes its pane into the core
-before `focus_first`/`focus_last`/`move_focus`/`set_index` and applies the returned cursor;
-edge hand-off between panes is `Focus::handoff`, using the geometry the adapter supplies.
-Key/gamepad mapping, repeat/acceleration, drag gestures, and view handles stay in the
-adapter.
+returns `Effect::FocusActivate`. The qtbridge `Directory` exposes `focus_first`,
+`focus_last`, `move_focus`, and `focus_path` over these commands and publishes
+`focused_path`; the QML delegate draws a plain focus rectangle. Edge hand-off between panes
+is `Focus::handoff`, using the geometry the adapter supplies.
 
 1. Move pane state, navigation math, and status strings.
 2. Remove top-screen publishing.
@@ -2261,17 +2236,15 @@ Checkpoint:
 
 ### Phase 6 — Native KDE UI cleanup
 
-Status: complete for the qtbridge target, which is the native Qt Quick frontend. It uses
-Qt Quick Controls and `Kirigami.Icon`, and contains no `theme_icons.rs`, `Theme/Icon.qml`,
-focus-border SVG/parser, or accent-icon renderer, nor any `kde_bridge` presentation call;
-its only bridge call is `init_icon_theme` to seed the platform icon theme. The shipping
-`qmetaobject` binary keeps the ClamOS theme stack deliberately: it is the themed device
-shell and is retired only when the qtbridge target replaces it (§13), so its theme files
-and accent-icon hooks are not native-KDE migration debt.
+Status: done. The frontend uses Qt Quick Controls and `Kirigami.Icon`; `theme_icons.rs`,
+`Theme/Icon.qml`, the focus-border SVG and parser, the accent-icon renderer, the custom
+`View*`/`SegmentedButtons` stack, and the `kde_bridge` C++ hooks are deleted. The focus
+border is a plain Qt rectangle.
 
-The qtbridge port runs in parallel on the `qtbridge` branch:
+The frontend now runs on qtbridge:
 
-- `src/bin/qtbridge_app.rs` builds with `--features qtbridge --bin hishell-qt-bridge`.
+- `src/bin/qtbridge_app.rs` is the `hishell-qt` binary and is built with plain
+  `cargo build`.
 - It mirrors the full folder config through `ConfigBridge`, exposes `Directory` as a
   15-role `QListModel`, uses `QThreadHandle` for the reload worker, and loads its QML from
   an embedded resource.
@@ -2280,20 +2253,19 @@ The qtbridge port runs in parallel on the `qtbridge` branch:
 - Selection is dispatched back into `Engine` and mirrored as `selectionActive`,
   `selectedCount`, and `selectionRevision` for QML.
 - View controls dispatch `SetConfig` and re-read the spec; grid and list modes both render.
-- `PathBridge` exposes the core path helpers, and the shipping `PathUtils` calls the same
-  core functions.
-- The shipping `hishell-qt` binary keeps `qmetaobject` until this target reaches parity.
+- `PathBridge` exposes the core path helpers.
+- The focus border is a plain `Rectangle` in the QML delegate; there is no SVG parser.
+- The old `qmetaobject` binary and its QML are gone.
 
-1. qtbridge: render with `ViewButton`, `ViewDialog`, `ViewMenu`, `ViewSlider`,
-   `ViewActions`, `SegmentedButtons*`, `ToggleSwitch`, `Sheet`, `WindowOverlay`, and
-   `WindowControl` replaced by Qt Quick Controls.
-2. qtbridge: use a plain focus rectangle instead of `FocusBorder`.
-3. qtbridge: use `Kirigami.Icon` for `IconRef::Theme` and direct image loading for
-   `IconRef::Path`. Done.
-4. qtbridge: no `theme_icons.rs`, `Theme/Icon.qml`, or accent-icon C++. Done.
-5. qtbridge: no focus-border SVG or Rust parser. Done.
-6. qtbridge: no `kde_bridge` presentation functions. Done.
-7. qtbridge: rely on the host's Qt Quick Controls style (Breeze on KDE).
+1. Render with Qt Quick Controls instead of `ViewButton`, `ViewDialog`, `ViewMenu`,
+   `ViewSlider`, `ViewActions`, `SegmentedButtons*`, `ToggleSwitch`, `Sheet`,
+   `WindowOverlay`, and `WindowControl`. Done.
+2. Use a plain focus rectangle instead of `FocusBorder`. Done.
+3. Use `Kirigami.Icon` for `IconRef::Theme` and image loading for `IconRef::Path`. Done.
+4. No `theme_icons.rs`, `Theme/Icon.qml`, or accent-icon C++. Done.
+5. No focus-border SVG or Rust parser. Done.
+6. No `kde_bridge` presentation functions. Done.
+7. Rely on the host's Qt Quick Controls style (Breeze on KDE). Done.
 
 Checkpoint:
 
@@ -2393,10 +2365,10 @@ Out of scope. The core APIs above are the contract.
 
 | Risk | Mitigation |
 |---|---|
-| `qtbridge` is pre-1.0 and API may change | Pin the version; keep Phase 0.5 as a gate; `qmetaobject` fallback branch |
+| `qtbridge` is pre-1.0 and API may change | Pin the version; keep the core boundary stable |
 | `qtbridge` aarch64 Linux is not officially listed | Build the spike on aarch64 before committing |
 | `qtbridge` requires Qt 6.10+ private headers | Confirmed on target; verify CI and sysroot |
-| `qtbridge` loses `plugins.qmltypes`/qmlls support | Accept temporarily; keep a generated file only if staying on `qmetaobject` |
+| `qtbridge` does not generate `plugins.qmltypes` | qmlls has no Rust type metadata; the core API and QML are small enough to keep in sync manually |
 | `qtbridge` license (LGPL-3.0/commercial) | Add a LICENSE file; review static-linking compliance |
 | `fs_extra` cross-device behaviour | Keep the existing copy+delete fallback; test on vfat/SD |
 | QML translation breaks when actions move | Keep labels in QML keyed by `ActionId` |
@@ -2411,8 +2383,7 @@ Out of scope. The core APIs above are the contract.
 ## 10. Rollback
 
 - Phase 0 can be reverted by dropping the submodule and restoring the moved files.
-- The `qtbridge` migration lives on its own branch; `qmetaobject` remains on `master`
-  until the spike and a full adapter port pass.
+- `master` retains the old `qmetaobject` app; the `qtbridge` branch is the thin frontend.
 - Each core phase is behind a working frontend, so a failed phase can be reverted without
   losing the previous ones.
 - `hishell` can be versioned independently once the split stabilises.
@@ -2440,12 +2411,10 @@ Out of scope. The core APIs above are the contract.
   renders prompts and forwards confirmation/cancellation.
 - `hishell-qt` contains only adapters, QML, input handling, and Qt-only hooks.
 - File operations run on workers and never block the UI thread.
-- The qtbridge frontend uses native KDE widgets, theme, and icons. The shipping
-  `qmetaobject` shell retains its ClamOS theme until the bridge replaces it (§13).
+- The frontend uses native KDE widgets, theme, and icons.
 - The ClamOS keyboard request IPC is gone; rename uses the Qt dialog.
-- `topscreen` is gone. The shipping shell's focus border, ClamOS theme backend, and
-  `View*`/`SegmentedButtons` widgets are retained until it is replaced (§13); the qtbridge
-  frontend uses none of them.
+- `topscreen`, the ClamOS theme backend, the focus-border SVG, and the
+  `View*`/`SegmentedButtons` widgets are gone.
 - Icons resolve correctly as either theme names or absolute paths, with no `gio`
   subprocess.
 - Path relations and navigation plans live in core; the frontend only snapshots and
@@ -2464,7 +2433,7 @@ Out of scope. The core APIs above are the contract.
 | Phase | State | Remaining |
 |---|---|---|
 | 0 — repository split | done | — |
-| 0.5 — qtbridge spike | x86_64 green; aarch64 release gate | — |
+| 0.5 — qtbridge spike | done on x86_64 | — |
 | 1 — Engine, config, view | done (core + qtbridge) | — |
 | 1.5 — platform and execution | done (core + FreeDesktop) | — |
 | 2 — Location and Folder | done (core + qtbridge) | — |
@@ -2472,29 +2441,12 @@ Out of scope. The core APIs above are the contract.
 | 3 — ops, jobs, execution | done | — |
 | 4 — selection and actions | done | — |
 | 5 — focus state | done | — |
-| 6 — native KDE cleanup | done for qtbridge | — |
+| 6 — native KDE cleanup | done | — |
 
-The "Remaining" column is empty for the migration deliverable: the pure `hishell` core and
-the `qtbridge` frontend. The shipping `qmetaobject` binary is the production shell; it
-keeps its adapters, KDE host integrations, and ClamOS theme until the qtbridge target
-replaces it. Those surfaces are tracked in §13 as frontend parity, not as unfinished core
-migration. aarch64 certification is a release gate: the core builds for x86_64 here, and
-the aarch64 cross toolchain is not part of this checkout.
-
-## 13. Legacy frontend parity
-
-The migration target is the pure `hishell` core plus the `qtbridge` frontend. The shipping
-`qmetaobject` binary predates that target and stays in service until the bridge replaces
-it. The following surfaces are intentionally outside the migration and are not §12 work:
-
-| Surface | Where it lives | Why it stays |
-|---|---|---|
-| `Config`/`Directory` QML adapters | `src/config.rs`, `src/directory.rs` | shipping frontend; qtbridge uses `ConfigBridge` and `Engine` |
-| KDE MIME/KIO/portal/thumbnail/sound | `src/kde_bridge.rs`, `src/thumbnailer.rs` | host integration of the shipping frontend; core `Platform` has FreeDesktop implementations |
-| AppImage metadata, descriptor generators, descriptor roots | `src/appimage.rs`, `src/descriptor_generator.rs`, `src/directory_descriptor.rs` | shipping-only enrichment; qtbridge reads core `Entry`/`squashfs` APIs |
-| Navigation JSON shim | `hishell::path::navigation_plan` caller in `src/directory.rs` | compatibility projection of the typed core plan |
-| ClamOS theme, accent icons, focus-border renderer | `theme_icons.rs`, `Theme/Icon.qml`, `theme/default/focus-border.svg` | themed device shell; qtbridge uses Qt Quick Controls and `Kirigami.Icon` |
-| aarch64 certification | release pipeline | no aarch64 cross toolchain in this checkout; the x86_64 spike is green |
+The "Remaining" column is empty: the pure `hishell` core plus the `qtbridge` frontend is
+the whole crate. `qmetaobject`, the ClamOS theme stack, and the old QML are deleted.
+aarch64 certification remains a release-pipeline gate: no aarch64 cross toolchain is part
+of this checkout.
 
 ## Appendix A — Deletion checklist
 
@@ -2513,39 +2465,38 @@ Removed during the migration:
       `renameTimer`, `poll_text_entry`, `cancel_text_entry`, `keyboard_available`)
 - [x] regenerate `plugins.qmltypes` after removing the keyboard methods
 
-Retained by the shipping `qmetaobject` frontend (§13):
+Removed with the `qmetaobject` frontend:
 
-- focus-border SVG parsing/recolouring functions
-- `src/theme_icons.rs`
-- `kde_bridge::{accent_icon, set_icon_theme, warm_icons, render_pending_icon, has_pending_icons}`
-- matching `kde_bridge.cpp` functions
-- `Theme/Icon.qml`
-- `toolkit/ViewButton.qml`
-- `toolkit/ViewDialog.qml`
-- `toolkit/ViewMenu.qml`
-- `toolkit/ViewSlider.qml`
-- `toolkit/ViewActions.qml`
-- `SegmentedButtons.qml`, `SegmentedButtonsGeneric.qml`, `SegmentedButtonsStyle.qml`
-- `ToggleSwitch.qml`
-- `Sheet.qml`
-- `WindowOverlay.qml`
-- `toolkit/WindowControl.qml`
-- `FocusBorder.qml`
-- `theme/default/focus-border.svg`
+- [x] focus-border SVG parsing/recolouring functions
+- [x] `src/theme_icons.rs`
+- [x] `kde_bridge` and its C++ hooks
+- [x] `Theme/Icon.qml`
+- [x] `toolkit/ViewButton.qml`
+- [x] `toolkit/ViewDialog.qml`
+- [x] `toolkit/ViewMenu.qml`
+- [x] `toolkit/ViewSlider.qml`
+- [x] `toolkit/ViewActions.qml`
+- [x] `SegmentedButtons.qml`, `SegmentedButtonsGeneric.qml`, `SegmentedButtonsStyle.qml`
+- [x] `ToggleSwitch.qml`
+- [x] `Sheet.qml`
+- [x] `WindowOverlay.qml`
+- [x] `toolkit/WindowControl.qml`
+- [x] `FocusBorder.qml`
+- [x] `theme/default/focus-border.svg`
+- [x] `ActionManager.qml`, `FolderView.qml`, and the rest of the `Hishell/` tree
 
-The qtbridge target uses none of the retained files; deleting them belongs to replacing
-the shipping frontend, not to the core migration.
+## Appendix B — Frontend modules
 
-## Appendix B — Retained frontend modules
+The frontend is two files:
 
-- `gamepad.rs` (device input; `hishell-qt` only, optional).
-- `sound.rs` (optional XDG sound theme).
-- `descriptor_generator.rs` (ROM descriptors; shipping frontend).
-- `appimage.rs` (shipping frontend); `squashfs.rs` lives in core.
-- `Recovery.qml`, `PerfBench.qml`.
-- `FolderGrid.qml`, `FileSlot.qml`, `FolderView.qml`, `FolderTransition.qml`,
-  `FolderFilterBar.qml`, `FolderSelectionBar.qml`, `ActionGroupMenu.qml`,
-  `ShellContextMenu.qml`, and the dialogs — these are the real file-manager UI.
+- `src/bin/qtbridge_app.rs` — `ConfigBridge`, `Directory`, `PathBridge`, and the
+  `QApp` entry point.
+- `src/bin/qml/Main.qml` — Qt Quick Controls, `Kirigami.Icon`, and a plain focus
+  rectangle.
+
+`gamepad.rs`, `sound.rs`, `descriptor_generator.rs`, `appimage.rs`,
+`directory_descriptor.rs`, `thumbnailer.rs`, and the old QML tree were removed with the
+`qmetaobject` frontend. A future frontend can reintroduce them over the same core API.
 
 ## Appendix C — API conventions
 
