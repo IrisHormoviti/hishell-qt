@@ -108,6 +108,7 @@ hishell/                       # pure Rust, no Qt, no Slint, no KDE
   navigation.rs, path.rs       # PathRelation, NavigationPlan, lexical helpers
   history.rs, session.rs       # back/forward stacks, SessionStore
   ops.rs, jobs.rs              # file operations and the worker pool
+  prompt.rs                    # Prompt, Notice, FrontendRequest
   execution.rs                 # wrapper, preflight, spawner, launch lifecycle
   platform.rs                  # capability traits and FreeDesktop implementations
   squashfs.rs                  # AppImage support
@@ -2161,8 +2162,11 @@ Status: selection state is in core (`Folder::selection`, `SelectionCommand` valu
 `ActionRequest`, `Target`, `MenuKind`, `ActionDescriptor`, and `ActionSpec`, with a static
 descriptor table. `Engine::actions` resolves Focus/Selection/Items/Auto targets, filters by
 location scope, subjects, and recommended menu, and reports `enabled`/`disabled_reason`.
-Remaining: typed `Prompt`/`Notice` dispatch, `Command::Invoke`, and replacing
-`ActionManager.qml` with a renderer.
+`Command::Invoke(ActionId)` routes open/navigate/trash/delete/new folder/new text
+file/refresh/go-up/select-all/duplicate/create-link/rotate/toggle/quit-active through the
+engine, and rename/open-with/destroy/number return typed `Prompt` effects. Unimplemented
+actions return `FrontendRequest`. Remaining: replacing `ActionManager.qml` with a renderer
+over `Engine::actions` and `Command::Invoke`.
 
 1. Move selection state and range/toggle semantics; dispatch `SelectionCommand`.
 2. Add `ActionId` newtype, `ActionDescriptor`, `ActionRequest`, `MenuKind` (including
@@ -2416,7 +2420,7 @@ Out of scope. The core APIs above are the contract.
 | 2 — Location and Folder | core done | descriptor roots, AppImage metadata, generator icons in core |
 | 2.5 — navigation plans | done | frontend uses the JSON shim until it moves to typed plans |
 | 3 — ops, jobs, execution | core done | adapter submit/signal methods and QML async call sites |
-| 4 — selection and actions | selection and registry done | typed invocation and QML menus |
+| 4 — selection and actions | core done | QML menus over `Engine::actions`/`Invoke` |
 | 5 — focus state | core done | adapter key/gamepad mapping and multi-pane |
 | 6 — native KDE cleanup | not started in shipping app | delete ClamOS theme stack and accent-icon hooks |
 
