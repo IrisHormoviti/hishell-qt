@@ -3,13 +3,7 @@ pragma Singleton
 // The shell's theme tokens, independent of where the colours come from.
 //
 // A backend object supplies the same property names as the tokens below. The
-// backend is chosen at runtime, so this file (and every app component) knows
-// nothing about KDE or ClamOS:
-//
-//   * a ClamOS theme file (`~/.config/clam/theme.ini`) selects Clamos.qml,
-//     which reads the ClamOS theme singleton;
-//   * otherwise Kde.qml follows the live KDE colour scheme, so the desktop
-//     build keeps the desktop palette.
+// KDE backend follows the live KDE colour scheme.
 //
 // With no backend the defaults below keep the UI renderable.
 
@@ -20,7 +14,7 @@ QtObject {
 	id: theme
 
 	property QtObject backend: null
-	// "clamos", "kde" or "" for the built-in defaults. Useful in logs.
+	// "kde" or "" for the built-in defaults. Useful in logs.
 	property string backendName: ""
 
 	// ── Colours ───────────────────────────────────────────────────────────
@@ -102,37 +96,74 @@ QtObject {
 		return value === undefined || value === null ? fallback : value
 	}
 
+	// ── Label faces ───────────────────────────────────────────────────────
+	// The four faces a file label can use. Measuring the italic face once here
+	// keeps two FontMetrics and a QFont construction out of every slot.
+	readonly property real labelBasePixelSize: Qt.application.font.pixelSize
+	property FontMetrics labelRegularMetrics: FontMetrics {
+		font: Qt.font({
+			family: Qt.application.font.family,
+			pixelSize: theme.labelBasePixelSize,
+			italic: false
+		})
+	}
+	property FontMetrics labelItalicMetrics: FontMetrics {
+		font: Qt.font({
+			family: Qt.application.font.family,
+			pixelSize: theme.labelBasePixelSize,
+			italic: true
+		})
+	}
+	readonly property real labelItalicScale: theme.labelItalicMetrics.height > 0
+		? theme.labelRegularMetrics.height / theme.labelItalicMetrics.height
+		: 1.0
+	readonly property int labelItalicPixelSize: Math.round(theme.labelBasePixelSize * theme.labelItalicScale)
+	readonly property font labelFont: Qt.font({
+		family: Qt.application.font.family,
+		pixelSize: theme.labelBasePixelSize,
+		weight: Qt.application.font.weight,
+		italic: false,
+		bold: false
+	})
+	readonly property font labelFontBold: Qt.font({
+		family: Qt.application.font.family,
+		pixelSize: theme.labelBasePixelSize,
+		weight: Qt.application.font.weight,
+		italic: false,
+		bold: true
+	})
+	readonly property font labelFontItalic: Qt.font({
+		family: Qt.application.font.family,
+		pixelSize: theme.labelItalicPixelSize,
+		weight: Qt.application.font.weight,
+		italic: true,
+		bold: false
+	})
+	readonly property font labelFontItalicBold: Qt.font({
+		family: Qt.application.font.family,
+		pixelSize: theme.labelItalicPixelSize,
+		weight: Qt.application.font.weight,
+		italic: true,
+		bold: true
+	})
+
 	Component.onCompleted: theme.loadBackend()
 
-	/// Load the backend that matches this system. The ClamOS theme file is the
-	/// signal: a device that applied a ClamOS theme uses it, anything else (a
-	/// plain KDE desktop) keeps the live KDE palette. Both are QML files of
-	/// this module, so neither platform's module is required at build time.
+	/// Load the KDE backend, which follows the live KDE colour scheme.
 	function loadBackend() {
-		// The host names its backend ("clamos" on a device, "kde" on a
-		// desktop). Without a name, the ClamOS backend is tried first: it only
-		// compiles when that theme module is installed, which is exactly the
-		// condition for using it. A desktop falls through to the KDE palette.
-		const forced = String(ThemeIcons.backend() || "")
-		const order = (forced === "clamos" || forced === "kde")
-			? [forced] : ["clamos", "kde"]
-
-		for (let i = 0; i < order.length; i++) {
-			const name = order[i]
-			const source = "qrc:/Hishell/Theme/" + (name === "clamos" ? "Clamos.qml" : "Kde.qml")
-			const component = Qt.createComponent(source)
-			if (component.status !== Component.Ready) {
-				component.destroy()
-				continue
-			}
-			const object = component.createObject(theme)
-			if (!object)
-				continue
-			theme.backend = object
-			theme.backendName = name
-			console.warn("hishell theme: " + name + " backend")
+		const component = Qt.createComponent("qrc:/Hishell/Theme/Kde.qml")
+		if (component.status !== Component.Ready) {
+			component.destroy()
+			console.warn("hishell theme: no backend, using built-in defaults")
 			return
 		}
-		console.warn("hishell theme: no backend, using built-in defaults")
+		const object = component.createObject(theme)
+		if (!object) {
+			console.warn("hishell theme: no backend, using built-in defaults")
+			return
+		}
+		theme.backend = object
+		theme.backendName = "kde"
+		console.warn("hishell theme: kde backend")
 	}
 }

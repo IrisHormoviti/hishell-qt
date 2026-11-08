@@ -200,7 +200,7 @@ Item {
 	// The label line plus the gap between it and the icon. The cell is exactly
 	// icon + this, so there is no slack to centre into; the only space between
 	// rows is gridGap.
-	readonly property real gridLabelHeight: Math.ceil(CoreTheme.labelRegularMetrics.height) + Units.smallSpacing
+	readonly property real gridLabelHeight: Math.ceil(Theme.labelRegularMetrics.height) + Units.smallSpacing
 
 	readonly property bool labelsBesideIcons: {
 		const cfg = grid.config;

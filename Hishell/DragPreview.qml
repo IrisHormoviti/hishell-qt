@@ -65,11 +65,7 @@ Item {
 			width: modelData.w
 			height: modelData.h
 
-			readonly property string slotIcon: {
-				const icon = modelData.icon ? String(modelData.icon) : "";
-				const recoloured = modelData.isDir ? CoreTheme.accentFolderIcon(dragPreview.fileManager, icon, previewItem.iconDisplaySize) : "";
-				return recoloured.length > 0 ? recoloured : icon;
-			}
+			readonly property string slotIcon: modelData.icon ? String(modelData.icon) : ""
 			readonly property string slotTitle: {
 				const t = modelData.title ? String(modelData.title) : "";
 				if (t !== "")

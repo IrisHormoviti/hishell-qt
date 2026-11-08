@@ -339,19 +339,14 @@ Item {
 		return true;
 	}
 
-	// Open Group. ClamOS has a single kiosk shell, so a second window is not a
-	// concept the user can act on; keep the action for desktop Hishell only.
-	readonly property bool isClamOS: CoreTheme.themeId !== ""
-
+	// Open Group.
 	function openActions() {
 		const actions = [];
 		if (actionManager.isTargetActive)
 			actions.push(quitAction);
 		if (actionManager.executeAvailable)
 			actions.push(executeAction);
-		actions.push(openAction, openWithAction);
-		if (!actionManager.isClamOS)
-			actions.push(openWindowAction);
+		actions.push(openAction, openWithAction, openWindowAction);
 		return actions;
 	}
 
@@ -684,8 +679,8 @@ Item {
 		id: openWindowAction
 		text: qsTr("Open in Win&dow")
 		icon.name: "window-new-symbolic"
-		shortcut: actionManager.showShortcuts && !actionManager.isClamOS ? "Ctrl+N" : ""
-		enabled: actionManager.hasTarget && !actionManager.isClamOS
+		shortcut: actionManager.showShortcuts ? "Ctrl+N" : ""
+		enabled: actionManager.hasTarget
 		onTriggered: {
 			if (!actionManager.hasTarget) {
 				actionManager.directory.open_in_new_window(actionManager.directory.path);

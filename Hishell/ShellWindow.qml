@@ -80,29 +80,6 @@ ApplicationWindow {
 				dirs[i].reload();
 	}
 
-	// Follow the active theme's icon theme (e.g. breeze-dark for a dark
-	// theme) at runtime, without restarting the shell.
-	Connections {
-		target: CoreTheme
-		function onIconThemeChanged() {
-			if (CoreTheme.iconTheme !== "" && root.fileManager)
-				root.fileManager.set_icon_theme(CoreTheme.iconTheme);
-		}
-	}
-
-	// ClamOS's QML style sums its generic control sounds through its own theme
-	// singleton. The module is optional (a plain KDE desktop does not have it),
-	// so it is loaded only when an actual ClamOS theme is active. The import
-	// lives in StyleThemeBridge.qml, keeping a missing module from breaking the
-	// whole window.
-	Loader {
-		id: styleThemeBridge
-		active: CoreTheme.themeId !== ""
-		source: "qrc:/Hishell/StyleThemeBridge.qml"
-		onLoaded: if (item)
-			item.theme.soundPlayer = root.sound
-	}
-
 	WindowOverlay {
 		enabled: !directory.config.native_titlebar
 	}
@@ -561,15 +538,6 @@ ApplicationWindow {
 		directory.path = initialPath;
 		root.refreshWindowIcon();
 
-		// The style's controls (a segmented button, for one) ask the theme for
-		// their generic feedback sounds; this window owns the player. The
-		// optional ClamOS theme bridge installs it when that module exists.
-
-		// Pick up the active theme's icon theme on first start; later changes
-		// arrive through the CoreTheme Connections above.
-		if (CoreTheme.iconTheme !== "" && root.fileManager)
-			root.fileManager.set_icon_theme(CoreTheme.iconTheme);
-
 		// Show first, then choose the output, then go fullscreen.
 		//
 		// This order is load-bearing. Showing a window makes the platform place
@@ -639,12 +607,11 @@ ApplicationWindow {
 		Item {
 			Layout.fillWidth: true
 
-			// The bar height is a Clam theme metric; the header content
-			// (breadcrumb, view button, window control) keeps its own size
-			// and stays vertically centred inside the taller strip.
-			Layout.preferredHeight: CoreTheme.headerHeight
-			Layout.minimumHeight: CoreTheme.headerHeight
-			Layout.maximumHeight: CoreTheme.headerHeight
+			// The header keeps the breadcrumb and window controls on a strip
+			// that is a little taller than their own size.
+			Layout.preferredHeight: Math.max(48, Units.gridUnit * 3)
+			Layout.minimumHeight: Math.max(48, Units.gridUnit * 3)
+			Layout.maximumHeight: Math.max(48, Units.gridUnit * 3)
 
 			z: 1
 

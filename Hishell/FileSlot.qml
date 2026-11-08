@@ -51,26 +51,13 @@ Item {
 	required property real accessed_time
 	property bool labelBesideIcon: gridSize < 32
 	property bool showLabels: true
-	// Folders (and the home icon) are recoloured to the accent by the shell
-	// (Breeze draws their bodies with its ColorScheme-Accent class); anything
-	// else keeps the icon its resolver chose, and an icon that cannot be
-	// recoloured falls back to its plain name.
+	// Folders (and the home icon) keep the icon their resolver chose.
 	// Themed icons are rendered once to a cached PNG and then loaded by the
 	// asynchronous Image component, instead of a Icon (a synchronous
 	// QIcon decode) in every delegate. The PNG is rendered at the physical
 	// pixel size, so it stays sharp at the panel's scale.
 	readonly property int iconPixelSize: Math.round(fileSlot.iconDisplaySize * (Screen.devicePixelRatio || 1))
-	readonly property string displayIcon: {
-		if (!fileSlot.icon || fileSlot.isToggle)
-			return fileSlot.icon;
-		if (fileSlot.icon.indexOf("file:") === 0 || fileSlot.icon.indexOf("/") === 0)
-			return fileSlot.icon;
-		// Re-resolve when an idle tick has rendered a queued icon.
-		if (fileSlot.fileManager)
-			fileSlot.fileManager.icon_revision;
-		const recoloured = CoreTheme.accentFolderIcon(fileManager, fileSlot.icon, fileSlot.iconPixelSize);
-		return recoloured.length > 0 ? recoloured : fileSlot.icon;
-	}
+	readonly property string displayIcon: fileSlot.icon
 	// Generated descriptor icons are a cartridge frame around a raster label.
 	// Qt's SVG renderer smooths that raster; disabling the final image
 	// smoothing keeps the label pixels crisp at the file view's icon sizes.
@@ -511,7 +498,7 @@ Item {
 				anchors.topMargin: modelData.d - modelData.s
 				anchors.bottomMargin: -(modelData.s + modelData.d)
 				radius: buttonRim.radius + modelData.s
-				color: CoreTheme.shadowColor
+				color: Qt.rgba(0, 0, 0, 0.35)
 				opacity: buttonPlate.down ? modelData.o * 0.5 : modelData.o
 			}
 		}
@@ -680,8 +667,8 @@ Item {
 				// stays in the normal application face.
 				font: modelData.nameColumn
 					? (fileSlot.is_symlink
-						? (fileSlot.active ? CoreTheme.labelFontItalicBold : CoreTheme.labelFontItalic)
-						: (fileSlot.active ? CoreTheme.labelFontBold : CoreTheme.labelFont))
+						? (fileSlot.active ? Theme.labelFontItalicBold : Theme.labelFontItalic)
+						: (fileSlot.active ? Theme.labelFontBold : Theme.labelFont))
 					: Qt.application.font
 				opacity: modelData.nameColumn ? 1.0 : 0.85
 			}
@@ -817,12 +804,12 @@ Item {
 			wrapMode: Text.NoWrap
 			maximumLineCount: 1
 
-			// The four faces are measured once in CoreTheme. Building a pair of
+			// The four faces are measured once in Theme. Building a pair of
 			// FontMetrics (and the QFont behind them) per delegate was paid by
 			// every item in the folder for the same two sizes.
 			font: fileSlot.is_symlink
-				? (fileSlot.active ? CoreTheme.labelFontItalicBold : CoreTheme.labelFontItalic)
-				: (fileSlot.active ? CoreTheme.labelFontBold : CoreTheme.labelFont)
+				? (fileSlot.active ? Theme.labelFontItalicBold : Theme.labelFontItalic)
+				: (fileSlot.active ? Theme.labelFontBold : Theme.labelFont)
 
 			elide: fileSlot.labelBesideIcon ? Text.ElideMiddle : Text.ElideMiddle
 			// A button's label is bounded by its plate; an ordinary item's by
