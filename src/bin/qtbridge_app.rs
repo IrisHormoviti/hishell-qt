@@ -1123,6 +1123,23 @@ impl Directory {
 						"height": header.rect.height,
 					})).collect::<Vec<_>>(),
 					"revision": view.revision,
+					"free": view.sort.key == hishell::view::SortKey::Free,
+					"slots": view.slots.iter().filter_map(|slot| {
+						engine.item(slot.item).map(|item| serde_json::json!({
+							"path": item.path.to_string_lossy(),
+							"name": item.name,
+							"icon": match &item.icon {
+								hishell::IconRef::Theme(name) => name.clone(),
+								hishell::IconRef::Path(path) => format!("file://{}", path.to_string_lossy()),
+							},
+							"is_image": item.mime.as_deref().is_some_and(|mime| mime.starts_with("image/")),
+							"is_directory": item.fs_kind == hishell::FsKind::Directory,
+							"x": slot.rect.x,
+							"y": slot.rect.y,
+							"width": slot.rect.width,
+							"height": slot.rect.height,
+						}))
+					}).collect::<Vec<_>>(),
 				})
 				.to_string(),
 				FolderMode::List(list) => serde_json::json!({

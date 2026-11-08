@@ -325,7 +325,8 @@ ApplicationWindow {
 				id: grid
 				anchors.fill: parent
 				clip: true
-				focus: true
+				focus: window.spec.free !== true
+				visible: window.spec.free !== true
 				model: window.directory
 				cellWidth: window.spec.cell_width || 96
 				cellHeight: window.spec.cell_height || 96
@@ -453,8 +454,8 @@ ApplicationWindow {
 			ListView {
 				anchors.fill: parent
 				clip: true
-				focus: true
-				visible: window.spec.mode !== "grid"
+				focus: window.spec.free !== true
+				visible: window.spec.mode !== "grid" && window.spec.free !== true
 				model: window.directory
 
 				Keys.onPressed: function (event) {
@@ -568,6 +569,123 @@ ApplicationWindow {
 							}
 						}
 						onDoubleClicked: window.directory.open(row.path)
+					}
+				}
+			}
+
+			Repeater {
+				model: window.spec.free === true ? window.spec.slots : []
+
+				delegate: Item {
+					id: freeSlot
+					required property var modelData
+
+					x: modelData.x
+					y: modelData.y
+					width: modelData.width
+					height: modelData.height
+
+					property string thumb: ""
+					Component.onCompleted: if (modelData.is_image)
+						thumb = window.directory.thumbnail(modelData.path, 64)
+
+					readonly property bool selected: {
+						window.directory.selectionRevision
+						return window.directory.is_selected(modelData.path)
+					}
+
+					Drag.active: freeDrag.drag.active
+					Drag.dragType: Drag.Automatic
+					Drag.supportedActions: Qt.CopyAction | Qt.MoveAction | Qt.LinkAction
+					Drag.mimeData: ({ "text/uri-list": "file://" + modelData.path })
+					Drag.hotSpot.x: 8
+					Drag.hotSpot.y: 8
+
+					Rectangle {
+						anchors.fill: parent
+						anchors.margins: 2
+						radius: 6
+						color: Kirigami.Theme.highlightColor
+						opacity: freeSlot.selected ? 0.28 : 0
+					}
+
+					Rectangle {
+						anchors.fill: parent
+						anchors.margins: 1
+						color: "transparent"
+						border.width: 2
+						border.color: Kirigami.Theme.highlightColor
+						visible: window.directory.focused_path === modelData.path
+					}
+
+					Column {
+						anchors.centerIn: parent
+						spacing: 4
+
+						Image {
+							width: 48
+							height: 48
+							source: freeSlot.thumb
+							fillMode: Image.PreserveAspectCrop
+							visible: freeSlot.thumb.length > 0
+							anchors.horizontalCenter: parent.horizontalCenter
+						}
+
+						Image {
+							width: 48
+							height: 48
+							source: modelData.icon
+							fillMode: Image.PreserveAspectFit
+							visible: freeSlot.thumb.length === 0 && window.isFileIcon(modelData.icon)
+							anchors.horizontalCenter: parent.horizontalCenter
+						}
+
+						Kirigami.Icon {
+							width: 48
+							height: 48
+							source: modelData.icon
+							visible: freeSlot.thumb.length === 0 && !window.isFileIcon(modelData.icon)
+							anchors.horizontalCenter: parent.horizontalCenter
+						}
+
+						Label {
+							width: parent.width
+							text: modelData.name
+							elide: Text.ElideMiddle
+							horizontalAlignment: Text.AlignHCenter
+						}
+					}
+
+					DropArea {
+						anchors.fill: parent
+						enabled: modelData.is_directory === true
+						onDropped: function (drop) {
+							if (modelData.is_directory !== true)
+								return
+							const action = drop.proposedAction === Qt.MoveAction ? "move"
+								: drop.proposedAction === Qt.LinkAction ? "link" : "copy"
+							const uris = drop.urls && drop.urls.length > 0
+								? drop.urls.join("\n") : drop.text
+							window.directory.drop(uris, modelData.path, action)
+							drop.acceptProposedAction()
+						}
+					}
+
+					MouseArea {
+						id: freeDrag
+						anchors.fill: parent
+						acceptedButtons: Qt.LeftButton | Qt.RightButton
+						drag.target: freeSlot
+						onClicked: function (mouse) {
+							if (mouse.button === Qt.RightButton) {
+								window.directory.focus_path(modelData.path)
+								contextMenu.popup()
+							} else {
+								window.directory.focus_path(modelData.path)
+								window.directory.toggle_select(modelData.path)
+							}
+						}
+						onDoubleClicked: window.directory.open(modelData.path)
 					}
 				}
 			}

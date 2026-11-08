@@ -2251,7 +2251,8 @@ The frontend now runs on qtbridge:
   15-role `QListModel`, uses `QThreadHandle` for the reload worker, and loads its QML from
   an embedded resource.
 - `Directory` rows come from `Engine::items`, and `view_json` returns the slot/grid
-  layout from `Engine::view`; the QML sizes its `GridView` from that result.
+  layout from `Engine::view`; the QML sizes its `GridView` from that result and renders
+  free-placement slots at the core's rectangles.
 - Selection is dispatched back into `Engine` and mirrored as `selectionActive`,
   `selectedCount`, and `selectionRevision` for QML.
 - View controls dispatch `SetConfig` and re-read the spec; grid and list modes both render.
@@ -2359,13 +2360,14 @@ Out of scope. The core APIs above are the contract.
 - Drag a file/folder onto another folder to copy, move, or link it.
 - Gamepad directions, accept, cancel, menu, select, and directory map to the same
   focus/navigation/selection actions.
+- Free placement renders each slot at its stored cell.
 - A plain path, a `file://` URI, and a file argument all open the right folder.
 - The saved session path restores on the next start.
 - Icons and titles: themed names, file paths, cached image thumbnails, AppImage
   embedded entries/icons, and XDG directory/file descriptors.
 
-Future frontend parity: multi-pane transitions and free placement. The core APIs for
-them remain.
+Future frontend parity: multi-pane transitions. The core `Focus` pane model and
+`NavigationPlan` already support them.
 
 ## 9. Risks and mitigations
 
