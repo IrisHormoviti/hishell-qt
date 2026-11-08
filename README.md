@@ -46,8 +46,8 @@ Planned features:
 
 ## Descriptors and generators
 
-> These features belonged to the removed `qmetaobject` frontend. The core `Entry` and
-> `squashfs` APIs remain the contract for a future frontend that reintroduces them.
+> Descriptor generators live in the `hishell` core and the qtbridge frontend polls their
+> results; directory/file descriptors and AppImage metadata are core entry data.
 
 A descriptor is a desktop entry that names another path and gives it a title,
 comment and icon, without writing anything beside that path:

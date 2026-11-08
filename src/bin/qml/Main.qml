@@ -67,4 +67,14 @@ ApplicationWindow {
 				window.activePane.handleGamepad(action)
 		}
 	}
+
+	Timer {
+		interval: 500
+		repeat: true
+		running: true
+		onTriggered: {
+			leftPane.directory.poll_descriptors()
+			rightPane.directory.poll_descriptors()
+		}
+	}
 }

@@ -2051,8 +2051,10 @@ and the qtbridge adapter applies them to its rows.
 
 AppImage metadata and directory/file descriptors live in core: `appimage` reads the
 embedded desktop entry and extracts its icon, `descriptor` indexes XDG and runtime
-descriptor roots, and `Folder::scan` applies both when no `.directory` exists. Descriptor
-generators remain a future frontend enrichment.
+descriptor roots, and `Folder::scan` applies both when no `.directory` exists.
+`descriptor_generator` discovers `hishell/descriptor-generators`, runs `Exec %i/%o` on a
+worker, caches entries plus stamps, and `Folder::scan` queues requests and applies finished
+results. `Directory::poll_descriptors` refreshes the panes when a batch completes.
 
 1. Move `Item`, scan, sort, group, filter, slots, radio, icon resolution.
 2. Add `Location`, `Folder`, `File`, `ItemId`, `Location::from_path`, and
@@ -2372,6 +2374,8 @@ Out of scope. The core APIs above are the contract.
 - The saved session path restores on the next start.
 - Icons and titles: themed names, file paths, cached image thumbnails, AppImage
   embedded entries/icons, and XDG directory/file descriptors.
+- A file owned by a descriptor generator gets its generated title and icon after the
+  descriptor poll.
 
 The two visible panes are `FolderPane.qml` instances over separate `Directory`/`Engine`
 models. Each pane's focus is core `Focus`; the edge hand-off is frontend input mapping.

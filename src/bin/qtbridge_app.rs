@@ -552,6 +552,7 @@ pub struct Directory {
 	selected_count: i32,
 	selection_revision: i32,
 	focused_path: String,
+	last_descriptor_epoch: u64,
 }
 
 impl Directory {
@@ -566,6 +567,7 @@ impl Directory {
 			selected_count: 0,
 			selection_revision: 0,
 			focused_path: String::new(),
+			last_descriptor_epoch: 0,
 		};
 		directory.reload();
 		save_session(&directory.path);
@@ -1136,6 +1138,23 @@ impl Directory {
 	#[qslot]
 	fn refresh(&mut self) {
 		self.refresh_now();
+	}
+
+	#[qslot]
+	fn poll_descriptors(&mut self) -> bool {
+		let epoch = hishell::descriptor_generator::results_epoch();
+		if epoch == self.last_descriptor_epoch {
+			return false;
+		}
+		if hishell::descriptor_generator::folder_busy(Path::new(&self.path)) {
+			return false;
+		}
+		self.last_descriptor_epoch = epoch;
+		if !hishell::descriptor_generator::has_results() {
+			return false;
+		}
+		self.refresh_now();
+		true
 	}
 
 	#[qslot]
