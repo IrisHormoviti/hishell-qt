@@ -25,11 +25,27 @@ Menu {
 		if (w && w.sound)
 			w.sound.play(name);
 	}
-	onOpened: playSound("menu-open")
+	onOpened: {
+		playSound("menu-open")
+		reloadActions()
+	}
 	onClosed: playSound("menu-close")
 
+	property var actions: []
+
+	function reloadActions() {
+		if (!groupMenu.actionManager) {
+			groupMenu.actions = []
+			return
+		}
+		groupMenu.actionManager.ensureTargetState()
+		groupMenu.actions = groupMenu.actionManager.groupActions(groupMenu.group.id)
+	}
+
+	Component.onCompleted: reloadActions()
+
 	Repeater {
-		model: groupMenu.actionManager ? groupMenu.actionManager.groupActions(groupMenu.group.id) : []
+		model: groupMenu.actions
 		delegate: MenuItem {
 			required property Action modelData
 			action: modelData

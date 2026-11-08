@@ -278,7 +278,6 @@ Item {
 	// The actions for a group, resolved on demand so the descriptor array above
 	// stays constant even when the available actions change.
 	function groupActions(id) {
-		actionManager.ensureTargetState();
 		switch (id) {
 		case "open":
 			return actionManager.openActions();
