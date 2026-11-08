@@ -1,0 +1,3 @@
+[submodule "hishell"]
+	path = hishell
+	url = https://github.com/IrisHormoviti/hishell.git

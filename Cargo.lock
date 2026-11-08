@@ -542,6 +542,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 
 [[package]]
+name = "hishell"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "flate2",
+ "once_cell",
+ "serde",
+ "serde_json",
+ "zstd",
+]
+
+[[package]]
 name = "hishell-qt"
 version = "0.1.0"
 dependencies = [
@@ -550,6 +562,7 @@ dependencies = [
  "dirs",
  "flate2",
  "gilrs",
+ "hishell",
  "image",
  "libc",
  "md5",

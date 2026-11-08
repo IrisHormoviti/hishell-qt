@@ -8,7 +8,7 @@
 
 pub mod appimage;
 pub mod config;
-pub mod config_parser;
+pub use hishell::{config_parser, squashfs};
 pub mod descriptor_generator;
 pub mod desktop_entry;
 pub mod destroy;
@@ -27,7 +27,6 @@ pub mod path_utils;
 pub mod selection_manager;
 pub mod session;
 pub mod sound;
-pub mod squashfs;
 pub mod theme_icons;
 pub mod thumbnailer;
 pub mod topscreen;
