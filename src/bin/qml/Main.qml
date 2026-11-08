@@ -262,6 +262,7 @@ ApplicationWindow {
 								window.directory.focus_path(cell.path)
 								contextMenu.popup()
 							} else {
+								window.directory.focus_path(cell.path)
 								window.directory.toggle_select(cell.path)
 							}
 						}
@@ -345,6 +346,7 @@ ApplicationWindow {
 								window.directory.focus_path(row.path)
 								contextMenu.popup()
 							} else {
+								window.directory.focus_path(row.path)
 								window.directory.toggle_select(row.path)
 							}
 						}
