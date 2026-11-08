@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import hishell_qt
+import org.kde.kirigami as Kirigami
 
 ApplicationWindow {
 	id: window
@@ -67,6 +68,56 @@ ApplicationWindow {
 			}
 		}
 
+		RowLayout {
+			Layout.fillWidth: true
+			Layout.leftMargin: 8
+			Layout.rightMargin: 8
+			Layout.bottomMargin: 8
+
+			Label { text: "View" }
+
+			ComboBox {
+				model: ["Grid", "List"]
+				Component.onCompleted: currentIndex = window.directory.config.view_mode === "LIST" ? 1 : 0
+				onActivated: window.directory.set_config("view_mode", index === 1 ? "LIST" : "GRID")
+			}
+
+			Label { text: "Mode" }
+
+			ComboBox {
+				model: ["Lines", "Size"]
+				Component.onCompleted: currentIndex = window.directory.config.grid_mode === "SIZE" ? 1 : 0
+				onActivated: window.directory.set_config("grid_mode", index === 1 ? "SIZE" : "LINES")
+			}
+
+			Label { text: "Lines" }
+
+			SpinBox {
+				from: 1
+				to: 8
+				Component.onCompleted: value = window.directory.config.grid_lines
+				onValueModified: window.directory.set_config("grid_lines", String(value))
+			}
+
+			Label { text: "Icon" }
+
+			SpinBox {
+				from: 16
+				to: 256
+				stepSize: 8
+				Component.onCompleted: value = window.directory.config.grid_size
+				onValueModified: window.directory.set_config("grid_size", String(value))
+			}
+
+			CheckBox {
+				text: "Labels"
+				Component.onCompleted: checked = window.directory.config.show_labels
+				onToggled: window.directory.set_config("show_labels", checked ? "true" : "false")
+			}
+
+			Item { Layout.fillWidth: true }
+		}
+
 		Frame {
 			Layout.fillWidth: true
 			Layout.fillHeight: true
@@ -84,6 +135,7 @@ ApplicationWindow {
 					id: cell
 					required property string name
 					required property string path
+					required property string icon
 					required property bool is_directory
 
 					readonly property bool selected: {
@@ -106,12 +158,11 @@ ApplicationWindow {
 						anchors.centerIn: parent
 						spacing: 4
 
-						Rectangle {
+						Kirigami.Icon {
 							width: window.spec.icon_size || 48
 							height: width
-							radius: 6
+							source: cell.icon
 							anchors.horizontalCenter: parent.horizontalCenter
-							color: is_directory ? "#d9b45b" : "#7a8b99"
 						}
 
 						Label {
@@ -125,6 +176,53 @@ ApplicationWindow {
 					MouseArea {
 						anchors.fill: parent
 						onClicked: window.directory.toggle_select(cell.path)
+					}
+				}
+			}
+
+			ListView {
+				anchors.fill: parent
+				clip: true
+				visible: window.spec.mode !== "grid"
+				model: window.directory
+
+				delegate: Rectangle {
+					id: row
+					required property string name
+					required property string path
+					required property string icon
+
+					readonly property bool selected: {
+						window.directory.selectionRevision
+						return window.directory.is_selected(path)
+					}
+
+					width: ListView.view.width
+					height: 30
+					color: row.selected ? "#8a6ff0" : "transparent"
+
+					RowLayout {
+						anchors.fill: parent
+						anchors.leftMargin: 6
+						anchors.rightMargin: 6
+						spacing: 8
+
+						Kirigami.Icon {
+							source: row.icon
+							width: 18
+							height: 18
+						}
+
+						Label {
+							text: row.name
+							elide: Text.ElideRight
+							Layout.fillWidth: true
+						}
+					}
+
+					MouseArea {
+						anchors.fill: parent
+						onClicked: window.directory.toggle_select(row.path)
 					}
 				}
 			}

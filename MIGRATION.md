@@ -1995,6 +1995,14 @@ exposes `selection()` and dispatches `SelectOnly`, `ToggleSelection`, `SelectRan
 over and drops ids that left the folder. The qtbridge frontend renders the items, slots,
 and selection.
 
+`.desktop` items read their `[Desktop Entry]` metadata: `Name`, `Comment`, `Icon`,
+`Type`, `NoDisplay`/`Hidden`, `Path`/`URL`, and `Exec`. The icon resolves to a theme name
+or a path relative to the entry, and plain files get an icon from their MIME type.
+
+`Engine::dispatch(SetConfig)` applies the key's `ChangeScope`: order-only keys re-sort the
+folder, item keys rescan, and view keys only bump the revision. The qtbridge frontend
+drives view mode, grid mode, lines, icon size, and labels through that path.
+
 Entry parsing, grouping, stash, free placement, radio groups, and adapter deltas remain.
 
 1. Move `Item`, scan, sort, group, filter, slots, radio, icon resolution.
@@ -2133,6 +2141,7 @@ The qtbridge port runs in parallel on the `qtbridge` branch:
   layout from `Engine::view`; the QML sizes its `GridView` from that result.
 - Selection is dispatched back into `Engine` and mirrored as `selectionActive`,
   `selectedCount`, and `selectionRevision` for QML.
+- View controls dispatch `SetConfig` and re-read the spec; grid and list modes both render.
 - `PathBridge` exposes the core path helpers, and the shipping `PathUtils` calls the same
   core functions.
 - The shipping `hishell-qt` binary keeps `qmetaobject` until this target reaches parity.

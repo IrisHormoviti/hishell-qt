@@ -353,6 +353,19 @@ impl ConfigBridge {
 	}
 }
 
+fn qml_config_value(key: ConfigKey, value: &str) -> Option<ConfigValue> {
+	match key.default() {
+		ConfigValue::Bool(_) => match value {
+			"true" | "1" => Some(ConfigValue::Bool(true)),
+			"false" | "0" => Some(ConfigValue::Bool(false)),
+			_ => None,
+		},
+		ConfigValue::Int(_) => value.parse().ok().map(ConfigValue::Int),
+		ConfigValue::Str(_) => Some(ConfigValue::Str(value.to_string())),
+		ConfigValue::Json(_) => Some(ConfigValue::Json(value.to_string())),
+	}
+}
+
 fn key_from_qml(name: &str) -> Option<ConfigKey> {
 	match name {
 		"grid_mode" => Some(ConfigKey::GridMode),
@@ -576,6 +589,33 @@ impl Directory {
 		if let Some(id) = self.selection_id(&path) {
 			self.apply_selection(Command::ToggleSelection(id));
 		}
+	}
+
+	#[qslot]
+	fn set_config(&mut self, key: String, value: String) -> bool {
+		let Some(key) = key_from_qml(&key) else {
+			return false;
+		};
+		let Some(value) = qml_config_value(key, &value) else {
+			return false;
+		};
+		let changed = self
+			.engine
+			.as_mut()
+			.map(|engine| engine.dispatch(Command::SetConfig { key, value }).is_ok())
+			.unwrap_or(false);
+		if !changed {
+			return false;
+		}
+		if let Some(engine) = &self.engine {
+			self.config.borrow_mut().apply(engine.config());
+			self.rows = engine.items().iter().map(row_from_item).collect();
+		}
+		self.read_selection();
+		self.reset();
+		self.revision += 1;
+		self.revision_changed();
+		true
 	}
 
 	#[qslot]
