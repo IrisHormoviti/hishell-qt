@@ -2157,9 +2157,12 @@ Checkpoint:
 ### Phase 4 — Core `Selection` and `Actions`
 
 Status: selection state is in core (`Folder::selection`, `SelectionCommand` values in
-`Engine::dispatch`). The action registry, `ActionId`, `ActionRequest`, typed
-`Prompt`/`Notice`, and menu composition are not implemented yet; `ActionManager.qml`
-still owns enablement and visible/hidden decisions.
+`Engine::dispatch`). `hishell::action` defines `ActionId`, `ActionGroup`, `ActionSubjects`,
+`ActionRequest`, `Target`, `MenuKind`, `ActionDescriptor`, and `ActionSpec`, with a static
+descriptor table. `Engine::actions` resolves Focus/Selection/Items/Auto targets, filters by
+location scope, subjects, and recommended menu, and reports `enabled`/`disabled_reason`.
+Remaining: typed `Prompt`/`Notice` dispatch, `Command::Invoke`, and replacing
+`ActionManager.qml` with a renderer.
 
 1. Move selection state and range/toggle semantics; dispatch `SelectionCommand`.
 2. Add `ActionId` newtype, `ActionDescriptor`, `ActionRequest`, `MenuKind` (including
@@ -2192,8 +2195,11 @@ Checkpoint:
 
 ### Phase 5 — Core `Focus` state
 
-Status: not started. `FocusSpec` exists in `FolderView`, but focus navigation and pane
-state still live in `focus_manager.rs` and the QML input handlers.
+Status: core focus state is in `hishell::focus` (`Focus`, `FocusCommand`, `Direction`).
+`Engine::dispatch(Command::Focus)` implements first/last/move/set/clear and returns
+`FocusDelta`; `FolderView.focus` reads it and `Command::Focus(Activate)` returns
+`Effect::FocusActivate`. Remaining: the Qt key/gamepad mapping still drives
+`focus_manager.rs`, and pane state is single-pane until the adapter switches over.
 
 1. Move pane state, navigation math, and status strings.
 2. Remove top-screen publishing.
@@ -2410,8 +2416,8 @@ Out of scope. The core APIs above are the contract.
 | 2 — Location and Folder | core done | descriptor roots, AppImage metadata, generator icons in core |
 | 2.5 — navigation plans | done | frontend uses the JSON shim until it moves to typed plans |
 | 3 — ops, jobs, execution | core done | adapter submit/signal methods and QML async call sites |
-| 4 — selection and actions | selection done | action registry and menus |
-| 5 — focus state | not started | core focus navigation |
+| 4 — selection and actions | selection and registry done | typed invocation and QML menus |
+| 5 — focus state | core done | adapter key/gamepad mapping and multi-pane |
 | 6 — native KDE cleanup | not started in shipping app | delete ClamOS theme stack and accent-icon hooks |
 
 The core rules hold today: `hishell` has no Qt/KDE dependency, mutations return typed
