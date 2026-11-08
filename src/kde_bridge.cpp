@@ -11,6 +11,8 @@
 #include <QEvent>
 #include <QEventLoop>
 #include <QFileInfo>
+#include <QGuiApplication>
+#include <QPalette>
 #include <QVariantList>
 #include <canberra.h>
 #include <QFileInfo>
@@ -623,6 +625,51 @@ static QString icon_theme_stamp(const QString &themeName)
 	return QStringLiteral("0");
 }
 
+static bool icon_theme_installed(const QString &themeName)
+{
+	if (themeName.isEmpty()) {
+		return false;
+	}
+	for (const QString &base : QIcon::themeSearchPaths()) {
+		if (QFileInfo::exists(base + QLatin1Char('/') + themeName
+				      + QStringLiteral("/index.theme"))) {
+			return true;
+		}
+	}
+	return false;
+}
+
+// The Breeze style can leave QIcon with an internal theme name that has no
+// index.theme on disk. Fall back to an installed theme so themed lookups
+// resolve instead of returning null icons.
+static QString resolved_icon_theme()
+{
+	const QString current = QIcon::themeName();
+	if (icon_theme_installed(current)) {
+		return current;
+	}
+	const bool dark = QGuiApplication::palette().color(QPalette::Window).lightness() < 128;
+	const QStringList candidates = dark
+		? QStringList{QStringLiteral("breeze-dark"), QStringLiteral("breeze"),
+			      QStringLiteral("hicolor")}
+		: QStringList{QStringLiteral("breeze"), QStringLiteral("breeze-dark"),
+			      QStringLiteral("hicolor")};
+	for (const QString &candidate : candidates) {
+		if (icon_theme_installed(candidate)) {
+			return candidate;
+		}
+	}
+	return current;
+}
+
+extern "C" const char *hishell_init_icon_theme()
+{
+	static QByteArray name;
+	name = resolved_icon_theme().toUtf8();
+	QIcon::setThemeName(QString::fromUtf8(name));
+	return name.constData();
+}
+
 // The cache path of a rendered icon. Kept as a small helper so the shell can
 // ask whether a PNG already exists without paying for a render on the GUI
 // thread; missing icons are rendered later from an idle timer.
@@ -637,7 +684,10 @@ static QString accent_icon_path(const char *name, int size, int accent_r, int ac
 	// The rendered PNG depends on the icon theme as well as the colours, and
 	// KIconLoader only recolours themes that declare FollowsColorScheme, so
 	// keep the theme name and the theme's install stamp in the key.
-	QString themeName = QIcon::themeName();
+	QString themeName = resolved_icon_theme();
+	if (themeName != QIcon::themeName()) {
+		QIcon::setThemeName(themeName);
+	}
 	themeName.replace(QLatin1Char('/'), QLatin1Char('_'));
 	// The theme's install stamp is part of the key: a PNG rendered before an
 	// icon (or the FollowsColorScheme flag) reached the theme must not survive
@@ -735,7 +785,11 @@ bool hishell_set_window_icon(const char *source)
 	// the previous folder, so cache the result; the first one is built while
 	// the shell starts, before the window is shown.
 	static QHash<QString, QIcon> windowIcons;
-	const QString key = QIcon::themeName() + QLatin1Char('|') + value;
+	const QString themeName = resolved_icon_theme();
+	if (themeName != QIcon::themeName()) {
+		QIcon::setThemeName(themeName);
+	}
+	const QString key = themeName + QLatin1Char('|') + value;
 	auto cached = windowIcons.constFind(key);
 	if (cached != windowIcons.constEnd()) {
 		window->setIcon(*cached);

@@ -739,6 +739,7 @@ fn row_from_item(item: &hishell::Item) -> DirectoryRow {
 fn main() {
 	let path = std::env::args().nth(1).unwrap_or_else(|| String::from("."));
 	let mut app = QApp::new();
+	hishell_qt::kde_bridge::init_icon_theme();
 	app.application_name("hishell-qt-bridge")
 		.register::<ConfigBridge>()
 		.register::<Directory>()

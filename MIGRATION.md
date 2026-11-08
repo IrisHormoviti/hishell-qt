@@ -2008,6 +2008,11 @@ Plain-file icons no longer shell out to `gio`: `hishell::icon` maps extensions w
 `directory::get_icon` uses it after the entry, AppImage, descriptor, and generator lookups.
 `gio mime` remains only in the default-application setter until `AppCatalog` lands.
 
+Themed lookups resolve the process icon theme to one that exists on disk. The Breeze
+style can leave `QIcon::themeName()` at an internal name with no `index.theme`, which made
+`KIconLoader` return null icons; `init_icon_theme` and the accent-icon renderer fall back
+to `breeze`/`breeze-dark` (by palette) or `hicolor`.
+
 Entry parsing, grouping, stash, free placement, radio groups, and adapter deltas remain.
 
 1. Move `Item`, scan, sort, group, filter, slots, radio, icon resolution.

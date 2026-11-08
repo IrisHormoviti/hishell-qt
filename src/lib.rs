@@ -58,6 +58,7 @@ pub fn install() {
 	// Make sure Qt's messages (QML load errors included) reach stderr, so a
 	// failed view is visible in the host's log.
 	kde_bridge::install_message_handler();
+	kde_bridge::init_icon_theme();
 
 	static IMPORT_NAME: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Hishell\0") };
 	static CONFIG_STR: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"Config\0") };

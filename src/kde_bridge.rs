@@ -27,6 +27,7 @@ unsafe extern "C" {
 	fn hishell_mime_type(path: *const c_char) -> *const c_char;
 	fn hishell_clear_app_cache();
 	fn hishell_set_icon_theme(name: *const c_char) -> bool;
+	fn hishell_init_icon_theme() -> *const c_char;
 	fn hishell_warm_icons();
 	fn hishell_install_message_handler();
 	fn hishell_accent_icon(
@@ -105,6 +106,18 @@ pub fn warm_icons() {
 /// load failure reaches the launcher's log instead of only the window.
 pub fn install_message_handler() {
 	unsafe { hishell_install_message_handler() }
+}
+
+/// Resolve and install a theme that exists on disk, so themed lookups do not
+/// keep returning null icons when the style reports an internal theme name.
+pub fn init_icon_theme() -> String {
+	let name = unsafe { hishell_init_icon_theme() };
+	if name.is_null() {
+		return String::new();
+	}
+	unsafe { CStr::from_ptr(name) }
+		.to_string_lossy()
+		.into_owned()
 }
 
 /// Switch the process icon theme at runtime (e.g. to `breeze-dark` when the
