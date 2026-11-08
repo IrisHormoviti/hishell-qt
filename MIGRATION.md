@@ -1901,8 +1901,17 @@ remains untested.
 the ported adapters. The crate is LGPL-3.0-only or commercial; the repository still has no
 license file.
 
-Decision: keep `qmetaobject` for the current frontend. The core split does not depend on
-the binding, and a binding swap can happen after a native aarch64 build is proven.
+`QModelItem` supports at most 15 fields. The existing `Directory` exposes 18 roles, but
+QML delegates read exactly 15 of them; `group_index`, `group_label`, and `is_stashed` are
+unused and move out of the model.
+
+`include_bytes_qml!` stores the path exactly as written, so `..` ends up in the resource
+name. QML embedded from a sibling directory must live under the invoking source directory
+(or be passed a normalised path).
+
+Decision: the `qmetaobject` frontend stays the shipping app, and the qtbridge frontend is
+built as a parallel target (`--features qtbridge --bin hishell-qt-bridge`) until it reaches
+parity. aarch64 is not a gate for the Qt app.
 
 ### Phase 1 — Engine facade, Config, and view layout
 
@@ -2090,6 +2099,14 @@ Checkpoint:
 - Multi-pane navigation and focus-visible scrolling still work.
 
 ### Phase 6 — Native KDE UI cleanup
+
+The qtbridge port runs in parallel on the `qtbridge` branch:
+
+- `src/bin/qtbridge_app.rs` builds with `--features qtbridge --bin hishell-qt-bridge`.
+- It mirrors the full folder config through `ConfigBridge`, exposes `Directory` as a
+  15-role `QListModel`, uses `QThreadHandle` for the reload worker, and loads its QML from
+  an embedded resource.
+- The shipping `hishell-qt` binary keeps `qmetaobject` until this target reaches parity.
 
 1. Replace `ViewButton`, `ViewDialog`, `ViewMenu`, `ViewSlider`, `ViewActions`,
    `SegmentedButtons*`, `ToggleSwitch`, `Sheet`, `WindowOverlay`, `WindowControl`.
