@@ -127,7 +127,7 @@ hishell-qt/                    # thin qtbridge desktop frontend
 
 - `hishell` must not depend on `qtbridge`, `qttypes`, `slint`, KDE, or C++.
 - `hishell` may depend on crates such as `serde`, `image`, `zip`, `trash`, `walkdir`.
-- `hishell-qt` depends on `hishell` and `qtbridge`.
+- `hishell-qt` depends on `hishell`, `qtbridge`, and `gilrs` for gamepad input.
 - A future `hishell-slint` depends on `hishell` and may inject its own platform impl.
 - Core exposes traits and ships the default pure-Rust implementation; it never links a
   frontend.
@@ -2356,12 +2356,14 @@ Out of scope. The core APIs above are the contract.
 - New folder/new text, rotate, and toggle through the context menu.
 - Trash/delete confirmation, rename, and open-with dialogs.
 - Drag a file/folder onto another folder to copy, move, or link it.
+- Gamepad directions, accept, cancel, menu, select, and directory map to the same
+  focus/navigation/selection actions.
 - A plain path, a `file://` URI, and a file argument all open the right folder.
 - The saved session path restores on the next start.
 - Icons: themed names and file paths.
 
-Future frontend parity: multi-pane transitions, free placement, thumbnails,
-AppImage/descriptor enrichment, and gamepad input. The core APIs for them remain.
+Future frontend parity: multi-pane transitions, free placement, thumbnails, and
+AppImage/descriptor enrichment. The core APIs for them remain.
 
 ## 9. Risks and mitigations
 
@@ -2489,12 +2491,13 @@ Removed with the `qmetaobject` frontend:
 
 ## Appendix B — Frontend modules
 
-The frontend is two files:
+The frontend is:
 
 - `src/bin/qtbridge_app.rs` — `ConfigBridge`, `Directory`, `PathBridge`, and the
   `QApp` entry point.
-- `src/bin/qml/Main.qml` — Qt Quick Controls, `Kirigami.Icon`, and a plain focus
-  rectangle.
+- `src/bin/qml/Main.qml` — Qt Quick Controls, `Kirigami.Icon`, the plain focus
+  rectangle, and the file-operation dialogs.
+- `src/gamepad.rs` — gilrs polling adapted to `Directory` focus commands.
 
 `gamepad.rs`, `sound.rs`, `descriptor_generator.rs`, `appimage.rs`,
 `directory_descriptor.rs`, `thumbnailer.rs`, and the old QML tree were removed with the

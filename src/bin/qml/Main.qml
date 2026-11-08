@@ -43,6 +43,24 @@ ApplicationWindow {
 		return source.indexOf("file://") === 0 || source.indexOf("/") === 0
 	}
 
+	function handleGamepad(action) {
+		if (action === "up" || action === "down" || action === "left" || action === "right") {
+			window.directory.move_focus(action)
+		} else if (action === "accept") {
+			if (window.directory.focused_path.length > 0)
+				window.directory.open(window.directory.focused_path)
+		} else if (action === "cancel") {
+			window.directory.go_up()
+		} else if (action === "menu") {
+			contextMenu.popup()
+		} else if (action === "select") {
+			if (window.directory.focused_path.length > 0)
+				window.directory.toggle_select(window.directory.focused_path)
+		} else if (action === "directory") {
+			window.directory.select_all()
+		}
+	}
+
 	function handleKey(event) {
 		if (event.key === Qt.Key_Left) {
 			window.directory.move_focus("left")
@@ -71,6 +89,17 @@ ApplicationWindow {
 	}
 
 	Component.onCompleted: window.directory.focus_first()
+
+	Timer {
+		interval: 80
+		repeat: true
+		running: true
+		onTriggered: {
+			const action = window.directory.poll_gamepad()
+			if (action.length > 0)
+				window.handleGamepad(action)
+		}
+	}
 
 	Connections {
 		target: window.directory
