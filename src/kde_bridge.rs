@@ -210,13 +210,35 @@ pub fn has_pending_icons() -> bool {
 	!ACCENT_PENDING.lock().unwrap().is_empty()
 }
 
+/// The directory for rendered icon PNGs. A cache owned by another user, a
+/// read-only home, or a full disk falls back to the runtime/temp directory so
+/// icons still render.
+fn icon_cache_dir() -> Option<std::path::PathBuf> {
+	let primary = dirs::cache_dir()?.join("hishell").join("accent-icons-v2");
+	if std::fs::create_dir_all(&primary).is_ok() && writable(&primary) {
+		return Some(primary);
+	}
+	let fallback = dirs::runtime_dir()
+		.unwrap_or_else(std::env::temp_dir)
+		.join("hishell-icons");
+	std::fs::create_dir_all(&fallback).ok()?;
+	writable(&fallback).then_some(fallback)
+}
+
+fn writable(dir: &std::path::Path) -> bool {
+	let probe = dir.join(".write-probe");
+	let ok = std::fs::write(&probe, b"").is_ok();
+	let _ = std::fs::remove_file(&probe);
+	ok
+}
+
 fn accent_icon_cached(
 	name: &str,
 	size: u32,
 	accent: (u8, u8, u8),
 	text: (u8, u8, u8),
 ) -> Option<String> {
-	let cache_dir = dirs::cache_dir()?.join("hishell").join("accent-icons-v2");
+	let cache_dir = icon_cache_dir()?;
 	let cache_dir = CString::new(cache_dir.to_string_lossy().as_bytes()).ok()?;
 	let name = CString::new(name).ok()?;
 	let rendered = unsafe {
@@ -247,7 +269,7 @@ fn accent_icon_uncached(
 	accent: (u8, u8, u8),
 	text: (u8, u8, u8),
 ) -> Option<String> {
-	let cache_dir = dirs::cache_dir()?.join("hishell").join("accent-icons-v2");
+	let cache_dir = icon_cache_dir()?;
 	let cache_dir = CString::new(cache_dir.to_string_lossy().as_bytes()).ok()?;
 	let name = CString::new(name).ok()?;
 	let rendered = unsafe {

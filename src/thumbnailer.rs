@@ -258,6 +258,9 @@ fn descriptor_owns(src: &Path) -> bool {
 /// Whether an item is a candidate for a thumbnail: a known image or video
 /// extension, or a MIME type one of the installed thumbnailers handles.
 fn is_thumbnailable(src: &Path) -> bool {
+	if !src.is_file() {
+		return false;
+	}
 	let ext = ext_lower(src);
 	if IMAGE_EXTS.contains(&ext.as_str()) || is_video_ext(&ext) {
 		return true;
