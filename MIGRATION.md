@@ -2517,9 +2517,10 @@ The frontend is:
   plain focus rectangle, file-operation dialogs, and the `NavigationPlan` transition.
 - `src/gamepad.rs` — gilrs polling adapted to `Directory` focus commands.
 
-`gamepad.rs`, `sound.rs`, `descriptor_generator.rs`, `appimage.rs`,
-`directory_descriptor.rs`, `thumbnailer.rs`, and the old QML tree were removed with the
-`qmetaobject` frontend. A future frontend can reintroduce them over the same core API.
+The old QML tree, `sound.rs`, and the frontend copies of `appimage.rs`,
+`directory_descriptor.rs`, `descriptor_generator.rs`, and `thumbnailer.rs` were removed.
+`appimage`, `descriptor`, `descriptor_generator`, and `thumbnail` now live in the core;
+`gamepad.rs` remains in the frontend.
 
 ## Appendix C — API conventions
 
