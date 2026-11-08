@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import hishell_qt
 import org.kde.kirigami as Kirigami
+import "toolkit"
 
 Kirigami.Page {
 	id: pane
@@ -20,6 +21,7 @@ Kirigami.Page {
 	property var directory: null
 
 	property var contextActions: []
+	property string contextTarget: "location"
 	property string transitionDirection: ""
 
 	readonly property alias renameDialogOpen: renameDialog.visible
@@ -76,6 +78,8 @@ Kirigami.Page {
 			"select-all": "Select All",
 			"new-folder": "New Folder",
 			"new-text-file": "New Text File",
+			"duplicate": "Duplicate",
+			"create-link": "Create Link",
 			"rename": "Rename…",
 			"trash": "Move to Trash…",
 			"delete": "Delete…",
@@ -277,15 +281,21 @@ Kirigami.Page {
 
 	Menu {
 		id: contextMenu
-		onAboutToShow: pane.contextActions = JSON.parse(
-			pane.directory.actions_json("context", "focus"))
+		onAboutToShow: {
+			const background = pane.contextTarget === "location"
+			pane.contextActions = JSON.parse(
+				pane.directory.actions_json("context", pane.contextTarget))
+				.filter(action => background ? action.here : action.items)
+		}
 
 		Repeater {
 			model: pane.contextActions
 
-			MenuItem {
+			ShellMenuItem {
 				required property var modelData
 				text: pane.actionLabel(modelData.id)
+				iconName: modelData.icon || ""
+				shortcutText: modelData.shortcut || ""
 				enabled: modelData.enabled
 				onTriggered: pane.directory.invoke(modelData.id)
 			}
@@ -296,16 +306,105 @@ Kirigami.Page {
 		if (!pane.directory)
 			return ({})
 		pane.directory.revision
-		return JSON.parse(pane.directory.view_json(grid.width, grid.height, 18, 4, 18))
+		return JSON.parse(pane.directory.view_json(content.width, content.height, 18, 4, 18))
 	}
 
+	readonly property string horizontalAlign: pane.directory
+		? String(pane.directory.config.gridHorizontalAlign) : "FILL"
+	readonly property string verticalAlign: pane.directory
+		? String(pane.directory.config.gridVerticalAlign) : "TOP"
+
+	// Fill and Center both centre the block between the free space; Left and
+	// Top pin it to the start, Right and Bottom to the end.
+	function alignOffset(align, view, natural) {
+		if (align === "LEFT" || align === "TOP")
+			return 0
+		if (align === "RIGHT" || align === "BOTTOM")
+			return Math.max(0, view - natural)
+		return Math.max(0, (view - natural) / 2)
+	}
+
+	readonly property int gridLineCount: pane.spec.lines || 4
+	readonly property int gridCount: pane.spec.count || 0
+	readonly property real gridGap: pane.spec.gap || 0
+	readonly property real naturalWidth: {
+		const pitch = (pane.spec.cell_width || 96) + pane.gridGap
+		if (pane.spec.horizontal)
+			return Math.ceil(pane.gridCount / Math.max(1, pane.gridLineCount)) * pitch
+		return pane.gridLineCount * pitch
+	}
+	readonly property real naturalHeight: {
+		const pitch = (pane.spec.cell_height || 96) + pane.gridGap
+		if (pane.spec.horizontal)
+			return pane.gridLineCount * pitch
+		return Math.ceil(pane.gridCount / Math.max(1, pane.gridLineCount)) * pitch
+	}
+	readonly property real gridOffsetX: pane.alignOffset(pane.horizontalAlign,
+		content.width, pane.naturalWidth)
+	readonly property real gridOffsetY: pane.alignOffset(pane.verticalAlign,
+		content.height, pane.naturalHeight)
+	readonly property real freeNaturalWidth: {
+		let width = 0
+		for (const slot of pane.spec.slots || [])
+			width = Math.max(width, slot.x + slot.width)
+		return width
+	}
+	readonly property real freeNaturalHeight: {
+		let height = 0
+		for (const slot of pane.spec.slots || [])
+			height = Math.max(height, slot.y + slot.height)
+		return height
+	}
+	readonly property real freeOffsetX: pane.alignOffset(pane.horizontalAlign,
+		content.width, pane.freeNaturalWidth)
+	readonly property real freeOffsetY: pane.alignOffset(pane.verticalAlign,
+		content.height, pane.freeNaturalHeight)
+	readonly property bool showLabels: pane.directory
+		? pane.directory.config.show_labels : true
+	readonly property bool labelsBeside: pane.directory
+		? pane.directory.config.gridLabelsBesidesIcons : false
+	readonly property string labelText: pane.directory
+		? String(pane.directory.config.label_text) : "TITLE"
+
+	function displayName(name, title) {
+		return pane.labelText === "TITLE" && title.length > 0 ? title : name
+	}
+
+	readonly property string wallpaperUrl: {
+		const path = pane.directory ? String(pane.directory.config.wallpaper) : ""
+		if (path.length === 0)
+			return ""
+		return "file://" + path.split("/").map(encodeURIComponent).join("/")
+	}
 
 	Frame {
 		id: content
 		anchors.fill: parent
 		padding: 0
-		background: Rectangle { color: "transparent" }
+		background: Item {
+			Rectangle {
+				anchors.fill: parent
+				color: "transparent"
+			}
+			Image {
+				anchors.fill: parent
+				source: pane.wallpaperUrl
+				fillMode: Image.PreserveAspectCrop
+				asynchronous: true
+				visible: source.toString().length > 0
+			}
+		}
 		transformOrigin: Item.Center
+
+			MouseArea {
+				anchors.fill: parent
+				acceptedButtons: Qt.RightButton
+				onClicked: {
+					pane.activated()
+					pane.contextTarget = "location"
+					contextMenu.popup()
+				}
+			}
 
 			DropArea {
 				anchors.fill: parent
@@ -322,6 +421,12 @@ Kirigami.Page {
 			GridView {
 				id: grid
 				anchors.fill: parent
+				anchors.leftMargin: pane.gridOffsetX
+				anchors.topMargin: pane.gridOffsetY
+				anchors.rightMargin: pane.spec.horizontal ? 0
+					: Math.max(0, content.width - pane.gridOffsetX - pane.naturalWidth)
+				anchors.bottomMargin: pane.spec.horizontal
+					? Math.max(0, content.height - pane.gridOffsetY - pane.naturalHeight) : 0
 				clip: true
 				focus: pane.active && pane.spec.free !== true
 				visible: pane.spec.free !== true
@@ -336,6 +441,7 @@ Kirigami.Page {
 				delegate: Item {
 					id: cell
 					required property string name
+					required property string title
 					required property string path
 					required property string icon
 					required property bool is_directory
@@ -409,7 +515,8 @@ Kirigami.Page {
 
 						Label {
 							width: grid.cellWidth - 8
-							text: name
+							visible: pane.showLabels
+							text: pane.displayName(name, title)
 							elide: Text.ElideMiddle
 							horizontalAlignment: Text.AlignHCenter
 						}
@@ -439,6 +546,7 @@ Kirigami.Page {
 							if (mouse.button === Qt.RightButton) {
 								pane.activated()
 								pane.directory.focus_path(cell.path)
+								pane.contextTarget = "focus"
 								contextMenu.popup()
 							} else {
 								pane.clickTarget(cell.path, mouse.modifiers)
@@ -465,6 +573,7 @@ Kirigami.Page {
 				delegate: Rectangle {
 					id: row
 					required property string name
+					required property string title
 					required property string path
 					required property string icon
 					required property bool is_directory
@@ -533,7 +642,8 @@ Kirigami.Page {
 						}
 
 						Label {
-							text: row.name
+							visible: pane.showLabels
+							text: pane.displayName(row.name, row.title)
 							elide: Text.ElideRight
 							Layout.fillWidth: true
 						}
@@ -563,6 +673,7 @@ Kirigami.Page {
 							if (mouse.button === Qt.RightButton) {
 								pane.activated()
 								pane.directory.focus_path(row.path)
+								pane.contextTarget = "focus"
 								contextMenu.popup()
 							} else {
 								pane.clickTarget(row.path, mouse.modifiers)
@@ -581,8 +692,8 @@ Kirigami.Page {
 					id: freeSlot
 					required property var modelData
 
-					x: modelData.x
-					y: modelData.y
+					x: pane.freeOffsetX + modelData.x
+					y: pane.freeOffsetY + modelData.y
 					width: modelData.width
 					height: modelData.height
 
@@ -651,7 +762,8 @@ Kirigami.Page {
 
 						Label {
 							width: parent.width
-							text: modelData.name
+							visible: pane.showLabels
+							text: pane.displayName(modelData.name, modelData.title || "")
 							elide: Text.ElideMiddle
 							horizontalAlignment: Text.AlignHCenter
 						}
@@ -681,6 +793,7 @@ Kirigami.Page {
 							if (mouse.button === Qt.RightButton) {
 								pane.activated()
 								pane.directory.focus_path(modelData.path)
+								pane.contextTarget = "focus"
 								contextMenu.popup()
 							} else {
 								pane.clickTarget(modelData.path, mouse.modifiers)

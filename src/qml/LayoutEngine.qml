@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import "toolkit"
 
 RowLayout {
 	id: engine
@@ -13,7 +14,7 @@ RowLayout {
 
 	Component { id: paneComponent; FolderPane {} }
 	Component { id: pathBarComponent; PathBar {} }
-	Component { id: menuBarComponent; ShellMenuBar {} }
+	Component { id: menuBarComponent; MenuBar {} }
 	Component { id: spacerComponent; Spacer {} }
 	Component { id: windowControlComponent; WindowControl {} }
 

@@ -122,9 +122,10 @@ hishell-qt/                    # thin qtbridge desktop frontend
   src/qml/Main.qml           # window and the Header/Top/Middle/Bottom stack
   src/qml/LayoutEngine.qml   # loads the configured layout components
   src/qml/FolderPane.qml     # one folder pane and its transitions
-  src/qml/PathBar.qml        # breadcrumbs, in-place path editing, Here menu
-  src/qml/ShellMenuBar.qml   # Edit/New/View menus
-  src/qml/Spacer.qml, WindowControl.qml
+  src/qml/toolkit/           # header items, the old toolkit split
+    MenuBar.qml, ViewMenu.qml, ViewActions.qml, ViewSlider.qml
+    PathBar.qml, Spacer.qml, WindowControl.qml
+    ConfigureDialog.qml, ShellMenuItem.qml
   Cargo.toml                 # hishell + qtbridge only
 ```
 
@@ -2367,7 +2368,11 @@ Out of scope. The core APIs above are the contract.
 
 - `timeout 30s cargo run -p hishell-qt -- /tmp` and inspect.
 - Large folder on a slow target.
-- Grid and list modes; view controls change mode, lines, size, and labels and persist.
+- Grid and list modes; the View menu changes mode, sizing (lines or icon size),
+  lines/size, labels, columns, sorting, grouping, alignment, and stash and persists
+  in General scope or the folder's `.directory` in Here scope.
+- Here → Configure edits the layout JSON, window flags, folder title/icon, radio,
+  and launch settings.
 - With `OpenOnClick` (the old default), a plain click opens; press-and-hold enters
   selection mode and selects the item. Ctrl-click toggles, Shift-click ranges, Space
   toggles the focused item, Escape clears. Arrow keys move the focus rectangle; only the
@@ -2545,8 +2550,15 @@ The frontend is:
 - `src/qml/LayoutEngine.qml` — loads the configured layout entries.
 - `src/qml/FolderPane.qml` — one pane: Qt Quick Controls, `Kirigami.Icon`, the
   plain focus rectangle, file-operation dialogs, and the `NavigationPlan` transition.
-- `src/qml/PathBar.qml` — breadcrumbs; the current crumb opens the here menu.
-- `src/qml/ShellMenuBar.qml` — Edit/New/View menus with the old shortcuts.
+- `src/qml/toolkit/PathBar.qml` — breadcrumbs with a slash between segments and
+  the current item's icon; the current crumb opens the Here menu, which carries
+  the Configure submenu.
+- `src/qml/toolkit/MenuBar.qml` — Open/Edit/New menus with icons and shortcuts.
+- `src/qml/toolkit/ViewMenu.qml` — the whole View menu, including its General/Here
+  scope tabs, view mode, sizing mode, lines or icon size, list columns, sorting,
+  grouping, labels, arrangement, navigation, wallpaper, and stash settings.
+- `src/qml/toolkit/ConfigureDialog.qml` — layout, window, folder, radio, and launch
+  settings reached from Here → Configure.
 - `src/gamepad.rs` — gilrs polling adapted to `Directory` focus commands; built with
   `--features gamepad` so a host without libudev development files can still build.
 

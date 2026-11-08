@@ -8,7 +8,15 @@ ApplicationWindow {
 	id: window
 	width: 900
 	height: 600
-	title: window.currentDirectory ? String(window.currentDirectory.path) : "hishell"
+	title: {
+		const directory = window.currentDirectory
+		if (!directory)
+			return "hishell"
+		return directory.config.title.length > 0
+			? directory.config.title : String(directory.path)
+	}
+	flags: window.currentDirectory && !window.currentDirectory.config.native_titlebar
+		? Qt.Window | Qt.FramelessWindowHint : Qt.Window
 	visible: !headless
 	color: Kirigami.Theme.backgroundColor
 
@@ -19,6 +27,11 @@ ApplicationWindow {
 	property string testMiddleLayout: ""
 	property var panes: []
 	property Item activePane: null
+
+	Component.onCompleted: {
+		if (leftDirectory && leftDirectory.config.maximized)
+			window.showMaximized()
+	}
 
 
 
@@ -90,6 +103,8 @@ ApplicationWindow {
 			"select-all": "Select All",
 			"new-folder": "New Folder",
 			"new-text-file": "New Text File",
+			"duplicate": "Duplicate",
+			"create-link": "Create Link",
 			"rename": "Rename…",
 			"trash": "Move to Trash…",
 			"delete": "Delete…",

@@ -19,8 +19,8 @@
 - Rust backend (`src/main.rs`) + Qt6 QML frontend (`src/qml/`). Bridged via `qtbridge`.
 - Main entry: `src/main.rs` registers `ConfigBridge`, `Directory`, and `PathBridge` with `QApp`.
 - QML entry: `src/qml/Main.qml`; `LayoutEngine.qml` loads the configured
-  Header/Top/Middle/Bottom components (`PathBar`, `ShellMenuBar`, `Spacer`, `WindowControl`,
-  `FolderPane`).
+  Header/Top/Middle/Bottom components from `src/qml/toolkit/` (`PathBar`, `MenuBar`,
+  `Spacer`, `WindowControl`) and the panes from `FolderPane` in `src/qml/`.
 - **Prefer Rust backend over JS inside QML for code implementation whenever possible.** Use qtbridge to expose Rust
   types/functions to QML rather than writing inline JavaScript logic.
 - **Pass a `window` property to each loaded component** to avoid unqualified access in QML.

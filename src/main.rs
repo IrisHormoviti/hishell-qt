@@ -171,6 +171,12 @@ impl ConfigBridge {
 	}
 
 	#[qslot]
+	fn notify(&mut self) {
+		self.changed_revision += 1;
+		self.changed();
+	}
+
+	#[qslot]
 	fn set_value(&mut self, key: String, value: String) -> bool {
 		let Some(key) = key_from_qml(&key) else {
 			return false;
@@ -388,8 +394,7 @@ fn supported_action(id: &str) -> bool {
 			| "duplicate"
 			| "create-link"
 			| "rename"
-			| "trash" | "delete"
-			| "destroy"
+			| "trash" | "destroy"
 			| "toggle"
 			| "rotate-image"
 	)
@@ -455,20 +460,59 @@ fn target_kind(name: &str) -> Option<Target> {
 }
 
 fn key_from_qml(name: &str) -> Option<ConfigKey> {
+	// Menus use the config file's own key names (GridMode, ShowLabels, …).
+	if let Some(key) = ConfigKey::ALL.iter().find(|key| key.name() == name) {
+		return Some(*key);
+	}
 	match name {
+		"title" => Some(ConfigKey::Title),
+		"icon" => Some(ConfigKey::Icon),
+		"wallpaper" => Some(ConfigKey::Wallpaper),
+		"maximized" => Some(ConfigKey::Maximized),
+		"top_layout" | "top" => Some(ConfigKey::Top),
+		"middle_layout" | "middle" => Some(ConfigKey::Middle),
+		"bottom_layout" | "bottom" => Some(ConfigKey::Bottom),
+		"header_layout" | "header" => Some(ConfigKey::Header),
+		"native_menubar" => Some(ConfigKey::NativeMenuBar),
+		"native_menus" => Some(ConfigKey::NativeMenus),
+		"native_titlebar" => Some(ConfigKey::NativeTitleBar),
+		"native_drag" => Some(ConfigKey::NativeDrag),
+		"show_shortcuts" => Some(ConfigKey::ShowShortcuts),
+		"execution_wrapper" | "executionWrapper" => Some(ConfigKey::ExecutionWrapper),
+		"screen_name" | "screen" => Some(ConfigKey::Screen),
 		"grid_mode" => Some(ConfigKey::GridMode),
 		"grid_size" => Some(ConfigKey::GridSize),
-		"grid_lines" => Some(ConfigKey::Lines),
+		"grid_lines" | "gridLines" => Some(ConfigKey::Lines),
+		"grid_horizontal_align" | "gridHorizontalAlign" => Some(ConfigKey::GridHorizontalAlign),
+		"grid_vertical_align" | "gridVerticalAlign" => Some(ConfigKey::GridVerticalAlign),
+		"scroll_direction" | "scrollHorizontal" => Some(ConfigKey::ScrollDirection),
 		"view_mode" => Some(ConfigKey::ViewMode),
+		"list_columns" | "listColumns" => Some(ConfigKey::ListColumns),
+		"list_header" => Some(ConfigKey::ListHeader),
 		"show_labels" => Some(ConfigKey::ShowLabels),
-		"grid_labels_beside_icons" => Some(ConfigKey::GridLabelsBesidesIcons),
+		"grid_labels_beside_icons" | "gridLabelsBesidesIcons" => {
+			Some(ConfigKey::GridLabelsBesidesIcons)
+		}
 		"label_text" => Some(ConfigKey::LabelText),
 		"sort" => Some(ConfigKey::Sort),
-		"group_mode" => Some(ConfigKey::Group),
+		"sort_date_mode" | "sortDateMode" => Some(ConfigKey::SortDateMode),
+		"sort_alpha_mode" | "sortAlphaMode" => Some(ConfigKey::SortAlphaMode),
+		"group_mode" | "group" => Some(ConfigKey::Group),
+		"groups" => Some(ConfigKey::Groups),
 		"show_stash" => Some(ConfigKey::ShowStash),
+		"stash_shown" => Some(ConfigKey::StashShown),
+		"stash_dotfiles" | "stashDotFiles" => Some(ConfigKey::StashDotFiles),
+		"free_placement_positions" | "freePlacementPositions" => {
+			Some(ConfigKey::FreePlacementPositions)
+		}
 		"center_focus" => Some(ConfigKey::CenterFocus),
-		"smooth_scrolling" => Some(ConfigKey::SmoothScrolling),
+		"smooth_scrolling" | "smoothScrolling" => Some(ConfigKey::SmoothScrolling),
 		"open_on_click" => Some(ConfigKey::OpenOnClick),
+		"focus_empty_slots" | "focusEmptySlots" => Some(ConfigKey::FocusEmptySlots),
+		"radio_enabled" => Some(ConfigKey::RadioEnabled),
+		"radio_only" => Some(ConfigKey::RadioOnly),
+		"radio_selected" => Some(ConfigKey::RadioSelected),
+		"radio_exec" => Some(ConfigKey::RadioExec),
 		_ => None,
 	}
 }
@@ -491,6 +535,30 @@ impl PathBridge {
 	#[qslot]
 	fn folder_name(&self, path: String) -> String {
 		hishell::path::folder_name(&path)
+	}
+
+	#[qslot]
+	fn folder_icon(&self, path: String) -> String {
+		let path = Path::new(&path);
+		let icon = if path.is_dir() {
+			hishell::IconRef::Theme(String::from("folder"))
+		} else {
+			hishell::icon::for_path(path)
+		};
+		match icon {
+			hishell::IconRef::Theme(name) => name,
+			hishell::IconRef::Path(path) => format!("file://{}", path.to_string_lossy()),
+		}
+	}
+
+	#[qslot]
+	fn folder_title(&self, path: String) -> String {
+		let title = Config::load_for(&Location::folder(&path)).config.title;
+		if title.is_empty() {
+			hishell::path::folder_name(&path)
+		} else {
+			title
+		}
 	}
 
 	#[qslot]
@@ -555,6 +623,7 @@ pub struct Directory {
 	selection_revision: i32,
 	focused_path: String,
 	last_descriptor_epoch: u64,
+	has_meta: bool,
 }
 
 impl Directory {
@@ -570,6 +639,7 @@ impl Directory {
 			selection_revision: 0,
 			focused_path: String::new(),
 			last_descriptor_epoch: 0,
+			has_meta: path.join(".directory").is_file() || path.join(".cfg").is_file(),
 		};
 		directory.reload();
 		save_session(&directory.path);
@@ -638,6 +708,8 @@ impl Directory {
 			return;
 		};
 		self.path = engine.location().path().to_string_lossy().into_owned();
+		self.has_meta = Path::new(&self.path).join(".directory").is_file()
+			|| Path::new(&self.path).join(".cfg").is_file();
 		save_session(&self.path);
 		self.config.borrow_mut().apply(engine.config());
 		self.rows = rows_after(engine, None);
@@ -820,18 +892,41 @@ impl Directory {
 	}
 
 	#[qslot]
+	fn has_meta(&self) -> bool {
+		self.has_meta
+	}
+
+	#[qslot]
 	fn set_config(&mut self, key: String, value: String) -> bool {
+		let local = self.has_meta;
+		self.set_config_scoped(key, value, local)
+	}
+
+	#[qslot]
+	fn set_config_scoped(&mut self, key: String, value: String, local: bool) -> bool {
 		let Some(key) = key_from_qml(&key) else {
 			return false;
 		};
 		let Some(value) = qml_config_value(key, &value) else {
 			return false;
 		};
+		let raw = match &value {
+			ConfigValue::Bool(value) => value.to_string(),
+			ConfigValue::Int(value) => value.to_string(),
+			ConfigValue::Str(value) => value.clone(),
+			ConfigValue::Json(value) => value.clone(),
+		};
 		let Some(engine) = self.engine.as_mut() else {
 			return false;
 		};
-		let Ok(outcome) = engine.dispatch(Command::SetConfig { key, value }) else {
-			return false;
+		let outcome = match engine.dispatch(Command::SetConfigRaw {
+			section: key.section().to_string(),
+			key: key.name().to_string(),
+			value: raw,
+			local,
+		}) {
+			Ok(outcome) => outcome,
+			Err(_) => return false,
 		};
 		self.config.borrow_mut().apply(engine.config());
 		self.rows = rows_after(engine, Some(&outcome.changes));
@@ -940,6 +1035,36 @@ impl Directory {
 		};
 		let mut actions = engine.actions(&ActionRequest { menu, target });
 		actions.retain(|spec| supported_action(spec.id.as_str()));
+		// Trash is the normal action; permanent deletion only appears when
+		// there is no working trash action for the target.
+		let trash_available = actions
+			.iter()
+			.any(|spec| spec.id == ActionId::TRASH && spec.enabled);
+		actions.retain(|spec| {
+			spec.id != ActionId::DELETE && (spec.id != ActionId::DESTROY || !trash_available)
+		});
+		let actions: Vec<serde_json::Value> = actions
+			.into_iter()
+			.map(|spec| {
+				let descriptor = hishell::action::descriptor(spec.id);
+				serde_json::json!({
+					"id": spec.id,
+					"enabled": spec.enabled,
+					"visible": spec.visible,
+					"checked": spec.checked,
+					"icon": descriptor.map(|descriptor| descriptor.icon_name).unwrap_or(""),
+					"shortcut": descriptor
+						.and_then(|descriptor| descriptor.default_shortcut)
+						.unwrap_or(""),
+					"here": descriptor
+						.map(|descriptor| descriptor.subjects.contains(hishell::action::ActionSubjects::HERE))
+						.unwrap_or(false),
+					"items": descriptor
+						.map(|descriptor| descriptor.subjects.intersects(hishell::action::ActionSubjects::ITEMS))
+						.unwrap_or(false),
+				})
+			})
+			.collect();
 		serde_json::to_string(&actions).unwrap_or_else(|_| String::from("[]"))
 	}
 
@@ -1224,6 +1349,7 @@ impl Directory {
 				FolderMode::Grid(grid) => serde_json::json!({
 					"mode": "grid",
 					"lines": grid.lines,
+					"count": view.slots.len(),
 					"icon_size": grid.icon_size,
 					"cell_width": grid.cell.width,
 					"cell_height": grid.cell.height,
