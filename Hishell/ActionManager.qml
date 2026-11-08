@@ -747,6 +747,8 @@ Item {
 				if (actionManager.fileManager && actionManager.fileManager.duplicate_file(paths[i]))
 					anyOk = true;
 			}
+			// Symlink and provider entries duplicate synchronously; ordinary
+			// files finish on the job pool and reload from onJobFinished.
 			if (anyOk && actionManager.targetDirectory)
 				actionManager.targetDirectory.reload();
 		}
@@ -760,17 +762,14 @@ Item {
 		enabled: actionManager.hasTarget
 		onTriggered: {
 			const paths = actionManager.targetPaths();
-			let anyOk = false;
 			for (let i = 0; i < paths.length; i++) {
 				const p = paths[i];
 				const name = p.substring(p.lastIndexOf("/") + 1);
 				const parent = p.substring(0, p.lastIndexOf("/"));
 				const dest = parent + "/" + name + " (link)";
-				if (actionManager.fileManager && actionManager.fileManager.create_link(p, dest))
-					anyOk = true;
+				if (actionManager.fileManager)
+					actionManager.fileManager.create_link(p, dest);
 			}
-			if (anyOk && actionManager.targetDirectory)
-				actionManager.targetDirectory.reload();
 		}
 	}
 
@@ -819,6 +818,8 @@ Item {
 					actionManager.playSound("item-deleted");
 				if (actionManager.selectionManager)
 					actionManager.selectionManager.clear();
+				// Symlink and provider entries trash synchronously; ordinary
+				// files finish on the job pool and reload from onJobFinished.
 				if (anyOk && actionManager.targetDirectory)
 					actionManager.targetDirectory.reload();
 			}
@@ -998,10 +999,8 @@ Item {
 		icon.name: "folder-add"
 		shortcut: actionManager.showShortcuts ? "Ctrl+Shift+N" : ""
 		onTriggered: {
-			if (actionManager.fileManager && actionManager.directory) {
-				if (actionManager.fileManager.new_folder(actionManager.directory.path))
-					actionManager.directory.reload();
-			}
+			if (actionManager.fileManager && actionManager.directory)
+				actionManager.fileManager.new_folder(actionManager.directory.path);
 		}
 	}
 
@@ -1011,10 +1010,8 @@ Item {
 		icon.name: "text-plain"
 		shortcut: actionManager.showShortcuts ? "Alt+Shift+N" : ""
 		onTriggered: {
-			if (actionManager.fileManager && actionManager.directory) {
-				if (actionManager.fileManager.new_text_file(actionManager.directory.path))
-					actionManager.directory.reload();
-			}
+			if (actionManager.fileManager && actionManager.directory)
+				actionManager.fileManager.new_text_file(actionManager.directory.path);
 		}
 	}
 
@@ -1029,13 +1026,10 @@ Item {
 		enabled: actionManager.isImageTarget
 		onTriggered: {
 			const paths = actionManager.targetPaths();
-			let anyOk = false;
 			for (let i = 0; i < paths.length; i++) {
-				if (actionManager.fileManager && actionManager.fileManager.rotate_image(paths[i], 90))
-					anyOk = true;
+				if (actionManager.fileManager)
+					actionManager.fileManager.rotate_image(paths[i], 90);
 			}
-			if (anyOk && actionManager.targetDirectory)
-				actionManager.targetDirectory.reload();
 		}
 	}
 
@@ -1047,13 +1041,10 @@ Item {
 		enabled: actionManager.isImageTarget
 		onTriggered: {
 			const paths = actionManager.targetPaths();
-			let anyOk = false;
 			for (let i = 0; i < paths.length; i++) {
-				if (actionManager.fileManager && actionManager.fileManager.rotate_image(paths[i], 270))
-					anyOk = true;
+				if (actionManager.fileManager)
+					actionManager.fileManager.rotate_image(paths[i], 270);
 			}
-			if (anyOk && actionManager.targetDirectory)
-				actionManager.targetDirectory.reload();
 		}
 	}
 

@@ -1,3 +1,4 @@
+use hishell::{CopyOptions, JobEvent, Jobs, Op, Overwrite};
 use once_cell::sync::Lazy;
 use qmetaobject::prelude::*;
 use std::fs;
@@ -220,10 +221,16 @@ fn note_virtual_drop(pending: &mut Vec<(PathBuf, String)>, dir: &Path, dst: &Pat
 pub struct FileManager {
 	base: qt_base_class!(trait QObject),
 
+	jobs: Jobs,
+
 	/// A drop into a virtual folder was accepted by the filesystem and then
 	/// ignored by the provider.  QML says so instead of leaving the user to
 	/// wonder where the file went.
 	drop_declined: qt_signal!(name: String),
+
+	job_started: qt_signal!(id: String, kind: String),
+	job_finished: qt_signal!(id: String, ok: bool, succeeded: i32, failed: i32),
+	job_cancelled: qt_signal!(id: String),
 
 	/// Bumped after an icon PNG is rendered on an idle tick. QML bindings that
 	/// read it re-resolve the item's icon from the themed fallback to the
@@ -235,10 +242,18 @@ pub struct FileManager {
 		fn copy_file(&self, source: String, dest: String) -> bool {
 			let src = clean_path(&source.to_string());
 			let dst = clean_path(&dest.to_string());
-			if is_symlink(Path::new(&src)) {
-				return link_item(Path::new(&src), Path::new(&dst));
+			if src.is_empty() || dst.is_empty() {
+				return false;
 			}
-			fs::copy(src, dst).is_ok()
+			self.jobs.submit(Op::Copy {
+				sources: vec![PathBuf::from(src)],
+				dest: PathBuf::from(dst),
+				options: CopyOptions {
+					overwrite: Overwrite::Replace,
+					..CopyOptions::default()
+				},
+			});
+			true
 		}
 	),
 
@@ -270,12 +285,10 @@ pub struct FileManager {
 				let dest = unique_path(parent, &fname, " (link)");
 				return link_item(path, &dest);
 			}
-			let dest = unique_path(parent, &fname, " (copy)");
-			if path.is_dir() {
-				copy_dir_recursive(path, &dest)
-			} else {
-				fs::copy(path, &dest).is_ok()
-			}
+			self.jobs.submit(Op::Duplicate {
+				paths: vec![path.to_path_buf()],
+			});
+			true
 		}
 	),
 
@@ -286,25 +299,10 @@ pub struct FileManager {
 			if !parent_path.is_dir() {
 				return false;
 			}
-
-			let base_name = "New Folder";
-			let mut candidate = parent_path.join(base_name);
-			if candidate.exists() {
-				let mut created = false;
-				for idx in 1..100 {
-					let next = parent_path.join(format!("{} {}", base_name, idx));
-					if !next.exists() {
-						candidate = next;
-						created = true;
-						break;
-					}
-				}
-				if !created {
-					return false;
-				}
-			}
-
-			fs::create_dir(&candidate).is_ok()
+			self.jobs.submit(Op::NewFolder {
+				parent: parent_path.to_path_buf(),
+			});
+			true
 		}
 	),
 
@@ -315,25 +313,10 @@ pub struct FileManager {
 			if !parent_path.is_dir() {
 				return false;
 			}
-
-			let base_name = "New Text File";
-			let mut candidate = parent_path.join(format!("{}.txt", base_name));
-			if candidate.exists() {
-				let mut created = false;
-				for idx in 1..100 {
-					let next = parent_path.join(format!("{} {}.txt", base_name, idx));
-					if !next.exists() {
-						candidate = next;
-						created = true;
-						break;
-					}
-				}
-				if !created {
-					return false;
-				}
-			}
-
-			std::fs::File::create(&candidate).is_ok()
+			self.jobs.submit(Op::NewTextFile {
+				parent: parent_path.to_path_buf(),
+			});
+			true
 		}
 	),
 
@@ -365,7 +348,11 @@ pub struct FileManager {
 					dst_path.to_path_buf()
 				}
 			};
-			link_item(src_path, &dst)
+			self.jobs.submit(Op::Link {
+				sources: vec![src_path.to_path_buf()],
+				dest: dst,
+			});
+			true
 		}
 	),
 
@@ -394,7 +381,10 @@ pub struct FileManager {
 			if let Some(command) = entry.destroy_command() {
 				return crate::desktop_entry::run_destroy(path, &entry, command);
 			}
-			trash::delete(path).is_ok()
+			self.jobs.submit(Op::Trash {
+				paths: vec![path.to_path_buf()],
+			});
+			true
 		}
 	),
 
@@ -440,14 +430,13 @@ pub struct FileManager {
 	delete_file: qt_method!(
 		fn delete_file(&self, path: String) -> bool {
 			let p = clean_path(&path.to_string());
-			let p = Path::new(&p);
-			if is_symlink(p) {
-				fs::remove_file(p).is_ok()
-			} else if p.is_dir() {
-				fs::remove_dir_all(p).is_ok()
-			} else {
-				fs::remove_file(p).is_ok()
+			if p.is_empty() {
+				return false;
 			}
+			self.jobs.submit(Op::Delete {
+				paths: vec![PathBuf::from(p)],
+			});
+			true
 		}
 	),
 
@@ -885,7 +874,14 @@ pub struct FileManager {
 	rotate_image: qt_method!(
 		fn rotate_image(&self, path: String, degrees: i32) -> bool {
 			let p = clean_path(&path.to_string());
-			crate::image_utils::rotate_image(Path::new(&p), degrees)
+			if p.is_empty() {
+				return false;
+			}
+			self.jobs.submit(Op::RotateImage {
+				path: PathBuf::from(p),
+				degrees,
+			});
+			true
 		}
 	),
 
@@ -1050,6 +1046,30 @@ pub struct FileManager {
 
 	/// Render one queued themed icon. Called from an idle timer so the GUI
 	/// thread never pays for a batch of QIcon renders while the user is moving.
+	poll_jobs: qt_method!(
+		fn poll_jobs(&mut self) {
+			for event in self.jobs.drain() {
+				match event {
+					JobEvent::Started { id, kind } => {
+						self.job_started(id.0.to_string(), kind.as_key().to_string());
+					}
+					JobEvent::Finished { id, outcome } => {
+						self.job_finished(
+							id.0.to_string(),
+							outcome.failed.is_empty(),
+							outcome.succeeded.len() as i32,
+							outcome.failed.len() as i32,
+						);
+					}
+					JobEvent::Cancelled { id } => {
+						self.job_cancelled(id.0.to_string());
+					}
+					JobEvent::Progress { .. } => {}
+				}
+			}
+		}
+	),
+
 	render_icon_tick: qt_method!(
 		fn render_icon_tick(&mut self) -> bool {
 			if !crate::kde_bridge::render_pending_icon() {
@@ -1803,6 +1823,33 @@ mod tests {
 			"sun\n"
 		);
 
+		fs::remove_dir_all(&dir).ok();
+	}
+
+	#[test]
+	fn file_manager_operations_run_on_the_job_pool() {
+		let dir = scratch("hishell-manager-jobs");
+		let manager = FileManager::default();
+		assert!(manager.new_folder(dir.to_string_lossy().into_owned()));
+		let folder = dir.join("New Folder");
+		for _ in 0..200 {
+			if folder.is_dir() {
+				break;
+			}
+			std::thread::sleep(std::time::Duration::from_millis(10));
+		}
+		assert!(folder.is_dir());
+
+		let file = dir.join("gone.txt");
+		fs::write(&file, b"x").unwrap();
+		assert!(manager.delete_file(file.to_string_lossy().into_owned()));
+		for _ in 0..200 {
+			if !file.exists() {
+				break;
+			}
+			std::thread::sleep(std::time::Duration::from_millis(10));
+		}
+		assert!(!file.exists());
 		fs::remove_dir_all(&dir).ok();
 	}
 

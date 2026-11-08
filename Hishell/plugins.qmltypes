@@ -96,6 +96,9 @@ Module {
 
 		Property { name: "icon_revision"; type: "int"; isReadonly: true }
 		Signal { name: "drop_declined" }
+		Signal { name: "job_started" }
+		Signal { name: "job_finished" }
+		Signal { name: "job_cancelled" }
 		Signal { name: "icon_revision_changed" }
 		Method {
 			name: "copy_file"
@@ -359,6 +362,10 @@ Module {
 			name: "perf_log"
 			type: "void"
 			Parameter { name: "message"; type: "string" }
+		}
+		Method {
+			name: "poll_jobs"
+			type: "void"
 		}
 		Method {
 			name: "render_icon_tick"
@@ -737,17 +744,6 @@ Module {
 		}
 	}
 	Component {
-		name: "ThemeIcons"
-		prototype: "QObject"
-		exports: ["Hishell/ThemeIcons 1.0"]
-		exportMetaObjectRevisions: [256]
-
-		Method {
-			name: "backend"
-			type: "string"
-		}
-	}
-	Component {
 		name: "Directory"
 		prototype: "QObject"
 		exports: ["Hishell/Directory 1.0"]
@@ -959,6 +955,17 @@ Module {
 			type: "void"
 			Parameter { name: "path"; type: "string" }
 			Parameter { name: "include_hidden"; type: "bool" }
+		}
+	}
+	Component {
+		name: "ThemeIcons"
+		prototype: "QObject"
+		exports: ["Hishell/ThemeIcons 1.0"]
+		exportMetaObjectRevisions: [256]
+
+		Method {
+			name: "backend"
+			type: "string"
 		}
 	}
 }

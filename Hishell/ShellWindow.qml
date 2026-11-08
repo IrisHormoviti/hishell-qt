@@ -775,6 +775,24 @@ ApplicationWindow {
 		}
 	}
 
+	// Pump the core job pool. A finished job reloads the visible folder, so
+	// copy/trash/delete/new/duplicate/rotate complete after the dialog is gone.
+	Timer {
+		id: jobPollTimer
+		interval: 100
+		repeat: true
+		running: root.fileManager !== null
+		onTriggered: if (root.fileManager) root.fileManager.poll_jobs()
+	}
+
+	Connections {
+		target: root.fileManager
+		function onJobFinished(id, ok, succeeded, failed) {
+			if (root.directory)
+				root.directory.reload();
+		}
+	}
+
 	// Development benchmark (see PerfBench.qml). Inactive unless the shell was
 	// started with HISHELL_PERF set or /run/clam/perf exists.
 	Loader {

@@ -2144,8 +2144,11 @@ Status:
 - Tests cover copy trees, overwrite refusal, move/duplicate/rename/new/delete, cancellation,
   worker completion, and the engine job pump.
 
-The execution service/preflight is in place (`hishell::execution`, §7 Phase 1.5).
-Remaining: adapter submit/signal methods, QML async call sites, and declined-drop waiting.
+The shipping `FileManager` submits copy, duplicate, new folder, new text file, create link,
+trash, delete, and rotate through `hishell::Jobs`; `poll_jobs` emits
+`job_started`/`job_finished`/`job_cancelled`, and `ShellWindow.qml` reloads the visible
+folder on completion. Paste, drop, and rename still use the synchronous path.
+Remaining: those call sites and declined-drop waiting.
 
 Checkpoint:
 
@@ -2420,7 +2423,7 @@ Out of scope. The core APIs above are the contract.
 | 1.5 — platform and execution | core done | KDE adapters and portal/thumbnail/sound implementations |
 | 2 — Location and Folder | core done | descriptor roots, AppImage metadata, generator icons in core |
 | 2.5 — navigation plans | done | frontend uses the JSON shim until it moves to typed plans |
-| 3 — ops, jobs, execution | core done | adapter submit/signal methods and QML async call sites |
+| 3 — ops, jobs, execution | core and shipping FileManager jobs done | paste/drop/rename async and declined-drop waiting |
 | 4 — selection and actions | core and qtbridge preview done | shipping `ActionManager.qml` renderer |
 | 5 — focus state | core done | adapter key/gamepad mapping and multi-pane |
 | 6 — native KDE cleanup | not started in shipping app | delete ClamOS theme stack and accent-icon hooks |
