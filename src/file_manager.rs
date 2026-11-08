@@ -1,10 +1,11 @@
 use hishell::{CopyOptions, JobEvent, Jobs, Op, Overwrite};
 use once_cell::sync::Lazy;
 use qmetaobject::prelude::*;
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use trash;
 
@@ -172,6 +173,7 @@ fn can_rename(path: &Path) -> bool {
 }
 
 /// Copy a source without ever following a symlink into its target.
+#[cfg(test)]
 fn copy_for_user(src: &Path, dst: &Path) -> bool {
 	if is_symlink(src) {
 		return link_item(src, dst);
@@ -211,6 +213,7 @@ fn drop_kept(present: bool, listed: bool) -> bool {
 
 /// Remember the name a virtual-folder copy landed under, for a single wait
 /// shared by the whole drop rather than one wait per file.
+#[cfg(test)]
 fn note_virtual_drop(pending: &mut Vec<(PathBuf, String)>, dir: &Path, dst: &Path) {
 	if let Some(name) = dst.file_name() {
 		pending.push((dir.to_path_buf(), name.to_string_lossy().into_owned()));
@@ -222,6 +225,8 @@ pub struct FileManager {
 	base: qt_base_class!(trait QObject),
 
 	jobs: Jobs,
+	pending_drops: Mutex<HashMap<u64, Vec<(PathBuf, String)>>>,
+	declined_drops: Arc<Mutex<Vec<String>>>,
 
 	/// A drop into a virtual folder was accepted by the filesystem and then
 	/// ignored by the provider.  QML says so instead of leaving the user to
@@ -531,10 +536,11 @@ pub struct FileManager {
 			if dest.exists() && dest != src {
 				return rename_status(false, "A file with that name already exists.");
 			}
-			match crate::kde_bridge::rename(&p, &n) {
-				Ok(()) => rename_status(true, ""),
-				Err(error) => rename_status(false, error.as_str()),
-			}
+			self.jobs.submit(Op::Rename {
+				path: PathBuf::from(&p),
+				new_name: n,
+			});
+			rename_status(true, "")
 		}
 	),
 
@@ -591,24 +597,77 @@ pub struct FileManager {
 			if uris.is_empty() {
 				return false;
 			}
-			let mut pending = Vec::new();
-			let ok = if is_cut {
-				cut_into(dest_path, &uris, &mut pending)
-			} else {
-				let uris_str = uris.join("\n");
-				self.process_uris_action(
-					String::from(dest.as_str()),
-					String::from(uris_str.as_str()),
-					String::from("copy"),
-				)
-			};
-			self.report_declined_drops(pending);
-			if ok && is_cut {
+			let virtual_dest = is_virtual_folder(dest_path);
+			let cut = is_cut && !virtual_dest;
+			let mut any_ok = false;
+			for uri in uris {
+				let src = clean_path(&uri);
+				let src = Path::new(&src);
+				if !src.exists() {
+					continue;
+				}
+				let Some(name) = src
+					.file_name()
+					.map(|name| name.to_string_lossy().into_owned())
+				else {
+					continue;
+				};
+				let base = dest_path.join(&name);
+				if src == base {
+					continue;
+				}
+				if !crate::destroy::can_destroy(src) {
+					if link_item(src, &base) {
+						any_ok = true;
+						if virtual_dest {
+							self.queue_declined_drops(vec![(dest_path.to_path_buf(), name)]);
+						}
+					}
+					continue;
+				}
+				if cut {
+					any_ok |= self.submit_job(
+						Op::Move {
+							sources: vec![src.to_path_buf()],
+							dest: dest_path.to_path_buf(),
+							options: CopyOptions {
+								overwrite: Overwrite::Replace,
+								..CopyOptions::default()
+							},
+						},
+						Vec::new(),
+					);
+				} else {
+					let dst = if base.exists() {
+						unique_path(dest_path, &name, " (copy)")
+					} else {
+						base
+					};
+					let pending = virtual_dest
+						.then(|| {
+							dst.file_name().map(|name| {
+								(dest_path.to_path_buf(), name.to_string_lossy().into_owned())
+							})
+						})
+						.flatten()
+						.into_iter()
+						.collect();
+					any_ok |= self.submit_job(
+						Op::Copy {
+							sources: vec![src.to_path_buf()],
+							dest: dst,
+							options: CopyOptions::default(),
+						},
+						pending,
+					);
+				}
+			}
+			if any_ok && is_cut {
 				if let Ok(mut guard) = INTERNAL_CLIPBOARD.lock() {
 					*guard = None;
 				}
 			}
-			ok
+			any_ok
 		}
 	),
 
@@ -661,85 +720,106 @@ pub struct FileManager {
 				return false;
 			}
 			// A virtual folder is a view whose provider may accept a write and
-			// then ignore it.  Moving into one would delete the source while the
-			// dropped file never appears, so the shell copies instead and keeps
-			// the user's original (docs §3.5, §5.4).
+			// then ignore it. Moving into one would delete the source while the
+			// dropped file never appears, so the shell copies instead (docs
+			// §3.5, §5.4).
 			let virtual_dest = is_virtual_folder(dest_path);
 			let action_str = if action == "move" && virtual_dest {
-				"copy".to_string()
+				"copy"
 			} else {
-				action.to_string()
+				action.as_str()
 			};
 			let mut any_ok = false;
-			let mut pending = Vec::new();
 			for uri in &uris {
-				let src_str = clean_path(uri);
-				let src = Path::new(&src_str);
+				let src = clean_path(uri);
+				let src = Path::new(&src);
 				if !src.exists() {
 					continue;
 				}
-				let Some(fname_os) = src.file_name() else {
+				let Some(name) = src
+					.file_name()
+					.map(|name| name.to_string_lossy().into_owned())
+				else {
 					continue;
 				};
-				let fname = fname_os.to_string_lossy().to_string();
-				let dst = dest_path.join(&fname);
-				// The one gate: a source that is not the user's to destroy is
-				// never copied or moved.  Copying a view of machine state is
-				// meaningless, and moving it would either unlink the only handle
-				// or materialise a virtual folder through move_item()'s
-				// copy-then-delete fallback (docs §5.4, §7.2).
-				let destroyable = crate::destroy::can_destroy(src);
-				match action_str.as_str() {
+				let base = dest_path.join(&name);
+				// A source that is not the user's to destroy is never copied or
+				// moved; it is linked instead (docs §5.4, §7.2).
+				if !crate::destroy::can_destroy(src) {
+					if link_item(src, &base) {
+						any_ok = true;
+						if virtual_dest {
+							self.queue_declined_drops(vec![(dest_path.to_path_buf(), name)]);
+						}
+					}
+					continue;
+				}
+				match action_str {
 					"move" => {
-						if src == dst {
+						if src == base {
 							continue;
 						}
-						if !destroyable {
-							if link_item(src, &dst) {
-								any_ok = true;
-								if virtual_dest {
-									note_virtual_drop(&mut pending, dest_path, &dst);
-								}
-							}
-							continue;
-						}
-						if move_for_user(src, &dst) {
-							any_ok = true;
-						}
+						any_ok |= self.submit_job(
+							Op::Move {
+								sources: vec![src.to_path_buf()],
+								dest: dest_path.to_path_buf(),
+								options: CopyOptions {
+									overwrite: Overwrite::Replace,
+									..CopyOptions::default()
+								},
+							},
+							Vec::new(),
+						);
 					}
 					"link" => {
-						if link_item(src, &dst) {
-							any_ok = true;
-							if virtual_dest {
-								note_virtual_drop(&mut pending, dest_path, &dst);
-							}
-						}
+						let dst = if base.exists() {
+							unique_path(dest_path, &name, " (link)")
+						} else {
+							base
+						};
+						let pending = virtual_dest
+							.then(|| {
+								dst.file_name().map(|name| {
+									(dest_path.to_path_buf(), name.to_string_lossy().into_owned())
+								})
+							})
+							.flatten()
+							.into_iter()
+							.collect();
+						any_ok |= self.submit_job(
+							Op::Link {
+								sources: vec![src.to_path_buf()],
+								dest: dst,
+							},
+							pending,
+						);
 					}
 					_ => {
-						if !destroyable {
-							if link_item(src, &dst) {
-								any_ok = true;
-								if virtual_dest {
-									note_virtual_drop(&mut pending, dest_path, &dst);
-								}
-							}
-							continue;
-						}
-						let dst = if src == dst || dst.exists() {
-							unique_path(dest_path, &fname, " (copy)")
+						let dst = if src == base || base.exists() {
+							unique_path(dest_path, &name, " (copy)")
 						} else {
-							dst
+							base
 						};
-						if copy_for_user(src, &dst) {
-							any_ok = true;
-							if virtual_dest {
-								note_virtual_drop(&mut pending, dest_path, &dst);
-							}
-						}
+						let pending = virtual_dest
+							.then(|| {
+								dst.file_name().map(|name| {
+									(dest_path.to_path_buf(), name.to_string_lossy().into_owned())
+								})
+							})
+							.flatten()
+							.into_iter()
+							.collect();
+						any_ok |= self.submit_job(
+							Op::Copy {
+								sources: vec![src.to_path_buf()],
+								dest: dst,
+								options: CopyOptions::default(),
+							},
+							pending,
+						);
 					}
 				}
 			}
-			self.report_declined_drops(pending);
 			any_ok
 		}
 	),
@@ -1048,12 +1128,23 @@ pub struct FileManager {
 	/// thread never pays for a batch of QIcon renders while the user is moving.
 	poll_jobs: qt_method!(
 		fn poll_jobs(&mut self) {
+			let declined: Vec<String> = self.declined_drops.lock().unwrap().drain(..).collect();
+			for name in declined {
+				self.drop_declined(name);
+			}
 			for event in self.jobs.drain() {
 				match event {
 					JobEvent::Started { id, kind } => {
 						self.job_started(id.0.to_string(), kind.as_key().to_string());
 					}
 					JobEvent::Finished { id, outcome } => {
+						let pending = self
+							.pending_drops
+							.lock()
+							.unwrap()
+							.remove(&id.0)
+							.unwrap_or_default();
+						self.queue_declined_drops(pending);
 						self.job_finished(
 							id.0.to_string(),
 							outcome.failed.is_empty(),
@@ -1100,22 +1191,28 @@ impl FileManager {
 	/// Give accepted drops a moment to be consumed, then tell QML about the
 	/// names the virtual folder left behind.  The wait covers the whole drop so
 	/// a multi-file drop does not pay it once per file.
-	fn report_declined_drops(&self, pending: Vec<(PathBuf, String)>) {
+	fn submit_job(&self, op: Op, pending: Vec<(PathBuf, String)>) -> bool {
+		let handle = self.jobs.submit(op);
+		if !pending.is_empty() {
+			self.pending_drops
+				.lock()
+				.unwrap()
+				.insert(handle.id().0, pending);
+		}
+		true
+	}
+
+	fn queue_declined_drops(&self, pending: Vec<(PathBuf, String)>) {
 		if pending.is_empty() {
 			return;
 		}
-		let deadline = Instant::now() + DROP_SETTLE;
-		let mut remaining = pending;
-		loop {
-			remaining.retain(|(dir, name)| !drop_was_kept(dir, name));
-			if remaining.is_empty() || Instant::now() >= deadline {
-				break;
+		let sink = self.declined_drops.clone();
+		std::thread::spawn(move || {
+			let names = declined_after_wait(pending);
+			if !names.is_empty() {
+				sink.lock().unwrap().extend(names);
 			}
-			std::thread::sleep(Duration::from_millis(50));
-		}
-		for (_, name) in remaining {
-			self.drop_declined(name);
-		}
+		});
 	}
 }
 
@@ -1127,6 +1224,23 @@ impl FileManager {
 /// the provider would write the entry straight back (docs §6.3).  A source that
 /// cannot be destroyed degrades to a link, exactly as a drag move does
 /// (docs §5.4, §7.2), and everything else is an ordinary move.
+fn declined_after_wait(pending: Vec<(PathBuf, String)>) -> Vec<String> {
+	if pending.is_empty() {
+		return Vec::new();
+	}
+	let deadline = Instant::now() + DROP_SETTLE;
+	let mut remaining = pending;
+	loop {
+		remaining.retain(|(dir, name)| !drop_was_kept(dir, name));
+		if remaining.is_empty() || Instant::now() >= deadline {
+			break;
+		}
+		std::thread::sleep(Duration::from_millis(50));
+	}
+	remaining.into_iter().map(|(_, name)| name).collect()
+}
+
+#[cfg(test)]
 fn cut_into(dest: &Path, uris: &[String], pending: &mut Vec<(PathBuf, String)>) -> bool {
 	// Cut into a virtual folder is a copy for the same reason a drag is: the
 	// provider owns the listing and may ignore the write entirely.
@@ -1173,6 +1287,7 @@ fn cut_into(dest: &Path, uris: &[String], pending: &mut Vec<(PathBuf, String)>) 
 /// Move a destroyable source.  A generated entry is destroyed through its
 /// `Destroy=` command; a symlink is only ever the link, so reading through it
 /// must not replace the move with the target's destroy command.
+#[cfg(test)]
 fn move_for_user(src: &Path, dst: &Path) -> bool {
 	if !is_symlink(src) {
 		let entry = crate::desktop_entry::read(src);
@@ -1207,6 +1322,7 @@ fn link_item(_src: &Path, _dst: &Path) -> bool {
 	false
 }
 
+#[cfg(test)]
 fn move_item(src: &Path, dst: &Path) -> bool {
 	if fs::rename(src, dst).is_ok() {
 		return true;
@@ -1233,6 +1349,7 @@ fn move_item(src: &Path, dst: &Path) -> bool {
 	false
 }
 
+#[cfg(test)]
 fn copy_dir_recursive(src: &Path, dest: &Path) -> bool {
 	// Never descend through a handle: its target may be a live mount.
 	if is_symlink(src) {
@@ -1482,6 +1599,15 @@ mod tests {
 		dir
 	}
 
+	fn wait_exists(path: &std::path::Path) {
+		for _ in 0..200 {
+			if fs::symlink_metadata(path).is_ok() {
+				return;
+			}
+			std::thread::sleep(std::time::Duration::from_millis(10));
+		}
+	}
+
 	#[test]
 	fn only_ordinary_items_and_declared_provider_entries_can_be_renamed() {
 		let dir = scratch("hishell-rename-gate");
@@ -1677,6 +1803,12 @@ mod tests {
 			source.exists(),
 			"a provider that ignores the drop must not eat the source"
 		);
+		for _ in 0..200 {
+			if section.join("notes.txt").exists() {
+				break;
+			}
+			std::thread::sleep(std::time::Duration::from_millis(10));
+		}
 		assert_eq!(
 			fs::read_to_string(section.join("notes.txt")).unwrap(),
 			"keep me\n"
@@ -1707,6 +1839,7 @@ mod tests {
 			"copy".to_string()
 		));
 		let copied = dest.join("Wi-Fi link");
+		wait_exists(&copied);
 		assert!(
 			fs::symlink_metadata(&copied)
 				.unwrap()
@@ -1724,6 +1857,7 @@ mod tests {
 			"move".to_string()
 		));
 		let moved = other.join("Wi-Fi link");
+		wait_exists(&moved);
 		assert!(
 			fs::symlink_metadata(&moved)
 				.unwrap()
@@ -1761,6 +1895,7 @@ mod tests {
 			"the handle moves; its target's Destroy= must not run"
 		);
 		let moved = dest.join("Home link");
+		wait_exists(&moved);
 		assert!(
 			fs::symlink_metadata(&moved)
 				.unwrap()
@@ -1823,6 +1958,61 @@ mod tests {
 			"sun\n"
 		);
 
+		fs::remove_dir_all(&dir).ok();
+	}
+
+	#[test]
+	fn rename_file_runs_on_the_job_pool() {
+		let dir = scratch("hishell-rename-job");
+		let file = dir.join("old.txt");
+		fs::write(&file, b"x").unwrap();
+		let manager = FileManager::default();
+		let status: serde_json::Value = serde_json::from_str(
+			&manager.rename_file(file.to_string_lossy().into_owned(), String::from("new.txt")),
+		)
+		.unwrap();
+		assert_eq!(status["ok"], true);
+		let renamed = dir.join("new.txt");
+		wait_exists(&renamed);
+		assert!(renamed.exists());
+		assert!(!file.exists());
+		fs::remove_dir_all(&dir).ok();
+	}
+
+	#[test]
+	fn dropping_an_ordinary_file_runs_on_the_job_pool() {
+		let dir = scratch("hishell-drop-job");
+		let dest = dir.join("dest");
+		fs::create_dir_all(&dest).unwrap();
+		let file = dir.join("notes.txt");
+		fs::write(&file, b"keep me").unwrap();
+		let manager = FileManager::default();
+		assert!(manager.process_uris_action(
+			dest.to_string_lossy().into_owned(),
+			file.to_string_lossy().into_owned(),
+			String::from("copy"),
+		));
+		let copied = dest.join("notes.txt");
+		wait_exists(&copied);
+		assert_eq!(fs::read(&copied).unwrap(), b"keep me");
+		assert!(file.exists());
+
+		let other = dir.join("other");
+		fs::create_dir_all(&other).unwrap();
+		assert!(manager.process_uris_action(
+			other.to_string_lossy().into_owned(),
+			file.to_string_lossy().into_owned(),
+			String::from("move"),
+		));
+		let moved = other.join("notes.txt");
+		wait_exists(&moved);
+		for _ in 0..200 {
+			if !file.exists() {
+				break;
+			}
+			std::thread::sleep(std::time::Duration::from_millis(10));
+		}
+		assert!(!file.exists());
 		fs::remove_dir_all(&dir).ok();
 	}
 

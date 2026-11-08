@@ -791,6 +791,10 @@ ApplicationWindow {
 			if (root.directory)
 				root.directory.reload();
 		}
+		function onDropDeclined(name) {
+			if (typeof root.showNotice === "function")
+				root.showNotice(qsTr("%1 was ignored by this folder.").arg(name));
+		}
 	}
 
 	// Development benchmark (see PerfBench.qml). Inactive unless the shell was
