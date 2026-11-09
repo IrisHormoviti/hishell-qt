@@ -2657,6 +2657,10 @@ viewport. Geometry comes from the layout, not the delegate, so a lazy view can
 reveal an item it has not built. `SmoothScrolling` animates the scroll for
 110 ms with `Easing.OutCubic`.
 
+The empty free-placement background behaves like the folder background: left
+click clears selection and cursor; right click opens the copied
+`ShellContextMenu` Here/New/View menu with the folder as target.
+
 ### Clipboard, properties, and new windows
 
 - Copy/Cut/Paste use a frontend clipboard holding a `ClipboardSnapshot`; Paste

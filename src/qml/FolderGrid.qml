@@ -837,6 +837,27 @@ Item {
 		id: content
 		anchors.fill: parent
 		padding: 0
+
+		// Empty background: left click clears the cursor and selection; right
+		// click opens the folder's Here/New/View menu, including on an empty
+		// free-placement cell.
+		MouseArea {
+			anchors.fill: parent
+			z: -1
+			acceptedButtons: Qt.LeftButton | Qt.RightButton
+
+			onClicked: function (mouse) {
+				pane.activated()
+				if (mouse.button === Qt.RightButton) {
+					pane.contextTarget = "location"
+					pane.openContextMenu()
+				} else {
+					pane.directory.clear_selection()
+					pane.directory.focus_path("")
+				}
+			}
+		}
+
 		background: Item {
 			Rectangle {
 				anchors.fill: parent
@@ -1226,6 +1247,25 @@ Item {
 
 				Keys.onPressed: function (event) {
 					pane.handleKey(event)
+				}
+
+				// Empty free-placement background: clear on left, folder menu
+				// on right. The slots sit above it.
+				MouseArea {
+					anchors.fill: parent
+					z: -1
+					acceptedButtons: Qt.LeftButton | Qt.RightButton
+
+					onClicked: function (mouse) {
+						pane.activated()
+						if (mouse.button === Qt.RightButton) {
+							pane.contextTarget = "location"
+							pane.openContextMenu()
+						} else {
+							pane.directory.clear_selection()
+							pane.directory.focus_path("")
+						}
+					}
 				}
 
 				DropArea {
