@@ -21,113 +21,20 @@ Kirigami.Page {
 
 	property var directory: null
 
-	property var contextActions: []
 	property string contextTarget: "location"
-	property var contextNewMenu: null
-	property var contextViewMenu: null
-	property string springPath: ""
-	property string dragSourceUris: ""
-	property bool springPopupVisible: false
-	property string springFolderPath: ""
-	property var springFolders: []
-	property real springAnchorX: 0
-	property real springAnchorY: 0
-	property string springNestedPath: ""
-
-	Timer {
-		id: springNestedTimer
-		interval: 700
-		onTriggered: {
-			if (pane.springNestedPath.length > 0)
-				pane.openSpringFolder(pane.springNestedPath)
-		}
-	}
-
-	Timer {
-		id: springTimer
-		interval: 700
-		repeat: false
-		onTriggered: {
-			const target = pane.springPath
-			pane.springPath = ""
-			if (target.length > 0 && !DragHelper.isSource(target))
-				pane.directory.navigate(target)
-		}
-	}
 
 	function springEnter(path) {
 		DragHelper.setSpringTarget(path)
 	}
 
+	function springLeave() {
+		DragHelper.clearSpringTarget()
+	}
+
 	Connections {
 		target: DragHelper
 		function onSpringRequested(path) {
-			if (pane.springPath !== path) {
-				pane.springPath = path
-				pane.directory.navigate(path)
-			}
-		}
-	}
-
-	function openSpringFolder(path) {
-		let folders = []
-		try {
-			folders = JSON.parse(pane.directory.folders_json(path))
-		} catch (error) {
-			folders = []
-		}
-		if (folders.length === 0)
-			return
-		pane.springFolderPath = path
-		pane.springFolders = folders
-		pane.springPopupVisible = true
-	}
-
-	function pathFromUri(uri) {
-		let path = String(uri)
-		if (path.startsWith("file://"))
-			path = path.substring(7)
-		try {
-			return decodeURIComponent(path)
-		} catch (error) {
-			return path
-		}
-	}
-
-	function repositionFromDrop(drop) {
-		if (pane.spec.free !== true || !pane.directory)
-			return false
-		if (!drop.urls || drop.urls.length === 0)
-			return false
-		const source = pane.pathFromUri(drop.urls[0])
-		if (!pane.directory.row_visible(source))
-			return false
-		const name = source.split("/").pop()
-		const cw = pane.spec.cell_width || 96
-		const ch = pane.spec.cell_height || 96
-		const gap = pane.spec.gap || 0
-		const column = Math.max(0, Math.round(
-			(drop.x - pane.freeOffsetX - cw / 2) / Math.max(1, cw + gap)))
-		const row = Math.max(0, Math.round(
-			(drop.y - pane.freeOffsetY - ch / 2) / Math.max(1, ch + gap)))
-		pane.directory.set_free_position(name, column, row)
-		drop.acceptProposedAction()
-		return true
-	}
-
-	function applyDrop(drop, dest) {
-		const uris = drop.urls && drop.urls.length > 0
-			? drop.urls.join("\n") : drop.text
-		pane.directory.drop(uris, dest, pane.dropAction(drop))
-		drop.acceptProposedAction()
-		pane.springPopupVisible = false
-	}
-
-	function springLeave(path) {
-		DragHelper.clearSpringTarget()
-		if (pane.springPath === path) {
-			springTimer.stop()
-			pane.springPath = ""
+			pane.directory.navigate(path)
 		}
 	}
 	property string transitionDirection: ""
@@ -146,12 +53,8 @@ Kirigami.Page {
 		openWithDialog.close()
 	}
 
-	onActiveChanged: if (active) {
-		if (spec.free === true || spec.mode === "grid")
-			grid.forceActiveFocus()
-		else
-			list.forceActiveFocus()
-	}
+	onActiveChanged: if (active)
+		folderGrid.focusView()
 
 	function focusFirst() {
 		pane.directory.focus_first()
@@ -178,32 +81,6 @@ Kirigami.Page {
 		} else if (action === "directory") {
 			pane.directory.select_all()
 		}
-	}
-
-	function actionLabel(id) {
-		const labels = {
-			"open": "Open",
-			"open-with": "Open With…",
-			"navigate": "Navigate",
-			"go-up": "Go Up",
-			"refresh": "Refresh",
-			"select-all": "Select All",
-			"new-folder": "New Folder",
-			"new-text-file": "New Text File",
-			"copy": "Copy",
-			"cut": "Cut",
-			"paste": "Paste",
-			"properties": "Properties",
-			"duplicate": "Duplicate",
-			"create-link": "Create Link",
-			"rename": "Rename…",
-			"trash": "Move to Trash…",
-			"delete": "Delete…",
-			"destroy": "Delete Permanently…",
-			"toggle": "Toggle",
-			"rotate-image": "Rotate Clockwise"
-		}
-		return labels[id] || id
 	}
 
 	// Drops copy by default; Shift moves and Ctrl+Shift links. Qt's proposed
@@ -253,19 +130,6 @@ Kirigami.Page {
 		const directory = pane.directory
 		if (directory && !directory.config.open_on_click)
 			directory.open(path)
-	}
-
-	function isFileIcon(source) {
-		return source.indexOf("file://") === 0 || source.indexOf("/") === 0
-	}
-
-	function focusView() {
-		if (pane.spec.free === true || pane.spec.grouped === true)
-			absoluteView.forceActiveFocus()
-		else if (pane.spec.mode === "grid")
-			grid.forceActiveFocus()
-		else
-			list.forceActiveFocus()
 	}
 
 	function handleFilterKey(event) {
@@ -502,197 +366,13 @@ Kirigami.Page {
 		}
 	}
 
-	Menu {
+	ShellContextMenu {
 		id: contextMenu
-		onAboutToShow: {
-			const background = pane.contextTarget === "location"
-			pane.contextActions = JSON.parse(
-				pane.directory.actions_json("context", pane.contextTarget))
-				.filter(action => background ? action.here : action.items)
-			if (background)
-				pane.contextActions = pane.contextActions.filter(action =>
-					action.id !== "new-folder" && action.id !== "new-text-file")
-
-			if (background) {
-				if (!pane.contextNewMenu) {
-					pane.contextNewMenu = newMenuComponent.createObject(contextMenu)
-					contextMenu.addMenu(pane.contextNewMenu)
-				}
-				if (!pane.contextViewMenu) {
-					pane.contextViewMenu = viewMenuComponent.createObject(contextMenu, {
-						"directory": pane.directory,
-						"window": pane.window
-					})
-					contextMenu.addMenu(pane.contextViewMenu)
-				}
-			} else {
-				if (pane.contextNewMenu) {
-					contextMenu.removeMenu(pane.contextNewMenu)
-					pane.contextNewMenu.destroy()
-					pane.contextNewMenu = null
-				}
-				if (pane.contextViewMenu) {
-					contextMenu.removeMenu(pane.contextViewMenu)
-					pane.contextViewMenu.destroy()
-					pane.contextViewMenu = null
-				}
-			}
-		}
-
-		Component {
-			id: newMenuComponent
-
-			Menu {
-				title: "New"
-				icon.name: "document-new"
-
-				ShellMenuItem {
-					text: "New Folder"
-					iconName: "folder-new"
-					onTriggered: if (pane.directory) pane.directory.invoke("new-folder")
-				}
-				ShellMenuItem {
-					text: "New Text File"
-					iconName: "document-new"
-					onTriggered: if (pane.directory) pane.directory.invoke("new-text-file")
-				}
-			}
-		}
-
-		Component {
-			id: viewMenuComponent
-
-			ViewMenu {}
-		}
-
-		Repeater {
-			model: pane.contextActions
-
-			ShellMenuItem {
-				required property var modelData
-				text: pane.actionLabel(modelData.id)
-				iconName: modelData.icon || ""
-				shortcutText: modelData.shortcut || ""
-				enabled: modelData.enabled
-				onTriggered: pane.directory.invoke(modelData.id)
-			}
-		}
-
-		MenuSeparator {}
-
-		ShellMenuItem {
-			text: "Open in New Window"
-			iconName: "window-new"
-			onTriggered: {
-				const path = pane.contextTarget === "location"
-					? pane.directory.path : pane.directory.focused_path
-				if (path.length > 0)
-					pane.directory.open_in_new_window(path)
-			}
-		}
-	}
-
-	readonly property var spec: {
-		if (!pane.directory)
-			return ({})
-		pane.directory.revision
-		return JSON.parse(pane.directory.view_json(content.width, content.height, 18, 4, 18))
-	}
-
-	readonly property string horizontalAlign: pane.directory
-		? String(pane.directory.config.gridHorizontalAlign) : "FILL"
-	readonly property string verticalAlign: pane.directory
-		? String(pane.directory.config.gridVerticalAlign) : "TOP"
-
-	// Fill and Center both centre the block between the free space; Left and
-	// Top pin it to the start, Right and Bottom to the end.
-	function alignOffset(align, view, natural) {
-		if (align === "LEFT" || align === "TOP")
-			return 0
-		if (align === "RIGHT" || align === "BOTTOM")
-			return Math.max(0, view - natural)
-		return Math.max(0, (view - natural) / 2)
-	}
-
-	readonly property int gridLineCount: pane.spec.lines || 4
-	readonly property int gridCount: pane.spec.count || 0
-	readonly property real gridGap: pane.spec.gap || 0
-	readonly property real naturalWidth: {
-		const pitch = (pane.spec.cell_width || 96) + pane.gridGap
-		if (pane.spec.horizontal)
-			return Math.ceil(pane.gridCount / Math.max(1, pane.gridLineCount)) * pitch
-		return pane.gridLineCount * pitch
-	}
-	readonly property real naturalHeight: {
-		const pitch = (pane.spec.cell_height || 96) + pane.gridGap
-		if (pane.spec.horizontal)
-			return pane.gridLineCount * pitch
-		return Math.ceil(pane.gridCount / Math.max(1, pane.gridLineCount)) * pitch
-	}
-	readonly property real gridOffsetX: pane.alignOffset(pane.horizontalAlign,
-		content.width, pane.naturalWidth)
-	readonly property real gridOffsetY: pane.alignOffset(pane.verticalAlign,
-		content.height, pane.naturalHeight)
-	readonly property real freeNaturalWidth: {
-		let width = 0
-		for (const slot of pane.spec.slots || [])
-			width = Math.max(width, slot.x + slot.width)
-		return width
-	}
-	readonly property real freeNaturalHeight: {
-		let height = 0
-		for (const slot of pane.spec.slots || [])
-			height = Math.max(height, slot.y + slot.height)
-		return height
-	}
-	readonly property real freeOffsetX: pane.alignOffset(pane.horizontalAlign,
-		content.width, pane.freeNaturalWidth)
-	readonly property real freeOffsetY: pane.alignOffset(pane.verticalAlign,
-		content.height, pane.freeNaturalHeight)
-	readonly property bool filterActive: pane.directory
-		? String(pane.directory.filter).length > 0 : false
-
-	readonly property bool showLabels: pane.directory
-		? pane.directory.config.show_labels : true
-	readonly property bool labelsBeside: pane.directory
-		? pane.directory.config.gridLabelsBesidesIcons : false
-	readonly property string labelText: pane.directory
-		? String(pane.directory.config.label_text) : "TITLE"
-
-	function displayName(name, title) {
-		return pane.labelText === "TITLE" && title.length > 0 ? title : name
-	}
-
-	readonly property var listColumns: {
-		const columns = pane.spec.columns
-		return columns && columns.length > 0 ? columns : ["TITLE"]
-	}
-
-	function isFillColumn(key) {
-		return key === "TITLE" || key === "FILENAME"
-	}
-
-	function columnLabel(key) {
-		const labels = {
-			"TITLE": "Title",
-			"FILENAME": "File Name",
-			"SIZE": "Size",
-			"MODIFIED": "Date Modified",
-			"CREATED": "Date Created",
-			"ACCESSED": "Date Accessed",
-			"TYPE": "Type"
-		}
-		return labels[key] || key
-	}
-
-	function columnWidth(key) {
-		if (key === "SIZE")
-			return 80
-		if (key === "MODIFIED" || key === "CREATED" || key === "ACCESSED")
-			return 140
-		if (key === "TYPE")
-			return 110
-		return -1
+		directory: pane.directory
+		window: pane.window
+		targetIsBackground: pane.contextTarget === "location"
+		targetIsDir: pane.directory ? pane.directory.focusIsDirectory : false
+		targetIsImage: pane.directory ? pane.directory.focusIsImage : false
 	}
 
 	function formatSize(bytes) {
@@ -715,31 +395,6 @@ Kirigami.Page {
 		return Qt.formatDateTime(new Date(Number(milliseconds)), "yyyy-MM-dd HH:mm")
 	}
 
-	function columnText(key, row) {
-		if (key === "TITLE")
-			return row.title.length > 0 ? row.title : row.name
-		if (key === "FILENAME")
-			return row.name
-		if (key === "SIZE")
-			return row.is_directory ? "" : pane.formatSize(row.size_bytes)
-		if (key === "MODIFIED")
-			return pane.formatTime(row.modified_time)
-		if (key === "CREATED")
-			return pane.formatTime(row.created_time)
-		if (key === "ACCESSED")
-			return pane.formatTime(row.accessed_time)
-		if (key === "TYPE")
-			return row.is_directory ? "Folder" : (row.mime.length > 0 ? row.mime : "File")
-		return ""
-	}
-
-	readonly property string wallpaperUrl: {
-		const path = pane.directory ? String(pane.directory.config.wallpaper) : ""
-		if (path.length === 0)
-			return ""
-		return "file://" + path.split("/").map(encodeURIComponent).join("/")
-	}
-
 	FolderGrid {
 		anchors.fill: parent
 		pane: pane
@@ -756,7 +411,7 @@ Kirigami.Page {
 		onClearRequested: {
 			if (pane.directory)
 				pane.directory.clear_filter()
-			pane.focusView()
+			folderGrid.focusView()
 		}
 	}
 

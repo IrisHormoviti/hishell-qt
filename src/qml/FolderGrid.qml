@@ -17,13 +17,6 @@ Item {
 		? folderGrid.directory.config.show_labels : true
 	readonly property bool labelsBeside: folderGrid.directory
 		? folderGrid.directory.config.gridLabelsBesidesIcons : false
-		Connections {
-		target: DragHelper
-		function onDragFinished() {
-			folderGrid.dragActive = false
-			folderGrid.dragPath = ""
-		}
-	}
 
 	readonly property bool filterActive: folderGrid.directory
 		? String(folderGrid.directory.filter).length > 0 : false
@@ -58,13 +51,6 @@ Item {
 		pane.directory.set_free_position(name, column, row)
 		drop.acceptProposedAction()
 		return true
-	}
-
-	function applyDrop(drop, dest) {
-		const uris = drop.urls && drop.urls.length > 0
-			? drop.urls.join("\n") : drop.text
-		pane.directory.drop(uris, dest, pane.dropAction(drop))
-		drop.acceptProposedAction()
 	}
 
 	readonly property var spec: {
@@ -104,9 +90,9 @@ Item {
 			return folderGrid.gridLineCount * pitch
 		return Math.ceil(folderGrid.gridCount / Math.max(1, folderGrid.gridLineCount)) * pitch
 	}
-	readonly property real gridOffsetX: pane.alignOffset(folderGrid.horizontalAlign,
+	readonly property real gridOffsetX: folderGrid.alignOffset(folderGrid.horizontalAlign,
 		content.width, folderGrid.naturalWidth)
-	readonly property real gridOffsetY: pane.alignOffset(folderGrid.verticalAlign,
+	readonly property real gridOffsetY: folderGrid.alignOffset(folderGrid.verticalAlign,
 		content.height, folderGrid.naturalHeight)
 	readonly property real freeNaturalWidth: {
 		let width = 0
@@ -120,15 +106,10 @@ Item {
 			height = Math.max(height, slot.y + slot.height)
 		return height
 	}
-	readonly property real freeOffsetX: pane.alignOffset(folderGrid.horizontalAlign,
+	readonly property real freeOffsetX: folderGrid.alignOffset(folderGrid.horizontalAlign,
 		content.width, folderGrid.freeNaturalWidth)
-	readonly property real freeOffsetY: pane.alignOffset(folderGrid.verticalAlign,
+	readonly property real freeOffsetY: folderGrid.alignOffset(folderGrid.verticalAlign,
 		content.height, folderGrid.freeNaturalHeight)
-			function displayName(name, title) {
-		return folderGrid.labelText === "TITLE" && title.length > 0 ? title : name
-	}
-
-
 	readonly property var listColumns: {
 		const columns = folderGrid.spec.columns
 		return columns && columns.length > 0 ? columns : ["TITLE"]
@@ -252,7 +233,7 @@ Item {
 			DropArea {
 				anchors.fill: parent
 				onDropped: function (drop) {
-					if (pane.repositionFromDrop(drop))
+					if (folderGrid.repositionFromDrop(drop))
 						return
 					const uris = drop.urls && drop.urls.length > 0
 						? drop.urls.join("\n") : drop.text
@@ -293,13 +274,9 @@ Item {
 					required property bool is_image
 
 					property string thumb: ""
-					property string dragImage: ""
 					Component.onCompleted: {
 						if (is_image)
 							thumb = pane.directory.thumbnail(path, 96)
-						cell.grabToImage(function (result) {
-							cell.dragImage = result.url
-						}, Qt.size(64, 64))
 					}
 
 
@@ -328,13 +305,10 @@ Item {
 					DropArea {
 						anchors.fill: parent
 						enabled: cell.is_directory
-						onEntered: if (cell.is_directory) {
-							const point = cell.mapToItem(pane, cell.width / 2, cell.height / 2)
-							pane.springEnter(cell.path, point.x, point.y)
-						}
-						onExited: pane.springLeave(cell.path)
+						onEntered: if (cell.is_directory) pane.springEnter(cell.path)
+						onExited: pane.springLeave()
 						onDropped: function (drop) {
-							pane.springLeave(cell.path)
+							pane.springLeave()
 							if (!cell.is_directory)
 								return
 							const uris = drop.urls && drop.urls.length > 0
@@ -461,13 +435,9 @@ Item {
 					required property var accessed_time
 
 					property string thumb: ""
-					property string dragImage: ""
 					Component.onCompleted: {
 						if (is_image)
 							thumb = pane.directory.thumbnail(path, 32)
-						row.grabToImage(function (result) {
-							row.dragImage = result.url
-						}, Qt.size(64, 64))
 					}
 
 
@@ -497,13 +467,10 @@ Item {
 					DropArea {
 						anchors.fill: parent
 						enabled: row.is_directory
-						onEntered: if (row.is_directory) {
-							const point = row.mapToItem(pane, row.width / 2, row.height / 2)
-							pane.springEnter(row.path, point.x, point.y)
-						}
-						onExited: pane.springLeave(row.path)
+						onEntered: if (row.is_directory) pane.springEnter(row.path)
+						onExited: pane.springLeave()
 						onDropped: function (drop) {
-							pane.springLeave(row.path)
+							pane.springLeave()
 							if (!row.is_directory)
 								return
 							const uris = drop.urls && drop.urls.length > 0
@@ -574,7 +541,7 @@ Item {
 				DropArea {
 					anchors.fill: parent
 					onDropped: function (drop) {
-						if (pane.repositionFromDrop(drop))
+						if (folderGrid.repositionFromDrop(drop))
 							return
 						const uris = drop.urls && drop.urls.length > 0
 							? drop.urls.join("\n") : drop.text
@@ -598,13 +565,9 @@ Item {
 					opacity: freeDrag.dragging ? 0.4 : 1.0
 
 					property string thumb: ""
-					property string dragImage: ""
 					Component.onCompleted: {
 						if (modelData.is_image)
 							thumb = pane.directory.thumbnail(modelData.path, 64)
-						freeSlot.grabToImage(function (result) {
-							freeSlot.dragImage = result.url
-						}, Qt.size(64, 64))
 					}
 
 					readonly property bool selected: {
@@ -629,14 +592,10 @@ Item {
 					DropArea {
 						anchors.fill: parent
 						enabled: modelData.is_directory === true
-						onEntered: if (modelData.is_directory === true) {
-							const point = freeSlot.mapToItem(pane,
-								freeSlot.width / 2, freeSlot.height / 2)
-							pane.springEnter(modelData.path, point.x, point.y)
-						}
-						onExited: pane.springLeave(modelData.path)
+						onEntered: if (modelData.is_directory === true) pane.springEnter(modelData.path)
+						onExited: pane.springLeave()
 						onDropped: function (drop) {
-							pane.springLeave(modelData.path)
+							pane.springLeave()
 							if (modelData.is_directory !== true)
 								return
 							const uris = drop.urls && drop.urls.length > 0
@@ -710,72 +669,4 @@ Item {
 
 
 
-	Rectangle {
-		id: springPopup
-		visible: pane.springPopupVisible && pane.springFolders.length > 0
-		x: Math.max(8, Math.min(pane.width - width - 8, pane.springAnchorX + 20))
-		y: Math.max(8, Math.min(pane.height - height - 8, pane.springAnchorY))
-		width: 220
-		height: Math.min(320, 34 + pane.springFolders.length * 30)
-		z: 40
-		radius: 6
-		color: Kirigami.Theme.backgroundColor
-		border.width: 1
-		border.color: Kirigami.Theme.highlightColor
-
-		DropArea {
-			anchors.fill: parent
-			onDropped: function (drop) {
-				pane.applyDrop(drop, pane.springFolderPath)
-			}
-		}
-
-		Column {
-			anchors.fill: parent
-			anchors.margins: 4
-			spacing: 0
-
-			Label {
-				height: 26
-				width: parent.width
-				text: String(pane.springFolderPath).split("/").pop()
-				font.bold: true
-				elide: Text.ElideRight
-			}
-
-			Repeater {
-				model: pane.springFolders
-
-				Rectangle {
-					required property var modelData
-					width: parent.width
-					height: 30
-					color: "transparent"
-
-					Label {
-						anchors.left: parent.left
-						anchors.leftMargin: 6
-						anchors.verticalCenter: parent.verticalCenter
-						text: modelData.name
-						elide: Text.ElideRight
-					}
-
-					DropArea {
-						anchors.fill: parent
-						onEntered: {
-							pane.springNestedPath = modelData.path
-							springNestedTimer.restart()
-						}
-						onExited: if (pane.springNestedPath === modelData.path) {
-							springNestedTimer.stop()
-							pane.springNestedPath = ""
-						}
-						onDropped: function (drop) {
-							pane.applyDrop(drop, modelData.path)
-						}
-					}
-				}
-			}
-		}
-	}
 }
