@@ -928,7 +928,7 @@ Item {
 						active: (pane.active && pane.directory.focused_path === row.path)
 							|| folderGrid.isRadioSelected(
 								row.path, row.is_directory, row.name)
-						showLabels: folderGrid.showLabels
+						showLabels: true
 						columnValues: folderGrid.listColumnValues(row)
 						hovered: rowDrag.containsMouse
 						pressed: rowDrag.pressed
@@ -1078,7 +1078,7 @@ Item {
 								modelData.path, modelData.is_directory, modelData.name)
 						showLabels: folderGrid.showLabels
 						labelsBeside: folderGrid.labelsBeside
-						iconSize: 48
+						iconSize: folderGrid.spec.icon_size || 48
 						hovered: freeDrag.containsMouse
 						pressed: freeDrag.pressed
 						dragging: folderGrid.isDragging(modelData.path)

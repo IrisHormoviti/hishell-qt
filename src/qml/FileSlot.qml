@@ -60,6 +60,13 @@ Item {
 	readonly property bool isControl: fileSlot.controlKind !== 0
 	readonly property bool hasControlPlate: fileSlot.isControl && !fileSlot.isToggle
 	readonly property bool toggleOn: fileSlot.controlKind === 3
+	// Without a label the icon takes over the whole slot, so the view reads as
+	// a gallery, like the old FileSlot.
+	readonly property real iconDisplaySize: fileSlot.showLabels
+		? fileSlot.iconSize
+		: Math.max(fileSlot.iconSize,
+			Math.min(fileSlot.width, fileSlot.height)
+				- Kirigami.Units.smallSpacing * 2)
 
 	opacity: fileSlot.dragging ? 0.2 : (fileSlot.dotfile ? 0.5 : 1.0)
 	scale: fileSlot.listMode ? 1.0
@@ -270,16 +277,20 @@ Item {
 	}
 
 	GridLayout {
-		anchors.centerIn: parent
+		anchors.verticalCenter: parent.verticalCenter
+		x: fileSlot.labelsBeside && fileSlot.showLabels && fileSlot.showIcon
+			? Kirigami.Units.largeSpacing
+			: (parent.width - width) / 2
 		visible: !fileSlot.listMode
 		columns: fileSlot.labelsBeside && fileSlot.showLabels ? 2 : 1
 		columnSpacing: 4
-		rowSpacing: 4
+		rowSpacing: Kirigami.Units.smallSpacing
 
 		Item {
-			Layout.preferredWidth: fileSlot.iconSize
-			Layout.preferredHeight: fileSlot.iconSize
-			Layout.alignment: Qt.AlignHCenter
+			Layout.preferredWidth: fileSlot.iconDisplaySize
+			Layout.preferredHeight: fileSlot.iconDisplaySize
+			Layout.alignment: fileSlot.labelsBeside && fileSlot.showLabels
+				? Qt.AlignVCenter : Qt.AlignHCenter
 
 			Image {
 				anchors.fill: parent
@@ -315,10 +326,16 @@ Item {
 		}
 
 		Label {
-			Layout.fillWidth: fileSlot.labelsBeside && fileSlot.showLabels
-			Layout.preferredWidth: fileSlot.labelsBeside && fileSlot.showLabels
-				? Math.max(0, fileSlot.width - fileSlot.iconSize - 12)
-				: fileSlot.width - 8
+			readonly property real maximumWidth: fileSlot.hasControlPlate
+					|| fileSlot.radioActive
+				? fileSlot.width - Kirigami.Units.smallSpacing * 2
+					- Kirigami.Units.largeSpacing * 2
+				: (fileSlot.labelsBeside && fileSlot.showLabels
+					? Math.max(0, fileSlot.width - fileSlot.iconDisplaySize
+						- Kirigami.Units.gridUnit * 2)
+					: fileSlot.width - Kirigami.Units.smallSpacing * 2)
+			Layout.preferredWidth: maximumWidth
+			Layout.maximumWidth: maximumWidth
 			Layout.alignment: Qt.AlignVCenter
 			visible: fileSlot.showLabels
 			text: fileSlot.title.length > 0 ? fileSlot.title : fileSlot.name
