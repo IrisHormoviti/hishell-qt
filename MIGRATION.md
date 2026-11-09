@@ -2396,6 +2396,7 @@ Out of scope. The core APIs above are the contract.
 - Double-click/Return opens a folder; Backspace/Alt+Up goes up.
 - New folder/new text, rotate, and toggle through the context menu.
 - Trash/delete confirmation, rename, and open-with dialogs.
+- Drop onto a breadcrumb to move the dragged items into that folder.
 - Drag a file/folder onto another folder to copy, move, or link it. Drags use
   Qt's `Drag.Automatic` on every platform, with no native-drag special case.
   Same-folder and folder-into-itself drops are no-ops, existing destinations are
@@ -2580,6 +2581,16 @@ The frontend is:
   settings reached from Here → Configure.
 - `src/gamepad.rs` — gilrs polling adapted to `Directory` focus commands; built with
   `--features gamepad` so a host without libudev development files can still build.
+
+### Deliberate omissions
+
+- Copy/Cut/Paste are not shown: the core has no global clipboard, and `Paste`
+  carries an explicit `ClipboardSnapshot` that the frontend does not own yet.
+- Properties is not shown: the core action id exists, but no metadata operation
+  or properties dialog is implemented.
+- Open in New Window is not shown: the qtbridge frontend is single-window.
+- These actions are filtered out of the action menus instead of appearing as
+  items that do nothing.
 
 The old QML tree, `sound.rs`, and the frontend copies of `appimage.rs`,
 `directory_descriptor.rs`, `descriptor_generator.rs`, and `thumbnailer.rs` were removed.
