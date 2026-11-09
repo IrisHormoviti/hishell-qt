@@ -613,6 +613,10 @@ pub struct Directory {
 	selection_active: bool,
 	selected_count: i32,
 	selection_revision: i32,
+	filter: String,
+	match_count: i32,
+	visible_count: i32,
+	unfiltered_rows: Vec<DirectoryRow>,
 	focused_path: String,
 	focus_is_image: bool,
 	focus_is_directory: bool,
@@ -631,6 +635,10 @@ impl Directory {
 			selection_active: false,
 			selected_count: 0,
 			selection_revision: 0,
+			filter: String::new(),
+			match_count: 0,
+			visible_count: 0,
+			unfiltered_rows: Vec::new(),
 			focused_path: String::new(),
 			focus_is_image: false,
 			focus_is_directory: false,
@@ -648,7 +656,8 @@ impl Directory {
 		};
 		let outcome = engine.dispatch(Command::Reload).ok();
 		self.config.borrow_mut().apply(engine.config());
-		self.rows = rows_after(engine, outcome.as_ref().map(|outcome| &outcome.changes));
+		let rows = rows_after(engine, outcome.as_ref().map(|outcome| &outcome.changes));
+		self.set_rows(rows);
 	}
 
 	fn refresh_now(&mut self) {
@@ -713,7 +722,9 @@ impl Directory {
 			|| Path::new(&self.path).join(".cfg").is_file();
 		save_session(&self.path);
 		self.config.borrow_mut().apply(engine.config());
-		self.rows = rows_after(engine, None);
+		self.filter.clear();
+		self.set_rows(rows_after(engine, None));
+		self.filter_changed();
 		self.read_selection();
 		self.read_focus();
 		self.reset();
@@ -721,6 +732,38 @@ impl Directory {
 		self.path_changed();
 		self.revision_changed();
 		self.selection_changed();
+	}
+
+	fn set_rows(&mut self, rows: Vec<DirectoryRow>) {
+		self.unfiltered_rows = rows;
+		self.apply_filter();
+	}
+
+	fn apply_filter(&mut self) {
+		let needle = self.filter.to_lowercase();
+		self.rows = if needle.is_empty() {
+			self.unfiltered_rows.clone()
+		} else {
+			self.unfiltered_rows
+				.iter()
+				.filter(|row| {
+					row.name.to_lowercase().contains(&needle)
+						|| row.title.to_lowercase().contains(&needle)
+				})
+				.cloned()
+				.collect()
+		};
+		self.match_count = self.rows.len() as i32;
+		self.visible_count = self.rows.len() as i32;
+	}
+
+	fn focus_first_match(&mut self) {
+		if self.rows.iter().any(|row| row.path == self.focused_path) {
+			return;
+		}
+		if let Some(path) = self.rows.first().map(|row| row.path.clone()) {
+			self.focus_path(path);
+		}
 	}
 
 	fn read_selection(&mut self) {
@@ -822,6 +865,13 @@ impl Directory {
 		Member = selection_revision,
 		Notify = selection_changed
 	);
+	qproperty!("filter", Member = filter, Notify = filter_changed);
+	qproperty!(
+		"matchCount",
+		Member = match_count,
+		Notify = filter_changed
+	);
+	qproperty!("itemCount", Member = visible_count, Notify = filter_changed);
 	qproperty!(
 		"focusIsImage",
 		Member = focus_is_image,
@@ -843,6 +893,9 @@ impl Directory {
 
 	#[qsignal]
 	fn focus_changed(&mut self);
+
+	#[qsignal]
+	fn filter_changed(&mut self);
 
 	#[qsignal]
 	fn rename_requested(&mut self, path: String, suggested: String);
@@ -940,12 +993,115 @@ impl Directory {
 			Err(_) => return false,
 		};
 		self.config.borrow_mut().apply(engine.config());
-		self.rows = rows_after(engine, Some(&outcome.changes));
+		let rows = rows_after(engine, Some(&outcome.changes));
+		self.set_rows(rows);
 		self.read_selection();
 		self.reset();
 		self.revision += 1;
 		self.revision_changed();
 		true
+	}
+
+	#[qslot]
+	fn append_filter(&mut self, text: String) {
+		if text.is_empty() {
+			return;
+		}
+		self.filter.push_str(&text);
+		self.apply_filter();
+		self.reset();
+		self.focus_first_match();
+		self.filter_changed();
+	}
+
+	#[qslot]
+	fn backspace_filter(&mut self) {
+		if self.filter.pop().is_some() {
+			self.apply_filter();
+			self.reset();
+			self.focus_first_match();
+			self.filter_changed();
+		}
+	}
+
+	#[qslot]
+	fn clear_filter(&mut self) {
+		if self.filter.is_empty() {
+			return;
+		}
+		self.filter.clear();
+		self.apply_filter();
+		self.reset();
+		self.filter_changed();
+	}
+
+	#[qslot]
+	fn set_free_position(&mut self, name: String, column: i32, row: i32) -> bool {
+		let Some(engine) = self.engine.as_mut() else {
+			return false;
+		};
+		let Ok(outcome) = engine.dispatch(Command::SetFreePosition { name, column, row })
+		else {
+			return false;
+		};
+		self.config.borrow_mut().apply(engine.config());
+		let rows = rows_after(engine, Some(&outcome.changes));
+		self.set_rows(rows);
+		self.read_selection();
+		self.read_focus();
+		self.reset();
+		self.revision += 1;
+		self.revision_changed();
+		true
+	}
+
+	#[qslot]
+	fn reset_free_positions(&mut self) -> bool {
+		let Some(engine) = self.engine.as_mut() else {
+			return false;
+		};
+		let Ok(outcome) = engine.dispatch(Command::ResetFreePositions) else {
+			return false;
+		};
+		self.config.borrow_mut().apply(engine.config());
+		let rows = rows_after(engine, Some(&outcome.changes));
+		self.set_rows(rows);
+		self.reset();
+		self.revision += 1;
+		self.revision_changed();
+		true
+	}
+
+	#[qslot]
+	fn folders_json(&self, path: String) -> String {
+		let mut folders: Vec<(String, String)> = std::fs::read_dir(&path)
+			.ok()
+			.into_iter()
+			.flatten()
+			.filter_map(|entry| entry.ok())
+			.filter(|entry| entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false))
+			.filter_map(|entry| {
+				let name = entry.file_name().to_string_lossy().into_owned();
+				if name.starts_with('.') {
+					return None;
+				}
+				let path = entry.path().to_string_lossy().into_owned();
+				Some((name, path))
+			})
+			.collect();
+		folders.sort_by(|left, right| left.0.to_lowercase().cmp(&right.0.to_lowercase()));
+		serde_json::to_string(
+			&folders
+				.into_iter()
+				.map(|(name, path)| serde_json::json!({ "name": name, "path": path }))
+				.collect::<Vec<_>>(),
+		)
+		.unwrap_or_else(|_| String::from("[]"))
+	}
+
+	#[qslot]
+	fn row_visible(&self, path: String) -> bool {
+		self.rows.iter().any(|row| row.path == path)
 	}
 
 	#[qslot]
@@ -1124,7 +1280,8 @@ impl Directory {
 		let job = outcome.job.is_some();
 		self.path = engine.location().path().to_string_lossy().into_owned();
 		self.config.borrow_mut().apply(engine.config());
-		self.rows = rows_after(engine, Some(&outcome.changes));
+		let rows = rows_after(engine, Some(&outcome.changes));
+		self.set_rows(rows);
 		self.read_selection();
 		self.read_focus();
 		self.reset();

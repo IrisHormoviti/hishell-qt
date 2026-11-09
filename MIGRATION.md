@@ -2374,6 +2374,17 @@ Out of scope. The core APIs above are the contract.
   folder's `.directory` in Here scope.
 - Grouped and stash views draw their section headers in both grid and list modes;
   the absolute grouped/free layout scrolls.
+- A selection toolbar appears at the bottom of a pane while selection mode is
+  active, with a tristate select-all box, the count, and Deselect.
+- Typing filters the current folder; a filter bar above the view shows the text
+  and match count, Backspace trims it, Escape clears it, and the view scrolls
+  into the first match.
+- Free placement repositions items by dragging them to another cell and persists
+  `FreePlacementPositions` in the folder's `.directory`.
+- Hovering a folder during a drag opens a spring-loaded popup of its subfolders;
+  dropping on an entry moves the dragged items into that subfolder.
+- Drags use Qt's platform drag image (`Drag.imageSource`), so the drag icon is
+  drawn by the compositor rather than by an in-window ghost.
 - The menu bar shows the old context groups: Open and Edit when there is a target,
   Image for an image target, Folder for a folder target, and New and View always.
 - Here → Configure edits the layout JSON, window flags, folder title/icon, radio,

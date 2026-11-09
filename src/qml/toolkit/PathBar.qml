@@ -98,32 +98,73 @@ RowLayout {
 				Layout.alignment: Qt.AlignVCenter
 			}
 
-			RowLayout {
+			Item {
 				Layout.fillHeight: true
-				spacing: Kirigami.Units.smallSpacing
+				Layout.preferredWidth: Math.max(40, crumbContent.implicitWidth)
+				Layout.minimumWidth: 40
+				implicitWidth: Math.max(40, crumbContent.implicitWidth)
 
-				Kirigami.Icon {
-					visible: crumb.current
-					source: pathUtils.folder_icon(crumb.modelData.path)
-					Layout.preferredWidth: Kirigami.Units.iconSizes.small
-					Layout.preferredHeight: Kirigami.Units.iconSizes.small
-					Layout.alignment: Qt.AlignVCenter
-				}
-
-				Label {
-					text: pathUtils.folder_title(crumb.modelData.path)
-					Layout.alignment: Qt.AlignVCenter
-				}
-
-				MouseArea {
+				Rectangle {
 					anchors.fill: parent
-					onClicked: {
-						if (!pathBar.directory)
+					z: -1
+					radius: 4
+					color: Kirigami.Theme.highlightColor
+					opacity: crumbDrop.containsDrag ? 0.18 : 0
+				}
+
+				Timer {
+					id: crumbSpring
+					interval: 700
+					onTriggered: if (bar.directory)
+						bar.directory.navigate(crumb.modelData.path)
+				}
+
+				RowLayout {
+					id: crumbContent
+					anchors.fill: parent
+					spacing: Kirigami.Units.smallSpacing
+
+					Kirigami.Icon {
+						visible: crumb.current
+						source: pathUtils.folder_icon(crumb.modelData.path)
+						Layout.preferredWidth: Kirigami.Units.iconSizes.small
+						Layout.preferredHeight: Kirigami.Units.iconSizes.small
+						Layout.alignment: Qt.AlignVCenter
+					}
+
+					Label {
+						text: pathUtils.folder_title(crumb.modelData.path)
+						Layout.alignment: Qt.AlignVCenter
+					}
+
+					MouseArea {
+						anchors.fill: parent
+						onClicked: {
+							if (!pathBar.directory)
+								return
+							if (crumb.current)
+								hereMenu.popup()
+							else
+								pathBar.directory.navigate(crumb.modelData.path)
+						}
+					}
+				}
+
+				DropArea {
+					id: crumbDrop
+					anchors.fill: parent
+					onEntered: crumbSpring.restart()
+					onExited: crumbSpring.stop()
+					onDropped: function (drop) {
+						crumbSpring.stop()
+						const pane = bar.window ? bar.window.activePane : null
+						if (!pane)
 							return
-						if (crumb.current)
-							hereMenu.popup()
-						else
-							pathBar.directory.navigate(crumb.modelData.path)
+						const uris = drop.urls && drop.urls.length > 0
+							? drop.urls.join("\n") : drop.text
+						pane.directory.drop(uris, crumb.modelData.path,
+							pane.dropAction(drop))
+						drop.acceptProposedAction()
 					}
 				}
 			}
