@@ -1,6 +1,7 @@
 #ifndef HISHELL_DRAG_HELPER_H
 #define HISHELL_DRAG_HELPER_H
 
+#include <QImage>
 #include <QObject>
 #include <QString>
 
@@ -15,12 +16,13 @@ public:
 	explicit DragHelper(QObject *parent = nullptr);
 
 	Q_INVOKABLE void startDrag(const QString &uri, const QString &imageUrl);
+	Q_INVOKABLE void startDragFromGrab(QObject *grab, const QString &uri);
 	Q_INVOKABLE bool isSource(const QString &path) const;
 	Q_INVOKABLE void setSpringTarget(const QString &path);
 	Q_INVOKABLE void clearSpringTarget();
 
 private:
-	void performDrag(const QString &uri, const QString &imageUrl);
+	void performDrag(const QString &uri, const QImage &image);
 	QString m_uri;
 	QString m_spring;
 

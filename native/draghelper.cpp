@@ -5,8 +5,9 @@
 #include <QMimeData>
 #include <QPixmap>
 #include <QQmlEngine>
-#include <QUrl>
+#include <QQuickItemGrabResult>
 #include <QTimer>
+#include <QUrl>
 
 DragHelper::DragHelper(QObject *parent) : QObject(parent) {}
 
@@ -33,13 +34,28 @@ bool DragHelper::isSource(const QString &path) const
 
 void DragHelper::startDrag(const QString &uri, const QString &imageUrl)
 {
+	QImage image;
+	if (!imageUrl.isEmpty()) {
+		const QUrl url(imageUrl);
+		image.load(url.isLocalFile() ? url.toLocalFile() : imageUrl);
+	}
 	m_uri = uri;
-	QTimer::singleShot(0, this, [this, uri, imageUrl] {
-		performDrag(uri, imageUrl);
+	QTimer::singleShot(0, this, [this, uri, image] {
+		performDrag(uri, image);
 	});
 }
 
-void DragHelper::performDrag(const QString &uri, const QString &imageUrl)
+void DragHelper::startDragFromGrab(QObject *grab, const QString &uri)
+{
+	auto *result = qobject_cast<QQuickItemGrabResult *>(grab);
+	const QImage image = result ? result->image() : QImage();
+	m_uri = uri;
+	QTimer::singleShot(0, this, [this, uri, image] {
+		performDrag(uri, image);
+	});
+}
+
+void DragHelper::performDrag(const QString &uri, const QImage &image)
 {
 	QDrag drag(this);
 	QMimeData *mime = new QMimeData;
@@ -47,11 +63,10 @@ void DragHelper::performDrag(const QString &uri, const QString &imageUrl)
 	mime->setText(uri);
 	drag.setMimeData(mime);
 
-	if (!imageUrl.isEmpty()) {
-		const QUrl url(imageUrl);
-		const QImage image(url.isLocalFile() ? url.toLocalFile() : imageUrl);
-		if (!image.isNull())
-			drag.setPixmap(QPixmap::fromImage(image));
+	if (!image.isNull()) {
+		const QPixmap pixmap = QPixmap::fromImage(image);
+		drag.setPixmap(pixmap);
+		drag.setHotSpot(pixmap.rect().center());
 	}
 
 	drag.exec(Qt::CopyAction | Qt::MoveAction | Qt::LinkAction);

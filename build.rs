@@ -33,10 +33,12 @@ fn main() {
 		.cpp(true)
 		.std("c++17")
 		.include(&headers)
+		.include(format!("{headers}/QtQuick"))
 		.include("native")
 		.files(["native/draghelper.cpp", moc_out.to_str().unwrap()])
 		.compile("hishell_drag");
 
+	println!("cargo:rustc-link-lib=Qt6Quick");
 	println!("cargo:rerun-if-changed=native/draghelper.h");
 	println!("cargo:rerun-if-changed=native/draghelper.cpp");
 	println!("cargo:rerun-if-changed=build.rs");

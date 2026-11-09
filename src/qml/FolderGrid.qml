@@ -276,9 +276,13 @@ Item {
 					required property bool is_image
 
 					property string thumb: ""
+					property var dragGrab: null
 					Component.onCompleted: {
 						if (is_image)
 							thumb = pane.directory.thumbnail(path, 96)
+						dragGrab = cell.grabToImage(function (result) {
+							cell.dragGrab = result
+						}, Qt.size(64, 64))
 					}
 
 
@@ -344,7 +348,7 @@ Item {
 							if (dx * dx + dy * dy < 36)
 								return
 							dragging = true
-							DragHelper.startDrag(folderGrid.dragUrl(path), "")
+							DragHelper.startDragFromGrab(cell.dragGrab, folderGrid.dragUrl(path))
 						}
 						onReleased: dragging = false
 						onClicked: function (mouse) {
@@ -441,9 +445,13 @@ Item {
 					required property var accessed_time
 
 					property string thumb: ""
+					property var dragGrab: null
 					Component.onCompleted: {
 						if (is_image)
 							thumb = pane.directory.thumbnail(path, 32)
+						dragGrab = row.grabToImage(function (result) {
+							row.dragGrab = result
+						}, Qt.size(64, 32))
 					}
 
 
@@ -510,7 +518,7 @@ Item {
 							if (dx * dx + dy * dy < 36)
 								return
 							dragging = true
-							DragHelper.startDrag(folderGrid.dragUrl(path), "")
+							DragHelper.startDragFromGrab(row.dragGrab, folderGrid.dragUrl(path))
 						}
 						onReleased: dragging = false
 						onClicked: function (mouse) {
@@ -574,9 +582,13 @@ Item {
 					height: modelData.height
 
 					property string thumb: ""
+					property var dragGrab: null
 					Component.onCompleted: {
 						if (modelData.is_image)
 							thumb = pane.directory.thumbnail(modelData.path, 64)
+						dragGrab = freeSlot.grabToImage(function (result) {
+							freeSlot.dragGrab = result
+						}, Qt.size(64, 64))
 					}
 
 					readonly property bool selected: {
@@ -639,7 +651,7 @@ Item {
 							if (dx * dx + dy * dy < 36)
 								return
 							dragging = true
-							DragHelper.startDrag(folderGrid.dragUrl(modelData.path), "")
+							DragHelper.startDragFromGrab(freeSlot.dragGrab, folderGrid.dragUrl(modelData.path))
 						}
 						onReleased: dragging = false
 						onClicked: function (mouse) {
