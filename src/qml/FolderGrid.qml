@@ -746,8 +746,13 @@ Item {
 						pressed: dragArea.pressed
 						dragging: folderGrid.isDragging(cell.path)
 						dotfile: cell.name.startsWith(".")
+						selectionActive: pane.directory.selectionActive
+						labelShowsFilename: String(
+							pane.directory.config.label_text) === "FILENAME"
+						dropHovered: cellDrop.containsDrag
 					}
 					DropArea {
+						id: cellDrop
 						anchors.fill: parent
 						enabled: cell.is_directory
 						onEntered: if (cell.is_directory) pane.springEnter(cell.path)
@@ -929,8 +934,13 @@ Item {
 						pressed: rowDrag.pressed
 						dragging: folderGrid.isDragging(row.path)
 						dotfile: row.name.startsWith(".")
+						selectionActive: pane.directory.selectionActive
+						labelShowsFilename: String(
+							pane.directory.config.label_text) === "FILENAME"
+						dropHovered: rowDrop.containsDrag
 					}
 					DropArea {
+						id: rowDrop
 						anchors.fill: parent
 						enabled: row.is_directory
 						onEntered: if (row.is_directory) pane.springEnter(row.path)
@@ -1073,8 +1083,13 @@ Item {
 						pressed: freeDrag.pressed
 						dragging: folderGrid.isDragging(modelData.path)
 						dotfile: modelData.name.startsWith(".")
+						selectionActive: pane.directory.selectionActive
+						labelShowsFilename: String(
+							pane.directory.config.label_text) === "FILENAME"
+						dropHovered: freeDrop.containsDrag
 					}
 					DropArea {
+						id: freeDrop
 						anchors.fill: parent
 						enabled: modelData.is_directory === true
 						onEntered: if (modelData.is_directory === true) pane.springEnter(modelData.path)

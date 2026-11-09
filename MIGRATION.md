@@ -2578,8 +2578,9 @@ The frontend is:
   dialogs, and the `NavigationPlan` transition.
 - `src/qml/FolderGrid.qml` — the grid, list, grouped, and free-placement views,
   their geometry, selection input, and drag/drop wiring.
-- `src/qml/FileSlot.qml` — the slot rendering: icon/thumbnail, label faces,
-  selection and focus, control/radio plates, and the toggle switch.
+- `src/qml/FileSlot.qml` — the slot rendering: icon/thumbnail, label faces and
+  hover tooltip, selection and focus, selection check badges, drop highlight,
+  control/radio plates, and the toggle switch.
 - `src/qml/DragPreview.qml` and `src/qml/DragTooltip.qml` — the free-placement
   reposition ghost and its action tooltip.
 - `src/qml/toolkit/PathBar.qml` — breadcrumbs with a slash between segments and

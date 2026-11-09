@@ -30,9 +30,29 @@ Item {
 	property string numberValue: ""
 	property bool radioActive: false
 	property bool radioSelected: false
+	property bool selectionActive: false
+	property bool dropHovered: false
+	property bool labelShowsFilename: false
 	property int iconSize: 48
 	property int listIconSize: 18
 	property int gridSize: 0
+
+	readonly property string tooltipText: {
+		const label = fileSlot.title.length > 0 ? fileSlot.title : fileSlot.name
+		const alternate = fileSlot.labelShowsFilename
+			? fileSlot.title : fileSlot.name
+		if (!fileSlot.showLabels)
+			return alternate !== "" && alternate !== label
+				? label + "\n" + alternate : label
+		if (fileSlot.title === "" || fileSlot.title === fileSlot.name)
+			return ""
+		return alternate
+	}
+
+	ToolTip.visible: fileSlot.tooltipText.length > 0 && fileSlot.hovered
+		&& !fileSlot.dragging
+	ToolTip.text: fileSlot.tooltipText
+	ToolTip.delay: 700
 
 	readonly property bool isButton: fileSlot.controlKind === 1
 	readonly property bool isToggle: fileSlot.controlKind === 2 || fileSlot.controlKind === 3
@@ -74,6 +94,42 @@ Item {
 		border.width: 2
 		border.color: Kirigami.Theme.highlightColor
 		visible: fileSlot.active
+	}
+
+	// Selection mode puts a check badge on every selected choice, with an
+	// empty circle on the rest.
+	Rectangle {
+		visible: fileSlot.selectionActive
+		anchors.top: parent.top
+		anchors.right: parent.right
+		anchors.margins: 8
+		width: 18
+		height: 18
+		radius: 9
+		border.width: 2
+		border.color: Kirigami.Theme.highlightColor
+		color: fileSlot.selected
+			? Kirigami.Theme.highlightColor : "transparent"
+		opacity: fileSlot.selected ? 1.0 : 0.4
+
+		Kirigami.Icon {
+			anchors.fill: parent
+			anchors.margins: 2
+			source: "emblem-ok-symbolic"
+			color: Kirigami.Theme.highlightedTextColor
+			opacity: fileSlot.selected ? 1.0 : 0.0
+		}
+	}
+
+	Rectangle {
+		visible: fileSlot.dropHovered
+		anchors.fill: parent
+		anchors.margins: 2
+		radius: 6
+		color: Kirigami.Theme.focusColor
+		opacity: 0.35
+		border.color: Kirigami.Theme.highlightColor
+		border.width: 2
 	}
 
 	// A `Type=Button` entry is a control, not a thing to open, so it is drawn
