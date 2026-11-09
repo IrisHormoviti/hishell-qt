@@ -2675,6 +2675,11 @@ timer, `onPositionChanged` keeps it alive when the drag started already inside,
 and leaving clears it. A source folder rejects hovering itself or one of its
 descendants before arming the timer, as the old drop validator did.
 
+Free placement disables the per-folder DropArea, like the old FileSlot. Its
+background DropArea tracks the folder under the pointer, springs into it on
+hover, and resolves an external drop to that folder; same-folder drops remain
+repositions.
+
 ### Clipboard, properties, and new windows
 
 - Copy/Cut/Paste use a frontend clipboard holding a `ClipboardSnapshot`; Paste

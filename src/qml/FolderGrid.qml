@@ -199,6 +199,32 @@ Item {
 		}
 	}
 
+	function folderAtPoint(x, y) {
+		if (folderGrid.spec.free !== true
+				&& folderGrid.spec.grouped !== true)
+			return ""
+		const cx = x + absoluteView.contentX
+		const cy = y + absoluteView.contentY
+		for (const slot of folderGrid.spec.slots || []) {
+			if (slot.is_directory !== true)
+				continue
+			const left = folderGrid.freeOffsetX + slot.x
+			const top = folderGrid.freeOffsetY + slot.y
+			if (cx >= left && cx <= left + slot.width
+					&& cy >= top && cy <= top + slot.height)
+				return slot.path
+		}
+		return ""
+	}
+
+	function armFreeSpring(drag) {
+		const folder = folderGrid.folderAtPoint(drag.x, drag.y)
+		if (folder.length > 0 && !DragHelper.isDropInvalid(folder))
+			pane.springEnter(folder)
+		else
+			pane.springLeave()
+	}
+
 	function freeSlotList() {
 		const cw = folderGrid.spec.cell_width || 96
 		const ch = folderGrid.spec.cell_height || 96
@@ -1409,13 +1435,23 @@ Item {
 				}
 
 				DropArea {
+					id: freeBackgroundDrop
 					anchors.fill: parent
+					keys: ["text/uri-list", "text/plain"]
+					onEntered: function (drag) { armFreeSpring(drag) }
+					onPositionChanged: function (drag) { armFreeSpring(drag) }
+					onExited: pane.springLeave()
 					onDropped: function (drop) {
 						if (folderGrid.repositionFromDrop(drop))
 							return
 						const uris = drop.urls && drop.urls.length > 0
 							? drop.urls.join("\n") : drop.text
-						pane.directory.drop(uris, pane.directory.path, pane.dropAction(drop))
+						const folder = folderGrid.folderAtPoint(drop.x, drop.y)
+						const target = folder.length > 0
+							&& !DragHelper.isDropInvalid(folder)
+							? folder : pane.directory.path
+						pane.springLeave()
+						pane.directory.drop(uris, target, pane.dropAction(drop))
 						drop.acceptProposedAction()
 					}
 				}
@@ -1485,6 +1521,8 @@ Item {
 						id: freeDrop
 						anchors.fill: parent
 						enabled: modelData.is_directory === true
+							&& folderGrid.spec.free !== true
+							&& folderGrid.spec.grouped !== true
 						keys: ["text/uri-list", "text/plain"]
 						onEntered: if (enabled
 								&& !DragHelper.isDropInvalid(modelData.path))
