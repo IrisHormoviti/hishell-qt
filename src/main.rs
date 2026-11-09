@@ -632,6 +632,8 @@ pub struct Directory {
 	selection_active: bool,
 	selected_count: i32,
 	selection_revision: i32,
+	active_items: Vec<String>,
+	active_revision: i32,
 	filter: String,
 	match_count: i32,
 	visible_count: i32,
@@ -654,6 +656,8 @@ impl Directory {
 			selection_active: false,
 			selected_count: 0,
 			selection_revision: 0,
+			active_items: Vec::new(),
+			active_revision: 0,
 			filter: String::new(),
 			match_count: 0,
 			visible_count: 0,
@@ -884,6 +888,11 @@ impl Directory {
 		Member = selection_revision,
 		Notify = selection_changed
 	);
+	qproperty!(
+		"activeRevision",
+		Member = active_revision,
+		Notify = active_changed
+	);
 	qproperty!("filter", Member = filter, Notify = filter_changed);
 	qproperty!(
 		"matchCount",
@@ -936,6 +945,8 @@ impl Directory {
 
 	#[qsignal]
 	fn selection_changed(&mut self);
+	#[qsignal]
+	fn active_changed(&mut self);
 
 	#[qslot]
 	fn is_selected(&self, path: String) -> bool {
@@ -1774,6 +1785,31 @@ impl Directory {
 			},
 			ViewSpec::File(_) => String::from("{}"),
 		}
+	}
+
+	#[qslot]
+	fn is_item_active(&self, path: String) -> bool {
+		self.active_items.iter().any(|item| item == &path)
+	}
+
+	#[qslot]
+	fn refresh_active_items(&mut self) {
+		let Some(engine) = &self.engine else {
+			return;
+		};
+		let mut paths: Vec<String> = engine
+			.execution()
+			.active_items()
+			.iter()
+			.map(|path| path.to_string_lossy().into_owned())
+			.collect();
+		paths.sort();
+		if paths == self.active_items {
+			return;
+		}
+		self.active_items = paths;
+		self.active_revision += 1;
+		self.active_changed();
 	}
 
 	#[qslot]

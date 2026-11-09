@@ -2629,6 +2629,12 @@ slot as an in-window ghost and the platform drag gets no pixmap; with
 image. The ghost keeps its grab alive on the window, so spring navigation can
 replace the view without losing the image.
 
+`Directory.activeRevision` mirrors the old `focusManager.active_revision`:
+a two-second refresh asks the core's execution state which items have a
+running/suspended app and bumps the revision when that set changes. Grid and
+free slots draw the old blinking radial active-app glow behind the icon; the
+list keeps the old list layout, which had no glow.
+
 ### Clipboard, properties, and new windows
 
 - Copy/Cut/Paste use a frontend clipboard holding a `ClipboardSnapshot`; Paste

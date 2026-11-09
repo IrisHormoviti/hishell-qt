@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Shapes
 import org.kde.kirigami as Kirigami
 
 // The old FileSlot rendering: selection plate, focus border, icon/thumbnail and
@@ -32,6 +33,7 @@ Item {
 	property bool radioSelected: false
 	property bool selectionActive: false
 	property bool dropHovered: false
+	property bool activeApp: false
 	property bool labelShowsFilename: false
 	property int iconSize: 48
 	property int listIconSize: 18
@@ -291,6 +293,57 @@ Item {
 			Layout.preferredHeight: fileSlot.iconDisplaySize
 			Layout.alignment: fileSlot.labelsBeside && fileSlot.showLabels
 				? Qt.AlignVCenter : Qt.AlignHCenter
+
+			// Active glow when the app this item is attached to is running.
+			Shape {
+				id: activeGlow
+				visible: fileSlot.activeApp
+				z: -1
+				width: parent.width
+				height: parent.height
+				anchors.centerIn: parent
+
+				ShapePath {
+					strokeColor: "transparent"
+
+					PathRectangle {
+						width: activeGlow.width
+						height: activeGlow.height
+						x: 0
+						y: 0
+					}
+
+					fillGradient: RadialGradient {
+						centerX: activeGlow.width / 2
+						centerY: activeGlow.height / 2
+						centerRadius: Math.min(activeGlow.width, activeGlow.height) / 2
+						focalX: centerX
+						focalY: centerY
+						focalRadius: 0
+
+						GradientStop { position: 1.0; color: "transparent" }
+						GradientStop {
+							position: 0.0
+							color: Kirigami.Theme.highlightColor
+						}
+					}
+				}
+
+				SequentialAnimation on opacity {
+					running: activeGlow.visible
+					loops: Animation.Infinite
+					NumberAnimation {
+						to: 0.35
+						duration: 1000
+						easing.type: Easing.InOutQuad
+					}
+					NumberAnimation {
+						to: 1.0
+						duration: 1000
+						easing.type: Easing.InOutQuad
+					}
+				}
+			}
 
 			Image {
 				anchors.fill: parent

@@ -223,6 +223,16 @@ ApplicationWindow {
 		}
 	}
 
+	Timer {
+		interval: 2000
+		repeat: true
+		running: true
+		onTriggered: {
+			for (let i = 0; i < window.panes.length; i++)
+				window.panes[i].directory.refresh_active_items()
+		}
+	}
+
 	DragTooltip {
 		active: window.dragTooltipActive
 		action: window.dragTooltipAction

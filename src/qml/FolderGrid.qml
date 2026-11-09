@@ -87,6 +87,13 @@ Item {
 			nativeDrag)
 	}
 
+	function isItemActive(path) {
+		if (!folderGrid.directory)
+			return false
+		folderGrid.directory.activeRevision
+		return folderGrid.directory.is_item_active(path)
+	}
+
 	function isRadioMember(path, isDir, name) {
 		const config = folderGrid.directory ? folderGrid.directory.config : null
 		if (!config || !config.radio_enabled)
@@ -736,6 +743,7 @@ Item {
 						radioSelected: folderGrid.isRadioSelected(
 							cell.path, cell.is_directory, cell.name)
 						selected: cell.selected
+						activeApp: folderGrid.isItemActive(cell.path)
 						active: (pane.active && pane.directory.focused_path === cell.path)
 							|| folderGrid.isRadioSelected(
 								cell.path, cell.is_directory, cell.name)
@@ -925,6 +933,7 @@ Item {
 						radioSelected: folderGrid.isRadioSelected(
 							row.path, row.is_directory, row.name)
 						selected: row.selected
+						activeApp: folderGrid.isItemActive(row.path)
 						active: (pane.active && pane.directory.focused_path === row.path)
 							|| folderGrid.isRadioSelected(
 								row.path, row.is_directory, row.name)
@@ -1072,6 +1081,7 @@ Item {
 						radioSelected: folderGrid.isRadioSelected(
 							modelData.path, modelData.is_directory, modelData.name)
 						selected: freeSlot.selected
+						activeApp: folderGrid.isItemActive(modelData.path)
 						active: (pane.active
 								&& pane.directory.focused_path === modelData.path)
 							|| folderGrid.isRadioSelected(
