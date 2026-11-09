@@ -36,6 +36,13 @@ RowLayout {
 		})
 	}
 
+	function dropUris(uris, dest) {
+		const pane = pathBar.window ? pathBar.window.activePane : null
+		if (!pane)
+			return false
+		return pane.directory.drop(uris, dest, "move")
+	}
+
 	function commit() {
 		if (!pathBar.directory) {
 			pathBar.editing = false

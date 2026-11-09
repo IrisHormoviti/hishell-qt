@@ -2396,7 +2396,10 @@ Out of scope. The core APIs above are the contract.
 - Double-click/Return opens a folder; Backspace/Alt+Up goes up.
 - New folder/new text, rotate, and toggle through the context menu.
 - Trash/delete confirmation, rename, and open-with dialogs.
-- Drop onto a breadcrumb to move the dragged items into that folder.
+- Drop onto a breadcrumb to move the dragged items into that folder. The self
+  test also exercises the breadcrumb drop handler on the current build.
+- Right-clicking the background shows the Here actions plus the old New and
+  View submenus, including the full View menu.
 - Drag a file/folder onto another folder to copy, move, or link it. Drags use
   Qt's `Drag.Automatic` on every platform, with no native-drag special case.
   Same-folder and folder-into-itself drops are no-ops, existing destinations are

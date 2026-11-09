@@ -37,6 +37,7 @@ ApplicationWindow {
 
 	readonly property var currentDirectory: activePane ? activePane.directory : null
 	readonly property string homePath: leftDirectory ? leftDirectory.home_directory() : ""
+	readonly property var headerPathBar: headerLayout ? headerLayout.pathBarItem : null
 	readonly property var leftPane: panes.length > 0 ? panes[0] : null
 	readonly property var rightPane: panes.length > 1 ? panes[1] : null
 

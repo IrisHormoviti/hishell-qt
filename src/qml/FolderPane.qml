@@ -22,6 +22,8 @@ Kirigami.Page {
 
 	property var contextActions: []
 	property string contextTarget: "location"
+	property var contextNewMenu: null
+	property var contextViewMenu: null
 	property string springPath: ""
 	property string dragSourceUris: ""
 	property bool springPopupVisible: false
@@ -447,6 +449,60 @@ Kirigami.Page {
 			pane.contextActions = JSON.parse(
 				pane.directory.actions_json("context", pane.contextTarget))
 				.filter(action => background ? action.here : action.items)
+			if (background)
+				pane.contextActions = pane.contextActions.filter(action =>
+					action.id !== "new-folder" && action.id !== "new-text-file")
+
+			if (background) {
+				if (!pane.contextNewMenu) {
+					pane.contextNewMenu = newMenuComponent.createObject(contextMenu)
+					contextMenu.addMenu(pane.contextNewMenu)
+				}
+				if (!pane.contextViewMenu) {
+					pane.contextViewMenu = viewMenuComponent.createObject(contextMenu, {
+						"directory": pane.directory,
+						"window": pane.window
+					})
+					contextMenu.addMenu(pane.contextViewMenu)
+				}
+			} else {
+				if (pane.contextNewMenu) {
+					contextMenu.removeMenu(pane.contextNewMenu)
+					pane.contextNewMenu.destroy()
+					pane.contextNewMenu = null
+				}
+				if (pane.contextViewMenu) {
+					contextMenu.removeMenu(pane.contextViewMenu)
+					pane.contextViewMenu.destroy()
+					pane.contextViewMenu = null
+				}
+			}
+		}
+
+		Component {
+			id: newMenuComponent
+
+			Menu {
+				title: "New"
+				icon.name: "document-new"
+
+				ShellMenuItem {
+					text: "New Folder"
+					iconName: "folder-new"
+					onTriggered: if (pane.directory) pane.directory.invoke("new-folder")
+				}
+				ShellMenuItem {
+					text: "New Text File"
+					iconName: "document-new"
+					onTriggered: if (pane.directory) pane.directory.invoke("new-text-file")
+				}
+			}
+		}
+
+		Component {
+			id: viewMenuComponent
+
+			ViewMenu {}
 		}
 
 		Repeater {

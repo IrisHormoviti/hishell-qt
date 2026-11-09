@@ -133,6 +133,12 @@ Item {
 			break
 		case 14:
 			test.check("clear selection", test.leftDirectory.selectedCount === 0)
+			test.check("breadcrumb drop submitted", main.headerPathBar.dropUris(
+				"file://" + test.dir + "/b.txt", test.root))
+			break
+		case 15:
+			test.check("breadcrumb drop applied",
+				test.testBridge.exists(test.root + "/b.txt"))
 			test.done = true
 			Qt.quit()
 			break

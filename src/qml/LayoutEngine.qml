@@ -11,6 +11,7 @@ RowLayout {
 	property string role: "middle"
 
 	property var created: []
+	property var pathBarItem: null
 
 	Component { id: paneComponent; FolderPane {} }
 	Component { id: pathBarComponent; PathBar {} }
@@ -49,6 +50,7 @@ RowLayout {
 			}
 		} else if (entry === "toolkit/PathBar") {
 			item = pathBarComponent.createObject(engine, { "window": engine.window })
+			engine.pathBarItem = item
 		} else if (entry === "toolkit/MenuBar") {
 			item = menuBarComponent.createObject(engine, { "window": engine.window })
 		} else if (entry === "toolkit/Spacer") {
