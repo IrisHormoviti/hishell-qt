@@ -1337,6 +1337,14 @@ impl Directory {
 	}
 
 	#[qslot]
+	fn row_path(&self, index: i32) -> String {
+		self.rows
+			.get(index.max(0) as usize)
+			.map(|row| row.path.clone())
+			.unwrap_or_default()
+	}
+
+	#[qslot]
 	fn row_index(&self, path: String) -> i32 {
 		self.rows
 			.iter()

@@ -2661,6 +2661,11 @@ The empty free-placement background behaves like the folder background: left
 click clears selection and cursor; right click opens the copied
 `ShellContextMenu` Here/New/View menu with the folder as target.
 
+Scrolling the viewport runs the old `keepFocusInView` behaviour: a partially
+clipped focused slot moves the cursor to the fully visible item nearest its
+centre, without scrolling back. A 60 ms follow timer throttles wheel/flick
+updates, and `movementEnded` settles it immediately.
+
 ### Clipboard, properties, and new windows
 
 - Copy/Cut/Paste use a frontend clipboard holding a `ClipboardSnapshot`; Paste

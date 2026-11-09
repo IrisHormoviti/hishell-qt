@@ -436,6 +436,112 @@ Item {
 		}
 	}
 
+	function itemCountForView() {
+		if (folderGrid.spec.free === true || folderGrid.spec.grouped === true)
+			return (folderGrid.spec.slots || []).length
+		if (folderGrid.spec.mode === "grid")
+			return folderGrid.spec.count || 0
+		return folderGrid.directory ? folderGrid.directory.itemCount : 0
+	}
+
+	function slotRectAt(index) {
+		const cw = folderGrid.spec.cell_width || 96
+		const ch = folderGrid.spec.cell_height || 96
+		const gap = folderGrid.spec.gap || 0
+		if (folderGrid.spec.free === true || folderGrid.spec.grouped === true) {
+			const slots = folderGrid.spec.slots || []
+			const slot = slots[index]
+			if (!slot)
+				return null
+			return {
+				"x": folderGrid.freeOffsetX + slot.x,
+				"y": folderGrid.freeOffsetY + slot.y,
+				"width": slot.width,
+				"height": slot.height,
+				"path": slot.path
+			}
+		}
+		if (folderGrid.spec.mode === "grid") {
+			const lines = Math.max(1, folderGrid.spec.lines || 4)
+			const horizontal = folderGrid.spec.horizontal === true
+			const column = horizontal
+				? Math.floor(index / lines) : index % lines
+			const row = horizontal
+				? index % lines : Math.floor(index / lines)
+			return {
+				"x": column * (cw + gap),
+				"y": row * (ch + gap),
+				"width": cw,
+				"height": ch,
+				"path": folderGrid.directory.row_path(index)
+			}
+		}
+		const headerHeight = list.headerItem ? list.headerItem.height : 0
+		return {
+			"x": 0,
+			"y": headerHeight + index * 30,
+			"width": list.width,
+			"height": 30,
+			"path": folderGrid.directory.row_path(index)
+		}
+	}
+
+	function scheduleFocusFollow() {
+		if (focusScrollX.running || focusScrollY.running)
+			return
+		focusFollowTimer.restart()
+	}
+
+	// Keep the cursor on a fully visible item while the user scrolls, without
+	// scrolling back: when the focused item is clipped by an edge, the cursor
+	// moves to the visible item nearest the one it is leaving.
+	function keepFocusInView() {
+		if (!folderGrid.pane || !folderGrid.pane.active
+				|| focusScrollX.running || focusScrollY.running)
+			return
+		const view = folderGrid.viewFlickable
+		if (!view || view.width <= 0 || view.height <= 0)
+			return
+		const focusRect = folderGrid.focusContentRect()
+		if (!focusRect)
+			return
+		const left = view.contentX
+		const top = view.contentY
+		const right = left + view.width
+		const bottom = top + view.height
+		if (focusRect.x >= left && focusRect.x + focusRect.width <= right
+				&& focusRect.y >= top
+				&& focusRect.y + focusRect.height <= bottom)
+			return
+		const centreX = focusRect.x + focusRect.width / 2
+		const centreY = focusRect.y + focusRect.height / 2
+		const count = folderGrid.itemCountForView()
+		let bestPath = ""
+		let bestIndex = -1
+		let bestDistance = Infinity
+		for (let i = 0; i < count; i++) {
+			const rect = folderGrid.slotRectAt(i)
+			if (!rect || !rect.path)
+				continue
+			if (rect.x < left || rect.x + rect.width > right)
+				continue
+			if (rect.y < top || rect.y + rect.height > bottom)
+				continue
+			const dx = rect.x + rect.width / 2 - centreX
+			const dy = rect.y + rect.height / 2 - centreY
+			const distance = dx * dx + dy * dy
+			if (distance < bestDistance) {
+				bestDistance = distance
+				bestPath = rect.path
+				bestIndex = i
+			}
+		}
+		if (bestIndex < 0 || bestPath === ""
+				|| bestPath === folderGrid.directory.focused_path)
+			return
+		folderGrid.directory.focus_path(bestPath)
+	}
+
 	// Scroll the view when the drag cursor is within an edge margin. Farther
 	// into the margin scrolls faster.
 	function updateDragEdgeScroll() {
@@ -1480,6 +1586,25 @@ Item {
 
 
 
+
+
+	Timer {
+		id: focusFollowTimer
+		interval: 60
+		repeat: false
+		onTriggered: folderGrid.keepFocusInView()
+	}
+
+	Connections {
+		target: folderGrid.viewFlickable
+
+		function onContentXChanged() { folderGrid.scheduleFocusFollow() }
+		function onContentYChanged() { folderGrid.scheduleFocusFollow() }
+		function onMovementEnded() {
+			focusFollowTimer.stop()
+			folderGrid.keepFocusInView()
+		}
+	}
 
 	NumberAnimation {
 		id: focusScrollX
