@@ -2595,7 +2595,9 @@ the folder rows and would destroy that item while Qt owns the drag. The
 frontend now uses a small native `DragHelper` singleton (`native/draghelper.*`)
 that owns the `QDrag` and survives the view change, like the old
 `DragDropHandler`. Hovering a folder during a drag navigates into it, and the
-drag continues so the drop completes there.
+drag continues so the drop completes there. The drag pixmap is the slot's
+cached `grabToImage` result; the helper reads the grab result itself because
+its URL uses the `itemgrabber` scheme, not a file path.
 
 ### Clipboard, properties, and new windows
 
