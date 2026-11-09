@@ -1292,6 +1292,15 @@ impl Directory {
 	}
 
 	#[qslot]
+	fn row_index(&self, path: String) -> i32 {
+		self.rows
+			.iter()
+			.position(|row| row.path == path)
+			.map(|index| index as i32)
+			.unwrap_or(-1)
+	}
+
+	#[qslot]
 	fn focus_path(&mut self, path: String) {
 		let Some(engine) = self.engine.as_mut() else {
 			return;

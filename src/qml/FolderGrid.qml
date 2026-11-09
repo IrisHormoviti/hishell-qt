@@ -87,6 +87,61 @@ Item {
 			nativeDrag)
 	}
 
+	readonly property int focusedIndex: {
+		if (!folderGrid.directory)
+			return -1
+		return folderGrid.directory.row_index(
+			folderGrid.directory.focused_path)
+	}
+
+	readonly property var focusTarget: {
+		if (!folderGrid.pane || !folderGrid.pane.active
+				|| folderGrid.focusedIndex < 0)
+			return null
+		if (folderGrid.spec.free === true || folderGrid.spec.grouped === true) {
+			const slots = folderGrid.spec.slots || []
+			for (const slot of slots) {
+				if (slot.path !== folderGrid.directory.focused_path)
+					continue
+				const origin = absoluteView.mapToItem(folderGrid, 0, 0)
+				return {
+					"x": origin.x + folderGrid.freeOffsetX + slot.x
+						- absoluteView.contentX,
+					"y": origin.y + folderGrid.freeOffsetY + slot.y
+						- absoluteView.contentY,
+					"width": slot.width,
+					"height": slot.height
+				}
+			}
+			return null
+		}
+		if (folderGrid.spec.mode === "grid") {
+			grid.contentX
+			grid.contentY
+			const item = grid.itemAtIndex(folderGrid.focusedIndex)
+			if (!item)
+				return null
+			const point = item.mapToItem(folderGrid, 0, 0)
+			return {
+				"x": point.x,
+				"y": point.y,
+				"width": item.width,
+				"height": item.height
+			}
+		}
+		list.contentY
+		const item = list.itemAtIndex(folderGrid.focusedIndex)
+		if (!item)
+			return null
+		const point = item.mapToItem(folderGrid, 0, 0)
+		return {
+			"x": point.x,
+			"y": point.y,
+			"width": item.width,
+			"height": item.height
+		}
+	}
+
 	function isItemActive(path) {
 		if (!folderGrid.directory)
 			return false
@@ -1235,5 +1290,18 @@ Item {
 	}
 
 
+
+
+	FocusBorder {
+		id: focusBorder
+		z: 20
+		visible: folderGrid.focusTarget !== null
+		x: folderGrid.focusTarget ? folderGrid.focusTarget.x : 0
+		y: folderGrid.focusTarget ? folderGrid.focusTarget.y : 0
+		width: folderGrid.focusTarget ? folderGrid.focusTarget.width : 0
+		height: folderGrid.focusTarget ? folderGrid.focusTarget.height : 0
+		pulseKey: folderGrid.directory
+			? folderGrid.directory.focused_path : ""
+	}
 
 }

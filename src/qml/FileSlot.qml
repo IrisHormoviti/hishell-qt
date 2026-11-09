@@ -88,21 +88,16 @@ Item {
 		}
 	}
 
+	// The wash behind the active/radio choice and every selected item. The
+	// shared FocusBorder draws the focus brackets above it.
 	Rectangle {
 		anchors.fill: parent
-		anchors.margins: 2
+		anchors.margins: fileSlot.selected
+			? Kirigami.Units.smallSpacing : 0
 		radius: 6
 		color: Kirigami.Theme.highlightColor
-		opacity: fileSlot.selected ? 0.28 : 0
-	}
-
-	Rectangle {
-		anchors.fill: parent
-		anchors.margins: 1
-		color: "transparent"
-		border.width: 2
-		border.color: Kirigami.Theme.highlightColor
-		visible: fileSlot.active
+		opacity: (fileSlot.selected ? 0.25 : 0.0)
+			|| (fileSlot.active ? 0.5 : 0.0)
 	}
 
 	// Selection mode puts a check badge on every selected choice, with an

@@ -2635,6 +2635,12 @@ running/suspended app and bumps the revision when that set changes. Grid and
 free slots draw the old blinking radial active-app glow behind the icon; the
 list keeps the old list layout, which had no glow.
 
+The old `FocusBorder.qml` is ported as one shared instance in `FolderGrid`
+instead of a border per slot. It uses the old bracket path and stroke, follows
+the focused grid cell, list row, or free slot via `Directory.row_index`, and
+keeps the two-breath pulse. The per-slot focus rectangle is gone; the old
+active/selection wash sits behind the content.
+
 ### Clipboard, properties, and new windows
 
 - Copy/Cut/Paste use a frontend clipboard holding a `ClipboardSnapshot`; Paste
