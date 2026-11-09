@@ -47,8 +47,7 @@ Item {
 		folderGrid.dragPaths = paths
 		folderGrid.beginDragTooltip(modifiers)
 		DragHelper.startDragManyFromGrab(grab,
-			paths.map(entry => folderGrid.dragUrl(entry)).join("\n"),
-			Kirigami.Theme.backgroundColor)
+			paths.map(entry => folderGrid.dragUrl(entry)).join("\n"))
 	}
 
 	function isRadioMember(path, isDir, name) {
@@ -211,8 +210,7 @@ Item {
 			return
 		folderGrid.dragPaths = paths
 		folderGrid.beginDragTooltip(0)
-		DragHelper.startDragManyFromGrab(grab, uris.join("\n"),
-			Kirigami.Theme.backgroundColor)
+		DragHelper.startDragManyFromGrab(grab, uris.join("\n"))
 	}
 
 	function updateReposition(x, y) {

@@ -9,24 +9,7 @@
 #include <QQmlEngine>
 #include <QQuickItemGrabResult>
 #include <QTimer>
-#include <QPainter>
 #include <QUrl>
-
-static QPixmap pixmapForDrag(const QImage &image, const QColor &background)
-{
-	if (image.isNull())
-		return {};
-	if (!background.isValid())
-		return QPixmap::fromImage(image);
-	// X11 paints the transparent pixels of a drag pixmap black. Flatten the
-	// grab onto the slot background so the drag icon stays readable.
-	QImage opaque(image.size(), QImage::Format_ARGB32_Premultiplied);
-	opaque.fill(background);
-	QPainter painter(&opaque);
-	painter.drawImage(0, 0, image);
-	painter.end();
-	return QPixmap::fromImage(opaque);
-}
 
 static QString actionFromModifiers(Qt::KeyboardModifiers modifiers)
 {
@@ -89,24 +72,22 @@ void DragHelper::startDrag(const QString &uri, const QString &imageUrl)
 	const QStringList uris{uri};
 	m_sources = uris;
 	QTimer::singleShot(0, this, [this, uris, image] {
-		performDrag(uris, pixmapForDrag(image, QColor()));
+		performDrag(uris, QPixmap::fromImage(image));
 	});
 }
 
-void DragHelper::startDragFromGrab(QObject *grab, const QString &uri,
-	const QColor &background)
+void DragHelper::startDragFromGrab(QObject *grab, const QString &uri)
 {
 	auto *result = qobject_cast<QQuickItemGrabResult *>(grab);
 	const QImage image = result ? result->image() : QImage();
 	const QStringList uris{uri};
 	m_sources = uris;
-	QTimer::singleShot(0, this, [this, uris, image, background] {
-		performDrag(uris, pixmapForDrag(image, background));
+	QTimer::singleShot(0, this, [this, uris, image] {
+		performDrag(uris, QPixmap::fromImage(image));
 	});
 }
 
-void DragHelper::startDragManyFromGrab(QObject *grab, const QString &uris,
-	const QColor &background)
+void DragHelper::startDragManyFromGrab(QObject *grab, const QString &uris)
 {
 	auto *result = qobject_cast<QQuickItemGrabResult *>(grab);
 	const QImage image = result ? result->image() : QImage();
@@ -114,8 +95,8 @@ void DragHelper::startDragManyFromGrab(QObject *grab, const QString &uris,
 	if (list.isEmpty())
 		return;
 	m_sources = list;
-	QTimer::singleShot(0, this, [this, list, image, background] {
-		performDrag(list, pixmapForDrag(image, background));
+	QTimer::singleShot(0, this, [this, list, image] {
+		performDrag(list, QPixmap::fromImage(image));
 	});
 }
 
