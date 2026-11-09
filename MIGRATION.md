@@ -2646,6 +2646,11 @@ active/selection wash sits behind the content.
 extent, and empty-slot setting, and the shared border draws over the empty free
 cell the cursor rests on, like the old `onEmpty` path.
 
+The border host keeps the old `moving` gate: the first appearance jumps to the
+slot, later moves animate x/y for 160 ms with `Easing.OutCubic`. It also hides
+while the user drags or flicks the view (`moving`/`flicking`), like the old
+`!grid.userScrolling` condition.
+
 ### Clipboard, properties, and new windows
 
 - Copy/Cut/Paste use a frontend clipboard holding a `ClipboardSnapshot`; Paste

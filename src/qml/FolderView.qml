@@ -103,7 +103,6 @@ Kirigami.Page {
 		if (!directory)
 			return
 		pane.activated()
-		folderGrid.focusView()
 		directory.focus_path(path)
 		if (modifiers & Qt.ControlModifier) {
 			directory.toggle_select(path)

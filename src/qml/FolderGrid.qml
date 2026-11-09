@@ -307,6 +307,13 @@ Item {
 		return folderGrid.spec.mode === "grid" ? grid : list
 	}
 
+	// The old focus host hid the border while the user dragged or flicked the
+	// view; the scroll offset then moves under it instead of being chased.
+	readonly property bool viewScrolling: {
+		const view = folderGrid.viewFlickable
+		return view ? (view.moving || view.flicking) : false
+	}
+
 	// Scroll the view when the drag cursor is within an edge margin. Farther
 	// into the margin scrolls faster.
 	function updateDragEdgeScroll() {
@@ -1314,7 +1321,7 @@ Item {
 	FocusBorder {
 		id: focusBorder
 		z: 20
-		visible: folderGrid.focusTarget !== null
+		visible: folderGrid.focusTarget !== null && !folderGrid.viewScrolling
 		x: folderGrid.focusTarget ? folderGrid.focusTarget.x : 0
 		y: folderGrid.focusTarget ? folderGrid.focusTarget.y : 0
 		width: folderGrid.focusTarget ? folderGrid.focusTarget.width : 0
@@ -1325,6 +1332,33 @@ Item {
 				+ folderGrid.directory.focusColumn + ":"
 				+ folderGrid.directory.focusRow
 			: ""
+
+		// Animate only while the border is already on screen, so the first
+		// appearance jumps straight to the item instead of sliding in from
+		// wherever it last was.
+		property bool moving: false
+		onVisibleChanged: {
+			if (visible)
+				Qt.callLater(function () { focusBorder.moving = true })
+			else
+				focusBorder.moving = false
+		}
+
+		Behavior on x {
+			enabled: focusBorder.moving
+			NumberAnimation {
+				duration: 160
+				easing.type: Easing.OutCubic
+			}
+		}
+
+		Behavior on y {
+			enabled: focusBorder.moving
+			NumberAnimation {
+				duration: 160
+				easing.type: Easing.OutCubic
+			}
+		}
 	}
 
 }
