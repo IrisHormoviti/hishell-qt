@@ -33,6 +33,32 @@ Item {
 		}
 	}
 
+	Timer {
+		id: dragEdgeScrollTimer
+		interval: 24
+		repeat: true
+		running: folderGrid.repositionActive
+			|| (folderGrid.pane && folderGrid.pane.window
+				&& folderGrid.pane.window.dragActive)
+		onTriggered: {
+			if (folderGrid.repositionActive) {
+				folderGrid.updateReposition()
+				if (!DragHelper.mousePressed()) {
+					const scene = folderGrid.cursorScene()
+					if (scene) {
+						const local = folderGrid.mapFromItem(null,
+							scene.x, scene.y)
+						folderGrid.endReposition(local.x, local.y)
+					} else {
+						folderGrid.clearReposition()
+					}
+					return
+				}
+			}
+			folderGrid.updateDragEdgeScroll()
+		}
+	}
+
 	function isDragging(path) {
 		return folderGrid.dragPaths.indexOf(path) !== -1
 	}
@@ -118,7 +144,7 @@ Item {
 		return best
 	}
 
-	function beginReposition(path, x, y, hotspotX, hotspotY) {
+	function beginReposition(path, sceneX, sceneY, hotspotX, hotspotY) {
 		if (!folderGrid.pane || folderGrid.spec.free !== true)
 			return false
 		let paths = folderGrid.selectedPaths()
@@ -158,10 +184,12 @@ Item {
 		}))
 
 		folderGrid.repositionActive = true
+		if (folderGrid.pane && folderGrid.pane.window)
+			folderGrid.pane.window.dragActive = true
 		folderGrid.repositionEntries = entries
 		folderGrid.repositionAnchor = anchor
 		folderGrid.dragPaths = entries.map(entry => entry.path)
-		folderGrid.updateReposition(x, y)
+		folderGrid.updateReposition(sceneX, sceneY)
 
 		const window = folderGrid.pane.window
 		if (window) {
@@ -181,10 +209,56 @@ Item {
 		return true
 	}
 
+	readonly property var viewFlickable: {
+		if (folderGrid.spec.free === true || folderGrid.spec.grouped === true)
+			return absoluteView
+		return folderGrid.spec.mode === "grid" ? grid : list
+	}
+
+	// Scroll the view when the drag cursor is within an edge margin. Farther
+	// into the margin scrolls faster.
+	function updateDragEdgeScroll() {
+		const flickable = folderGrid.viewFlickable
+		const window = folderGrid.pane ? folderGrid.pane.window : null
+		if (!flickable || !window || flickable.width <= 0 || flickable.height <= 0)
+			return
+		const local = flickable.mapFromItem(null, window.dragCursorX,
+			window.dragCursorY)
+		const margin = Kirigami.Units.gridUnit * 2
+		const maxStep = 28
+		const horizontal = folderGrid.spec.horizontal === true
+		let dx = 0
+		let dy = 0
+		if (horizontal) {
+			if (local.x >= 0 && local.x < margin)
+				dx = -Math.ceil((1 - local.x / margin) * maxStep)
+			else if (local.x > flickable.width - margin
+					&& local.x <= flickable.width)
+				dx = Math.ceil((1 - (flickable.width - local.x) / margin) * maxStep)
+		} else {
+			if (local.y >= 0 && local.y < margin)
+				dy = -Math.ceil((1 - local.y / margin) * maxStep)
+			else if (local.y > flickable.height - margin
+					&& local.y <= flickable.height)
+				dy = Math.ceil((1 - (flickable.height - local.y) / margin) * maxStep)
+		}
+		if (dx !== 0) {
+			const maxX = Math.max(0, flickable.contentWidth - flickable.width)
+			flickable.contentX = Math.max(0, Math.min(
+				flickable.contentX + dx, maxX))
+		}
+		if (dy !== 0) {
+			const maxY = Math.max(0, flickable.contentHeight - flickable.height)
+			flickable.contentY = Math.max(0, Math.min(
+				flickable.contentY + dy, maxY))
+		}
+	}
+
 	function beginDragTooltip(modifiers) {
 		const window = folderGrid.pane ? folderGrid.pane.window : null
 		if (!window)
 			return
+		window.dragActive = true
 		window.dragTooltipReposition = false
 		if (modifiers & Qt.ShiftModifier)
 			window.dragTooltipAction =
@@ -192,6 +266,14 @@ Item {
 		else
 			window.dragTooltipAction = "copy"
 		window.dragTooltipActive = true
+	}
+
+	function cursorScene() {
+		const window = folderGrid.pane ? folderGrid.pane.window : null
+		if (!window || !window.contentItem)
+			return null
+		const global = DragHelper.cursorPosition()
+		return window.contentItem.mapFromGlobal(global.x, global.y)
 	}
 
 	function cursorOutsideWindow(x, y) {
@@ -213,18 +295,21 @@ Item {
 		DragHelper.startDragManyFromGrab(grab, uris.join("\n"))
 	}
 
-	function updateReposition(x, y) {
+	function updateReposition(sceneX, sceneY) {
 		if (!folderGrid.repositionActive)
 			return
 		const window = folderGrid.pane ? folderGrid.pane.window : null
 		if (!window)
 			return
-		const point = folderGrid.mapToItem(null, x, y)
+		const point = folderGrid.cursorScene()
+			|| Qt.point(sceneX, sceneY)
 		window.dragCursorX = point.x
 		window.dragCursorY = point.y
 	}
 
 	function clearReposition() {
+		if (folderGrid.pane && folderGrid.pane.window)
+			folderGrid.pane.window.dragActive = false
 		folderGrid.repositionActive = false
 		folderGrid.repositionEntries = []
 		folderGrid.repositionAnchor = null
@@ -242,24 +327,26 @@ Item {
 	function freeColumns() {
 		const cw = folderGrid.spec.cell_width || 96
 		const gap = folderGrid.spec.gap || 0
-		return Math.max(1, Math.floor((content.width + gap) / Math.max(1, cw + gap)))
+		return Math.max(1, Math.floor((absoluteView.width + gap) / Math.max(1, cw + gap)))
 	}
 
 	function freeRows() {
 		const ch = folderGrid.spec.cell_height || 96
 		const gap = folderGrid.spec.gap || 0
-		return Math.max(1, Math.floor((content.height + gap) / Math.max(1, ch + gap)))
+		return Math.max(1, Math.floor((absoluteView.height + gap) / Math.max(1, ch + gap)))
 	}
 
 	function freeSlotAt(x, y) {
 		const cw = folderGrid.spec.cell_width || 96
 		const ch = folderGrid.spec.cell_height || 96
 		const gap = folderGrid.spec.gap || 0
+		const cx = x + absoluteView.contentX
+		const cy = y + absoluteView.contentY
 		return {
 			"col": Math.max(0, Math.min(folderGrid.freeColumns() - 1, Math.round(
-				(x - folderGrid.freeOffsetX - cw / 2) / Math.max(1, cw + gap)))),
+				(cx - folderGrid.freeOffsetX - cw / 2) / Math.max(1, cw + gap)))),
 			"row": Math.max(0, Math.min(folderGrid.freeRows() - 1, Math.round(
-				(y - folderGrid.freeOffsetY - ch / 2) / Math.max(1, ch + gap))))
+				(cy - folderGrid.freeOffsetY - ch / 2) / Math.max(1, ch + gap))))
 		}
 	}
 
@@ -354,10 +441,12 @@ Item {
 		const cw = folderGrid.spec.cell_width || 96
 		const ch = folderGrid.spec.cell_height || 96
 		const gap = folderGrid.spec.gap || 0
+		const cx = drop.x + absoluteView.contentX
+		const cy = drop.y + absoluteView.contentY
 		const column = Math.max(0, Math.round(
-			(drop.x - folderGrid.freeOffsetX - cw / 2) / Math.max(1, cw + gap)))
+			(cx - folderGrid.freeOffsetX - cw / 2) / Math.max(1, cw + gap)))
 		const row = Math.max(0, Math.round(
-			(drop.y - folderGrid.freeOffsetY - ch / 2) / Math.max(1, ch + gap)))
+			(cy - folderGrid.freeOffsetY - ch / 2) / Math.max(1, ch + gap)))
 		pane.directory.set_free_position(name, column, row)
 		drop.acceptProposedAction()
 		return true
@@ -571,6 +660,10 @@ Item {
 				model: pane.directory
 				cellWidth: folderGrid.spec.cell_width || 96
 				cellHeight: folderGrid.spec.cell_height || 96
+				flow: folderGrid.spec.horizontal
+					? GridView.TopToBottom : GridView.LeftToRight
+				cacheBuffer: Math.max(folderGrid.spec.cell_width || 96,
+					folderGrid.spec.cell_height || 96) * 4
 
 				Keys.onPressed: function (event) {
 					pane.handleKey(event)
@@ -998,8 +1091,8 @@ Item {
 						onPositionChanged: function (mouse) {
 							lastPoint = Qt.point(mouse.x, mouse.y)
 							if (repositioning) {
-								const scene = freeDrag.mapToItem(null,
-									mouse.x, mouse.y)
+								const scene = folderGrid.cursorScene()
+									|| freeDrag.mapToItem(null, mouse.x, mouse.y)
 								if (folderGrid.cursorOutsideWindow(scene.x, scene.y)) {
 									folderGrid.handOffReposition(freeSlot.dragGrab)
 									repositioning = false
@@ -1007,9 +1100,7 @@ Item {
 									suppressClick = true
 									return
 								}
-								const point = freeDrag.mapToItem(folderGrid,
-									mouse.x, mouse.y)
-								folderGrid.updateReposition(point.x, point.y)
+								folderGrid.updateReposition(scene.x, scene.y)
 								return
 							}
 							if (dragging || !pressed)
@@ -1019,9 +1110,10 @@ Item {
 							if (dx * dx + dy * dy < 36)
 								return
 							dragging = true
-							const point = freeDrag.mapToItem(folderGrid, mouse.x, mouse.y)
+							const scene = folderGrid.cursorScene()
+								|| freeDrag.mapToItem(null, mouse.x, mouse.y)
 							if (folderGrid.beginReposition(modelData.path,
-									point.x, point.y, mouse.x, mouse.y)) {
+									scene.x, scene.y, pressPoint.x, pressPoint.y)) {
 								repositioning = true
 								return
 							}
@@ -1035,8 +1127,16 @@ Item {
 								return
 							}
 							if (repositioning) {
-								const point = freeDrag.mapToItem(folderGrid,
-									lastPoint.x, lastPoint.y)
+								folderGrid.updateReposition()
+								const window = folderGrid.pane
+									? folderGrid.pane.window : null
+								let point = null
+								if (window)
+									point = folderGrid.mapFromItem(null,
+										window.dragCursorX, window.dragCursorY)
+								else
+									point = freeDrag.mapToItem(folderGrid,
+										lastPoint.x, lastPoint.y)
 								folderGrid.endReposition(point.x, point.y)
 								repositioning = false
 								suppressClick = true

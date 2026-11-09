@@ -62,6 +62,16 @@ bool DragHelper::isSource(const QString &path) const
 	return false;
 }
 
+QPoint DragHelper::cursorPosition() const
+{
+	return QCursor::pos();
+}
+
+bool DragHelper::mousePressed() const
+{
+	return QGuiApplication::mouseButtons() & Qt::LeftButton;
+}
+
 void DragHelper::startDrag(const QString &uri, const QString &imageUrl)
 {
 	QImage image;

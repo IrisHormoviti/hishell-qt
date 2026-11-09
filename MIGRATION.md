@@ -2616,6 +2616,11 @@ During a platform drag the helper polls the cursor and keyboard modifiers, so
 the `DragTooltip` follows the pointer and switches between `Copy`, `Move`, and
 `Link` like the old `DragDropHandler`.
 
+Dragging near a view edge scrolls it, faster closer to the edge, for both the
+platform drag and the in-window reposition gesture. A horizontal
+`ScrollDirection` uses the old `GridView.TopToBottom` flow with its edge scroll
+along X; other modes scroll along Y.
+
 ### Clipboard, properties, and new windows
 
 - Copy/Cut/Paste use a frontend clipboard holding a `ClipboardSnapshot`; Paste

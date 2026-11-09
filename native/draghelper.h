@@ -3,6 +3,7 @@
 
 #include <QImage>
 #include <QObject>
+#include <QPoint>
 #include <QPixmap>
 #include <QString>
 #include <QStringList>
@@ -24,6 +25,8 @@ public:
 	// URIs separated by newlines, for a multi-item selection handoff.
 	Q_INVOKABLE void startDragManyFromGrab(QObject *grab, const QString &uris);
 	Q_INVOKABLE bool isSource(const QString &path) const;
+	Q_INVOKABLE QPoint cursorPosition() const;
+	Q_INVOKABLE bool mousePressed() const;
 	Q_INVOKABLE void setSpringTarget(const QString &path);
 	Q_INVOKABLE void clearSpringTarget();
 

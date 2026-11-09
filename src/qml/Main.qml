@@ -32,6 +32,7 @@ ApplicationWindow {
 	property var dragPreviewData: null
 	property real dragCursorX: 0
 	property real dragCursorY: 0
+	property bool dragActive: false
 	property bool dragTooltipActive: false
 	property bool dragTooltipReposition: false
 	property string dragTooltipAction: "copy"
@@ -250,6 +251,7 @@ ApplicationWindow {
 		}
 
 		function onDragFinished() {
+			window.dragActive = false
 			if (window.dragPreviewActive)
 				return
 			window.dragTooltipActive = false
