@@ -17,7 +17,6 @@ RowLayout {
 	Component { id: pathBarComponent; PathBar {} }
 	Component { id: menuBarComponent; MenuBar {} }
 	Component { id: spacerComponent; Spacer {} }
-	Component { id: windowControlComponent; WindowControl {} }
 
 	Component.onCompleted: rebuild()
 	onLayoutStringChanged: rebuild()
@@ -42,6 +41,8 @@ RowLayout {
 				})
 				item.activated.connect(function () {
 					engine.window.activePane = pane
+					if (engine.window.headerPathBar)
+						engine.window.headerPathBar.stopEditing()
 				})
 				item.focusEdge.connect(function (direction) {
 					engine.window.switchPane(direction)
@@ -55,8 +56,6 @@ RowLayout {
 			item = menuBarComponent.createObject(engine, { "window": engine.window })
 		} else if (entry === "toolkit/Spacer") {
 			item = spacerComponent.createObject(engine, {})
-		} else if (entry === "toolkit/WindowControl") {
-			item = windowControlComponent.createObject(engine, { "window": engine.window })
 		}
 		if (item)
 			engine.created.push(item)

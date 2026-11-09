@@ -25,8 +25,21 @@ Rectangle {
 	visible: selectionBar.selectionActive
 	radius: 6
 	color: Kirigami.Theme.backgroundColor
-	border.width: 1
-	border.color: Kirigami.Theme.disabledTextColor
+
+	MouseArea {
+		anchors.fill: parent
+		acceptedButtons: Qt.AllButtons
+		onClicked: function (mouse) { mouse.accepted = true }
+		onPressed: function (mouse) { mouse.accepted = true }
+	}
+
+	Rectangle {
+		anchors.top: parent.top
+		anchors.left: parent.left
+		anchors.right: parent.right
+		height: 1
+		color: Qt.rgba(0, 0, 0, 0.18)
+	}
 
 	Behavior on height {
 		NumberAnimation {
@@ -81,6 +94,10 @@ Rectangle {
 			ToolTip.text: "Deselect"
 			ToolTip.visible: hovered
 			flat: true
+			onPressed: if (selectionBar.directory)
+				selectionBar.directory.play_sound("button-pressed")
+			onReleased: if (selectionBar.directory)
+				selectionBar.directory.play_sound("button-released")
 			onClicked: if (selectionBar.directory) selectionBar.directory.clear_selection()
 		}
 	}

@@ -28,23 +28,47 @@ ApplicationWindow {
 	property string testMiddleLayout: ""
 	property var panes: []
 	property Item activePane: null
+	// The directory whose config supplies the window layout. It stays put while
+	// a rebuild clears and recreates the panes, so the layout string does not
+	// flip to a default mid-rebuild and set off a rebuild loop.
+	property var layoutDirectory: leftDirectory
 	property bool dragPreviewActive: false
 	property var dragPreviewData: null
 	property real dragCursorX: 0
 	property real dragCursorY: 0
 	property bool dragActive: false
-	property bool dragGhostActive: false
-	property string dragGhostSource: ""
-	property var dragGhostGrab: null
-	property real dragGhostWidth: 0
-	property real dragGhostHeight: 0
 	property bool dragTooltipActive: false
 	property bool dragTooltipReposition: false
 	property string dragTooltipAction: "copy"
+	property string dismissedConfigError: ""
+
+	function updateWindowIcon() {
+		if (!window.currentDirectory)
+			return
+		DragHelper.setWindowIcon(window,
+			window.currentDirectory.window_icon())
+	}
+
+	function applyConfiguredScreen() {
+		if (!leftDirectory)
+			return
+		const wanted = String(leftDirectory.config.screen_name)
+		if (wanted.length === 0)
+			return
+		const screens = Qt.application.screens
+		for (let i = 0; i < screens.length; i++) {
+			if (String(screens[i].name) === wanted) {
+				window.screen = screens[i]
+				return
+			}
+		}
+	}
 
 	Component.onCompleted: {
+		window.updateWindowIcon()
+		window.applyConfiguredScreen()
 		if (leftDirectory && leftDirectory.config.maximized)
-			window.showMaximized()
+			Qt.callLater(function () { window.showFullScreen() })
 	}
 
 
@@ -62,6 +86,20 @@ ApplicationWindow {
 	function clearPanes() {
 		panes = []
 		activePane = null
+	}
+
+	onActivePaneChanged: {
+		if (activePane && activePane.directory) {
+			window.layoutDirectory = activePane.directory
+			window.updateWindowIcon()
+		}
+	}
+
+	Connections {
+		target: window.currentDirectory
+		ignoreUnknownSignals: true
+		function onPath_changed() { window.updateWindowIcon() }
+		function onRevision_changed() { window.updateWindowIcon() }
 	}
 
 	function registerPane(pane) {
@@ -112,6 +150,7 @@ ApplicationWindow {
 		const labels = {
 			"open": "Open",
 			"open-with": "Open With…",
+			"open-window": "Open in Window",
 			"navigate": "Navigate",
 			"go-up": "Go Up",
 			"refresh": "Refresh",
@@ -129,15 +168,55 @@ ApplicationWindow {
 			"delete": "Delete…",
 			"destroy": "Delete Permanently…",
 			"toggle": "Toggle",
+			"radio": "Select",
+			"number": "Set Values…",
+			"quit-active": "Quit",
+			"set-default-app": "Set Default Application",
 			"rotate-image": "Rotate Clockwise"
 		}
 		return labels[id] || id
 	}
 
 
+	Connections {
+		target: window.headerPathBar
+		function onLocationMenuRequested(anchor) {
+			if (window.activePane && window.activePane.openLocationMenuAt)
+				window.activePane.openLocationMenuAt(anchor)
+		}
+	}
+
+	Shortcut {
+		sequence: "F5"
+		onActivated: if (window.currentDirectory)
+			window.currentDirectory.invoke("refresh")
+	}
+
 	Shortcut {
 		sequence: "Ctrl+O"
 		onActivated: if (window.currentDirectory) window.currentDirectory.invoke("open")
+	}
+
+	Shortcut {
+		sequence: "Ctrl+N"
+		onActivated: {
+			if (!window.currentDirectory)
+				return
+			const path = window.currentDirectory.focused_path.length > 0
+				? window.currentDirectory.focused_path
+				: window.currentDirectory.path
+			window.currentDirectory.open_in_new_window(path)
+		}
+	}
+
+	Shortcut {
+		sequence: "Alt+Left"
+		onActivated: if (window.currentDirectory) window.currentDirectory.back()
+	}
+
+	Shortcut {
+		sequence: "Alt+Right"
+		onActivated: if (window.currentDirectory) window.currentDirectory.forward()
 	}
 
 	Shortcut {
@@ -150,6 +229,13 @@ ApplicationWindow {
 		anchors.fill: parent
 		spacing: 0
 
+		NativeMenuBar {
+			Layout.fillWidth: true
+			window: window
+			visible: window.currentDirectory
+				&& window.currentDirectory.config.native_menubar
+		}
+
 		Item {
 			Layout.fillWidth: true
 			Layout.preferredHeight: Math.max(48, Kirigami.Units.gridUnit * 3)
@@ -159,14 +245,52 @@ ApplicationWindow {
 				color: Kirigami.Theme.backgroundColor
 			}
 
+			DragHandler {
+				target: null
+				enabled: window.currentDirectory
+					&& !window.currentDirectory.config.native_titlebar
+				onActiveChanged: if (active) window.startSystemMove()
+			}
+
 			LayoutEngine {
 				id: headerLayout
 				anchors.fill: parent
 				role: "header"
 				window: window
-				layoutString: window.currentDirectory
-					? window.currentDirectory.config.header_layout
-					: '["toolkit/PathBar","toolkit/Spacer","toolkit/MenuBar","toolkit/WindowControl"]'
+				layoutString: window.layoutDirectory
+					? window.layoutDirectory.config.header_layout
+					: '["toolkit/PathBar","toolkit/Spacer","toolkit/MenuBar"]'
+			}
+		}
+
+		Rectangle {
+			visible: window.layoutDirectory
+				&& window.layoutDirectory.config.error.length > 0
+				&& window.layoutDirectory.config.error !== window.dismissedConfigError
+			Layout.fillWidth: true
+			Layout.preferredHeight: errorRow.implicitHeight
+				+ Kirigami.Units.largeSpacing * 2
+			color: Kirigami.Theme.negativeBackgroundColor
+
+			RowLayout {
+				id: errorRow
+				anchors.centerIn: parent
+				width: parent.width - Kirigami.Units.largeSpacing * 2
+				spacing: Kirigami.Units.largeSpacing
+
+				Label {
+					Layout.fillWidth: true
+					text: window.layoutDirectory
+						? window.layoutDirectory.config.error : ""
+					color: Kirigami.Theme.negativeTextColor
+					wrapMode: Text.WordWrap
+				}
+
+				ToolButton {
+					icon.name: "dialog-close"
+					onClicked: window.dismissedConfigError =
+						window.layoutDirectory.config.error
+				}
 			}
 		}
 
@@ -176,7 +300,7 @@ ApplicationWindow {
 			Layout.fillHeight: false
 			role: "top"
 			window: window
-			layoutString: window.currentDirectory ? window.currentDirectory.config.top_layout : "[]"
+			layoutString: window.layoutDirectory ? window.layoutDirectory.config.top_layout : "[]"
 		}
 
 		LayoutEngine {
@@ -187,7 +311,7 @@ ApplicationWindow {
 			window: window
 			layoutString: window.testMiddleLayout.length > 0
 				? window.testMiddleLayout
-				: (window.currentDirectory ? window.currentDirectory.config.middle_layout : '["./"]')
+				: (window.layoutDirectory ? window.layoutDirectory.config.middle_layout : '["./"]')
 		}
 
 		LayoutEngine {
@@ -196,7 +320,7 @@ ApplicationWindow {
 			Layout.fillHeight: false
 			role: "bottom"
 			window: window
-			layoutString: window.currentDirectory ? window.currentDirectory.config.bottom_layout : "[]"
+			layoutString: window.layoutDirectory ? window.layoutDirectory.config.bottom_layout : "[]"
 		}
 	}
 
@@ -248,24 +372,6 @@ ApplicationWindow {
 		previewData: window.dragPreviewData
 	}
 
-	// The shell's ghost stands in for the compositor's drag icon unless the
-	// folder asks for the native one, like the old ShellWindow ghost.
-	Image {
-		z: 9997
-		source: window.dragGhostSource
-		width: window.dragGhostWidth
-		height: window.dragGhostHeight
-		x: window.dragCursorX - width / 2
-		y: window.dragCursorY - height / 2
-		visible: window.dragGhostActive && source != "" && width > 0
-			&& (!(window.currentDirectory
-					&& window.currentDirectory.config.native_drag)
-				|| !DragHelper.platformDragPixmapSupported())
-		opacity: 0.9
-		enabled: false
-		fillMode: Image.PreserveAspectFit
-	}
-
 	Connections {
 		target: DragHelper
 
@@ -285,9 +391,6 @@ ApplicationWindow {
 
 		function onDragFinished() {
 			window.dragActive = false
-			window.dragGhostActive = false
-			window.dragGhostSource = ""
-			window.dragGhostGrab = null
 			if (window.dragPreviewActive)
 				return
 			window.dragTooltipActive = false

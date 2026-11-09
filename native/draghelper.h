@@ -29,13 +29,12 @@ public:
 	// True when target is a source itself or inside a dragged folder, which
 	// the old drop validator rejected before spring-loading into it.
 	Q_INVOKABLE bool isDropInvalid(const QString &target) const;
-	// X11 drag-pixmap windows need a compositor; without one the pixmap is
-	// painted black, so the frontend keeps the slot ghost instead.
-	Q_INVOKABLE bool platformDragPixmapSupported() const;
 	Q_INVOKABLE QPoint cursorPosition() const;
 	Q_INVOKABLE bool mousePressed() const;
 	Q_INVOKABLE void setSpringTarget(const QString &path);
 	Q_INVOKABLE void clearSpringTarget();
+	// Mirror the current folder's icon onto the native window.
+	Q_INVOKABLE void setWindowIcon(QObject *window, const QString &source);
 
 private:
 	void performDrag(const QStringList &uris, const QPixmap &pixmap);

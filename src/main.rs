@@ -11,9 +11,10 @@ use std::sync::Mutex;
 use hishell::platform::{AppCatalog, FreeDesktopApps};
 use hishell::{
 	ActionId, ActionRequest, AppId, ChangeSet, Command, Config, ConfigKey, ConfigValue,
-	CopyOptions, Direction, Effect, Engine, FocusCommand, FolderDelta, FolderMode, LaunchRequest,
-	Location, MenuKind, Metrics, NavigationPlan, NavigationRequest, Op, Overwrite, PaneId, Prompt, Target,
-	ViewRequest, ViewSpec, Viewport,
+	CopyOptions, Direction, Effect, Engine, FocusCommand, FolderDelta, FolderMode, HistoryCommand,
+	LaunchBlockReason, LaunchId, LaunchOutcome, LaunchRequest, Location, MenuKind, Metrics,
+	NavigationPlan, NavigationRequest, Op, Overwrite, PaneId, Prompt, Target, ViewRequest,
+	ViewSpec, Viewport,
 };
 use qtbridge::{
 	QApp, QListModel, QListModelBase, QModelItem, QmlObject, include_bytes_qml, qobject,
@@ -25,6 +26,13 @@ unsafe extern "C" {
 
 static CLIPBOARD: once_cell::sync::Lazy<Mutex<Option<hishell::ops::ClipboardSnapshot>>> =
 	once_cell::sync::Lazy::new(|| Mutex::new(None));
+
+// Config writes change Directory state under a mutable borrow, so the change
+// signal is posted to the event loop instead of emitted inline.
+fn notify_config(config: &Rc<RefCell<ConfigBridge>>) {
+	let handle = config.borrow().get_thread_handle();
+	handle.invoke_mut(|config: &mut ConfigBridge| config.notify());
+}
 
 #[derive(Default)]
 pub struct ConfigBridge {
@@ -38,8 +46,8 @@ pub struct ConfigBridge {
 	header_layout: String,
 	native_menubar: bool,
 	native_menus: bool,
-	native_drag: bool,
 	native_titlebar: bool,
+	error: String,
 	show_shortcuts: bool,
 	execution_wrapper: String,
 	screen: String,
@@ -87,12 +95,12 @@ impl ConfigBridge {
 	qproperty!("header_layout", Member = header_layout, Notify = changed);
 	qproperty!("native_menubar", Member = native_menubar, Notify = changed);
 	qproperty!("native_menus", Member = native_menus, Notify = changed);
-	qproperty!("native_drag", Member = native_drag, Notify = changed);
 	qproperty!(
 		"native_titlebar",
 		Member = native_titlebar,
 		Notify = changed
 	);
+	qproperty!("error", Member = error, Notify = changed);
 	qproperty!("show_shortcuts", Member = show_shortcuts, Notify = changed);
 	qproperty!(
 		"executionWrapper",
@@ -211,6 +219,14 @@ impl ConfigBridge {
 		}
 	}
 
+	fn set_error(&mut self, error: String) {
+		if self.error != error {
+			self.error = error;
+			self.changed_revision += 1;
+			self.changed();
+		}
+	}
+
 	fn apply_value(&mut self, key: ConfigKey, value: &ConfigValue) {
 		match (key, value) {
 			(ConfigKey::Title, ConfigValue::Str(value)) => self.title = value.clone(),
@@ -223,7 +239,6 @@ impl ConfigBridge {
 			(ConfigKey::Header, ConfigValue::Json(value)) => self.header_layout = value.clone(),
 			(ConfigKey::NativeMenuBar, ConfigValue::Bool(value)) => self.native_menubar = *value,
 			(ConfigKey::NativeMenus, ConfigValue::Bool(value)) => self.native_menus = *value,
-			(ConfigKey::NativeDrag, ConfigValue::Bool(value)) => self.native_drag = *value,
 			(ConfigKey::NativeTitleBar, ConfigValue::Bool(value)) => self.native_titlebar = *value,
 			(ConfigKey::ShowShortcuts, ConfigValue::Bool(value)) => self.show_shortcuts = *value,
 			(ConfigKey::ExecutionWrapper, ConfigValue::Str(value)) => {
@@ -354,7 +369,6 @@ impl ConfigBridge {
 			ConfigKey::Maximized => self.maximized,
 			ConfigKey::NativeMenuBar => self.native_menubar,
 			ConfigKey::NativeMenus => self.native_menus,
-			ConfigKey::NativeDrag => self.native_drag,
 			ConfigKey::NativeTitleBar => self.native_titlebar,
 			ConfigKey::ShowShortcuts => self.show_shortcuts,
 			ConfigKey::ListHeader => self.list_header,
@@ -399,21 +413,29 @@ fn supported_action(id: &str) -> bool {
 			| "select-all"
 			| "new-folder"
 			| "new-text-file"
-			| "copy" | "cut" | "paste"
-			| "properties"
+			| "copy" | "cut"
+			| "paste" | "properties"
 			| "duplicate"
 			| "create-link"
 			| "rename"
 			| "trash" | "destroy"
-			| "toggle"
+			| "toggle" | "number" | "radio"
 			| "rotate-image"
+			| "quit-active"
+			| "set-default-app"
 	)
 }
 
 fn transition_json(plan: &NavigationPlan) -> String {
+	let anchor = plan
+		.close
+		.iter()
+		.chain(plan.open.iter())
+		.find_map(|step| step.anchor.as_ref());
 	serde_json::json!({
 		"from": plan.from.to_string_lossy(),
 		"to": plan.to.to_string_lossy(),
+		"anchor": anchor.map(|path| path.to_string_lossy()),
 		"relation": serde_json::to_value(&plan.relation).unwrap_or(serde_json::Value::Null),
 		"animated": plan.animated,
 		"close": plan.close.len(),
@@ -469,6 +491,10 @@ fn target_kind(name: &str) -> Option<Target> {
 	}
 }
 
+fn rename_status(ok: bool, error: &str) -> String {
+	serde_json::json!({ "ok": ok, "error": error }).to_string()
+}
+
 fn key_from_qml(name: &str) -> Option<ConfigKey> {
 	// Menus use the config file's own key names (GridMode, ShowLabels, …).
 	if let Some(key) = ConfigKey::ALL.iter().find(|key| key.name() == name) {
@@ -485,7 +511,6 @@ fn key_from_qml(name: &str) -> Option<ConfigKey> {
 		"header_layout" | "header" => Some(ConfigKey::Header),
 		"native_menubar" => Some(ConfigKey::NativeMenuBar),
 		"native_menus" => Some(ConfigKey::NativeMenus),
-		"native_drag" | "nativeDrag" => Some(ConfigKey::NativeDrag),
 		"native_titlebar" => Some(ConfigKey::NativeTitleBar),
 		"show_shortcuts" => Some(ConfigKey::ShowShortcuts),
 		"execution_wrapper" | "executionWrapper" => Some(ConfigKey::ExecutionWrapper),
@@ -687,6 +712,14 @@ impl Directory {
 		};
 		let outcome = engine.dispatch(Command::Reload).ok();
 		self.config.borrow_mut().apply(engine.config());
+		notify_config(&self.config);
+		let error = engine
+			.diagnostics()
+			.iter()
+			.map(|diagnostic| diagnostic.message.clone())
+			.collect::<Vec<_>>()
+			.join("\n");
+		self.config.borrow_mut().set_error(error);
 		let rows = rows_after(engine, outcome.as_ref().map(|outcome| &outcome.changes));
 		self.set_rows(rows);
 	}
@@ -712,7 +745,9 @@ impl Directory {
 				engine.focus().and_then(|id| engine.item(id)).map(|item| {
 					(
 						item.path.to_string_lossy().into_owned(),
-						item.mime.as_deref().is_some_and(|mime| mime.starts_with("image/")),
+						item.mime
+							.as_deref()
+							.is_some_and(|mime| mime.starts_with("image/")),
 						item.fs_kind == hishell::FsKind::Directory,
 					)
 				})
@@ -770,6 +805,14 @@ impl Directory {
 			|| Path::new(&self.path).join(".cfg").is_file();
 		save_session(&self.path);
 		self.config.borrow_mut().apply(engine.config());
+		notify_config(&self.config);
+		let error = engine
+			.diagnostics()
+			.iter()
+			.map(|diagnostic| diagnostic.message.clone())
+			.collect::<Vec<_>>()
+			.join("\n");
+		self.config.borrow_mut().set_error(error);
 		self.filter.clear();
 		self.set_rows(rows_after(engine, None));
 		self.filter_changed();
@@ -872,6 +915,19 @@ impl Directory {
 		true
 	}
 
+	fn item_title(&self, path: &str) -> String {
+		self.engine
+			.as_ref()
+			.and_then(|engine| engine.item_at(Path::new(path)))
+			.map(|item| item.title.clone())
+			.unwrap_or_else(|| {
+				Path::new(path)
+					.file_stem()
+					.map(|stem| stem.to_string_lossy().into_owned())
+					.unwrap_or_else(|| path.to_string())
+			})
+	}
+
 	fn selection_id(&self, path: &str) -> Option<hishell::ItemId> {
 		let engine = self.engine.as_ref()?;
 		engine.item_at(Path::new(path)).map(|item| item.id)
@@ -895,7 +951,7 @@ impl Default for Directory {
 
 #[qobject(Base = QListModel)]
 impl Directory {
-	qproperty!("config", Member = config);
+	qproperty!("config", Member = config, Constant);
 	qproperty!("path", Member = path, Notify = path_changed);
 	qproperty!("revision", Member = revision, Notify = revision_changed);
 	qproperty!(
@@ -919,11 +975,7 @@ impl Directory {
 		Notify = active_changed
 	);
 	qproperty!("filter", Member = filter, Notify = filter_changed);
-	qproperty!(
-		"matchCount",
-		Member = match_count,
-		Notify = filter_changed
-	);
+	qproperty!("matchCount", Member = match_count, Notify = filter_changed);
 	qproperty!("itemCount", Member = visible_count, Notify = filter_changed);
 	qproperty!(
 		"focusIsImage",
@@ -945,16 +997,8 @@ impl Directory {
 		Member = focus_on_empty,
 		Notify = focus_changed
 	);
-	qproperty!(
-		"focusColumn",
-		Member = focus_column,
-		Notify = focus_changed
-	);
-	qproperty!(
-		"focusRow",
-		Member = focus_row,
-		Notify = focus_changed
-	);
+	qproperty!("focusColumn", Member = focus_column, Notify = focus_changed);
+	qproperty!("focusRow", Member = focus_row, Notify = focus_changed);
 	qproperty!(
 		"focusRevision",
 		Member = focus_revision,
@@ -981,6 +1025,20 @@ impl Directory {
 
 	#[qsignal]
 	fn open_with_requested(&mut self, path: String);
+
+	#[qsignal]
+	fn number_requested(&mut self, path: String);
+
+	#[qsignal]
+	fn launch_confirm_requested(
+		&mut self,
+		launch_id: i32,
+		blocked_item: String,
+		launch_item: String,
+	);
+
+	#[qsignal]
+	fn launch_failed(&mut self, reason: String);
 
 	#[qsignal]
 	fn transition_requested(&mut self, plan_json: String);
@@ -1096,6 +1154,7 @@ impl Directory {
 			Err(_) => return false,
 		};
 		self.config.borrow_mut().apply(engine.config());
+		notify_config(&self.config);
 		let rows = rows_after(engine, Some(&outcome.changes));
 		self.set_rows(rows);
 		self.read_selection();
@@ -1144,10 +1203,7 @@ impl Directory {
 		if paths.is_empty() {
 			return false;
 		}
-		*CLIPBOARD.lock().unwrap() = Some(hishell::ops::ClipboardSnapshot {
-			paths,
-			cut: false,
-		});
+		*CLIPBOARD.lock().unwrap() = Some(hishell::ops::ClipboardSnapshot { paths, cut: false });
 		true
 	}
 
@@ -1157,10 +1213,7 @@ impl Directory {
 		if paths.is_empty() {
 			return false;
 		}
-		*CLIPBOARD.lock().unwrap() = Some(hishell::ops::ClipboardSnapshot {
-			paths,
-			cut: true,
-		});
+		*CLIPBOARD.lock().unwrap() = Some(hishell::ops::ClipboardSnapshot { paths, cut: true });
 		true
 	}
 
@@ -1221,13 +1274,18 @@ impl Directory {
 	#[qslot]
 	fn open_in_new_window(&self, path: String) -> bool {
 		let path = PathBuf::from(path);
-		let target = if path.is_dir() { path } else {
+		let target = if path.is_dir() {
+			path
+		} else {
 			path.parent().map(Path::to_path_buf).unwrap_or(path)
 		};
 		let Ok(executable) = std::env::current_exe() else {
 			return false;
 		};
-		std::process::Command::new(executable).arg(target).spawn().is_ok()
+		std::process::Command::new(executable)
+			.arg(target)
+			.spawn()
+			.is_ok()
 	}
 
 	#[qslot]
@@ -1235,11 +1293,11 @@ impl Directory {
 		let Some(engine) = self.engine.as_mut() else {
 			return false;
 		};
-		let Ok(outcome) = engine.dispatch(Command::SetFreePosition { name, column, row })
-		else {
+		let Ok(outcome) = engine.dispatch(Command::SetFreePosition { name, column, row }) else {
 			return false;
 		};
 		self.config.borrow_mut().apply(engine.config());
+		notify_config(&self.config);
 		let rows = rows_after(engine, Some(&outcome.changes));
 		self.set_rows(rows);
 		self.read_selection();
@@ -1252,8 +1310,7 @@ impl Directory {
 
 	#[qslot]
 	fn set_free_positions(&mut self, json: String) -> bool {
-		let Ok(map) =
-			serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&json)
+		let Ok(map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&json)
 		else {
 			return false;
 		};
@@ -1272,11 +1329,11 @@ impl Directory {
 		let Some(engine) = self.engine.as_mut() else {
 			return false;
 		};
-		let Ok(outcome) = engine.dispatch(Command::SetFreePositions { positions })
-		else {
+		let Ok(outcome) = engine.dispatch(Command::SetFreePositions { positions }) else {
 			return false;
 		};
 		self.config.borrow_mut().apply(engine.config());
+		notify_config(&self.config);
 		let rows = rows_after(engine, Some(&outcome.changes));
 		self.set_rows(rows);
 		self.read_selection();
@@ -1296,6 +1353,7 @@ impl Directory {
 			return false;
 		};
 		self.config.borrow_mut().apply(engine.config());
+		notify_config(&self.config);
 		let rows = rows_after(engine, Some(&outcome.changes));
 		self.set_rows(rows);
 		self.reset();
@@ -1353,6 +1411,312 @@ impl Directory {
 			.unwrap_or(-1)
 	}
 
+	fn rename_suggested(&self, path: &str, fallback: String) -> String {
+		let Some(entry) = self.entry_for(path) else {
+			return fallback;
+		};
+		if entry.is_rename_only() {
+			entry.name.unwrap_or(fallback)
+		} else {
+			Path::new(path)
+				.file_name()
+				.map(|name| name.to_string_lossy().into_owned())
+				.unwrap_or(fallback)
+		}
+	}
+
+	fn entry_for(&self, path: &str) -> Option<hishell::entry::Entry> {
+		let path = Path::new(path);
+		let kind = if path.is_dir() {
+			hishell::FsKind::Directory
+		} else {
+			hishell::FsKind::File
+		};
+		hishell::entry::Entry::read(path, kind)
+	}
+
+	fn section_entry(&self, path: &str) -> Option<hishell::entry::Entry> {
+		let path = Path::new(path);
+		let section = if path.is_dir() {
+			path
+		} else {
+			path.parent()?
+		};
+		hishell::entry::Entry::read(&section.join(".directory"), hishell::FsKind::Directory)
+	}
+
+	#[qslot]
+	fn is_rename_only(&self, path: String) -> bool {
+		self.entry_for(&path)
+			.is_some_and(|entry| entry.is_rename_only())
+	}
+
+	#[qslot]
+	fn rename_result(&mut self, path: String, new_name: String) -> String {
+		let name = new_name.trim().to_string();
+		if name.is_empty() {
+			return rename_status(false, "Name cannot be empty.");
+		}
+		if name.contains('/') {
+			return rename_status(false, "A name cannot contain \"/\".");
+		}
+		if let Some(entry) = self.entry_for(&path) {
+			if entry.generated {
+				if entry.rename.is_none() {
+					return rename_status(
+						false,
+						"This item belongs to the system and cannot be renamed.",
+					);
+				}
+				let args = match entry.rename_args(&name) {
+					Ok(args) => args,
+					Err(error) => return rename_status(false, &error),
+				};
+				let Some(program) = args.first() else {
+					return rename_status(false, "The Rename command is empty.");
+				};
+				let mut command = std::process::Command::new(program);
+				command.args(&args[1..]);
+				if let Some(parent) = Path::new(&path).parent() {
+					command.current_dir(parent);
+				}
+				command.env("HISHELL_APP_ITEM", &path);
+				command.env(
+					"HISHELL_APP_NAME",
+					entry.name.as_deref().unwrap_or_default(),
+				);
+				return match command.output() {
+					Ok(output) if output.status.success() => {
+						self.schedule_refresh(350);
+						rename_status(true, "")
+					}
+					Ok(output) => {
+						let stderr = String::from_utf8_lossy(&output.stderr);
+						let message = stderr.trim();
+						rename_status(
+							false,
+							if message.is_empty() {
+								"Rename failed."
+							} else {
+								message
+							},
+						)
+					}
+					Err(error) => {
+						rename_status(false, &format!("Could not run Rename: {error}"))
+					}
+				};
+			}
+		}
+		let target = Path::new(&path);
+		let dest = target
+			.parent()
+			.map(|parent| parent.join(&name))
+			.unwrap_or_else(|| PathBuf::from(&name));
+		if dest.exists() && dest != target {
+			return rename_status(false, "A file with that name already exists.");
+		}
+		if self.rename(path, name) {
+			rename_status(true, "")
+		} else {
+			rename_status(false, "Rename failed.")
+		}
+	}
+
+	#[qslot]
+	fn destroy_options(&self, path: String) -> String {
+		let item = self.entry_for(&path);
+		let section = self.section_entry(&path);
+		let unmount = hishell::descriptor::lookup(Path::new(&path))
+			.and_then(|descriptor| descriptor.unmount)
+			.is_some();
+		let destroy = !unmount
+			&& item
+				.as_ref()
+				.map(|entry| entry.is_destroyable())
+				.unwrap_or(true);
+		let reset = !unmount
+			&& section
+				.as_ref()
+				.is_some_and(|entry| entry.reset.is_some());
+		let generated = Path::new(&path).is_dir()
+			&& item.as_ref().is_some_and(|entry| entry.generated);
+		let title = self.item_title(&path);
+		serde_json::json!({
+			"destroy": destroy,
+			"reset": reset,
+			"unmount": unmount,
+			"section": generated,
+			"title": title,
+			"path": path,
+		})
+		.to_string()
+	}
+
+	fn hook_spawn(
+		&self,
+		args: &[String],
+		item: &str,
+		name: &str,
+		cwd: &Path,
+	) -> bool {
+		let Some(program) = args.first() else {
+			return false;
+		};
+		let mut command = std::process::Command::new(program);
+		command.args(&args[1..]);
+		command.current_dir(cwd);
+		command.env("HISHELL_APP_ITEM", item);
+		command.env("HISHELL_APP_NAME", name);
+		command.spawn().is_ok()
+	}
+
+	#[qslot]
+	fn reset_path(&mut self, path: String) -> bool {
+		let Some(entry) = self.section_entry(&path) else {
+			return false;
+		};
+		let args = match entry.reset_args() {
+			Ok(args) => args,
+			Err(_) => return false,
+		};
+		let section = {
+			let path = Path::new(&path);
+			if path.is_dir() {
+				path.to_path_buf()
+			} else {
+				match path.parent() {
+					Some(parent) => parent.to_path_buf(),
+					None => return false,
+				}
+			}
+		};
+		let started = self.hook_spawn(
+			&args,
+			&section.join(".directory").to_string_lossy(),
+			entry.name.as_deref().unwrap_or_default(),
+			&section,
+		);
+		if started {
+			self.schedule_refresh(350);
+		}
+		started
+	}
+
+	#[qslot]
+	fn unmount_path(&mut self, path: String) -> bool {
+		let pathbuf = PathBuf::from(&path);
+		let Some(descriptor) = hishell::descriptor::lookup(&pathbuf) else {
+			return false;
+		};
+		let args = match descriptor.unmount_args(&pathbuf) {
+			Ok(args) => args,
+			Err(_) => return false,
+		};
+		let name = descriptor.name.clone().unwrap_or_else(|| {
+			pathbuf
+				.file_name()
+				.map(|name| name.to_string_lossy().into_owned())
+				.unwrap_or_default()
+		});
+		let parent = pathbuf.parent().unwrap_or(Path::new("."));
+		let started = self.hook_spawn(&args, &path, &name, parent);
+		if started {
+			self.schedule_refresh(350);
+		}
+		started
+	}
+
+	fn run_refresh_hook(&self) {
+		let section = Path::new(&self.path).join(".directory");
+		let Some(entry) =
+			hishell::entry::Entry::read(&section, hishell::FsKind::Directory)
+		else {
+			return;
+		};
+		let Ok(args) = entry.refresh_args() else {
+			return;
+		};
+		let _ = self.hook_spawn(
+			&args,
+			&section.to_string_lossy(),
+			entry.name.as_deref().unwrap_or_default(),
+			Path::new(&self.path),
+		);
+	}
+
+	#[qslot]
+	fn is_radio_member(&self, path: String) -> bool {
+		self.engine
+			.as_ref()
+			.is_some_and(|engine| engine.is_radio_member(Path::new(&path)))
+	}
+
+	#[qslot]
+	fn control_kind(&self, path: String) -> i32 {
+		self.rows
+			.iter()
+			.find(|row| row.path == path)
+			.map(|row| row.control_kind)
+			.unwrap_or(0)
+	}
+
+	#[qslot]
+	fn number_spec(&self, path: String) -> String {
+		let entry = hishell::entry::Entry::read(Path::new(&path), hishell::FsKind::File);
+		let Some(entry) = entry else {
+			return String::from("{\"ok\":false,\"fields\":[]}");
+		};
+		let fields: Vec<serde_json::Value> = entry
+			.number_fields
+			.iter()
+			.map(|field| {
+				serde_json::json!({
+					"label": field.label,
+					"value": field.value,
+					"min": field.min,
+					"max": field.max,
+					"default": field.default,
+				})
+			})
+			.collect();
+		serde_json::json!({
+			"ok": !fields.is_empty(),
+			"fields": fields,
+		})
+		.to_string()
+	}
+
+	#[qslot]
+	fn run_number(&mut self, path: String, values: String) -> bool {
+		let values: Vec<i64> = values
+			.split(|character: char| character == ',' || character.is_whitespace())
+			.filter(|value| !value.is_empty())
+			.filter_map(|value| value.parse().ok())
+			.collect();
+		if values.is_empty() {
+			return false;
+		}
+		let written = self.run_op(Op::Number {
+			path: PathBuf::from(path.clone()),
+			values: values.clone(),
+		});
+		if written
+			&& let Some(engine) = self.engine.as_mut()
+		{
+			// Providers own the stored values; the dialog passes them through
+			// `%1`, `%2`, … so the provider can update the entry.
+			let _ = engine.dispatch(Command::Launch(LaunchRequest::Control {
+				path: PathBuf::from(path),
+				values,
+			}));
+		}
+		if written {
+			self.schedule_refresh(350);
+		}
+		written
+	}
+
 	#[qslot]
 	fn focus_path(&mut self, path: String) {
 		let Some(engine) = self.engine.as_mut() else {
@@ -1403,8 +1767,7 @@ impl Directory {
 			engine.focus_state().cursor(),
 		);
 		self.read_focus();
-		(before != after || before_empty != after_empty)
-			&& outcome.changes.focus.is_some()
+		(before != after || before_empty != after_empty) && outcome.changes.focus.is_some()
 	}
 
 	#[qslot]
@@ -1433,6 +1796,19 @@ impl Directory {
 	}
 
 	#[qslot]
+	fn navigate_step(&mut self, path: String, record_history: bool) -> bool {
+		let target = PathBuf::from(&path);
+		if !target.is_dir() {
+			return false;
+		}
+		self.navigate_command(Command::Navigate(NavigationRequest {
+			pane: PaneId(0),
+			target,
+			record_history,
+		}))
+	}
+
+	#[qslot]
 	fn open(&mut self, path: String) {
 		if Path::new(&path).is_dir() {
 			let _ = self.navigate(path);
@@ -1448,6 +1824,32 @@ impl Directory {
 	}
 
 	#[qslot]
+	fn back(&mut self) -> bool {
+		self.navigate_command(Command::History(HistoryCommand::Back))
+	}
+
+	#[qslot]
+	fn forward(&mut self) -> bool {
+		self.navigate_command(Command::History(HistoryCommand::Forward))
+	}
+
+	#[qslot]
+	fn can_go_back(&self) -> bool {
+		self.engine
+			.as_ref()
+			.map(|engine| engine.history().can_back)
+			.unwrap_or(false)
+	}
+
+	#[qslot]
+	fn can_go_forward(&self) -> bool {
+		self.engine
+			.as_ref()
+			.map(|engine| engine.history().can_forward)
+			.unwrap_or(false)
+	}
+
+	#[qslot]
 	fn actions_json(&self, menu: String, target: String) -> String {
 		let Some(engine) = &self.engine else {
 			return String::from("[]");
@@ -1460,6 +1862,17 @@ impl Directory {
 		};
 		let mut actions = engine.actions(&ActionRequest { menu, target });
 		actions.retain(|spec| supported_action(spec.id.as_str()));
+		let focus_path = engine
+			.focus()
+			.and_then(|id| engine.item(id))
+			.map(|item| item.path.to_string_lossy().into_owned());
+		if let Some(path) = focus_path
+			&& let Some(entry) = self.entry_for(&path)
+			&& entry.generated
+			&& entry.rename.is_none()
+		{
+			actions.retain(|spec| spec.id != ActionId::RENAME);
+		}
 		// Trash is the normal action; permanent deletion only appears when
 		// there is no working trash action for the target.
 		let trash_available = actions
@@ -1498,6 +1911,10 @@ impl Directory {
 		let Some(action) = ActionId::from_str(&id) else {
 			return String::from("{}");
 		};
+		let launch_item = self.focused_path.clone();
+		if action == ActionId::REFRESH {
+			self.run_refresh_hook();
+		}
 		if action == ActionId::COPY {
 			self.copy_selection();
 			return String::from("{}");
@@ -1529,7 +1946,9 @@ impl Directory {
 						.file_name()
 						.map(|name| name.to_string_lossy().into_owned())
 						.unwrap_or_default();
-					self.rename_requested(path.to_string_lossy().into_owned(), suggested);
+					let path = path.to_string_lossy().into_owned();
+					let suggested = self.rename_suggested(&path, suggested);
+					self.rename_requested(path, suggested);
 				}
 			} else if action == ActionId::OPEN_WITH {
 				if let Some(path) = paths.first() {
@@ -1556,6 +1975,7 @@ impl Directory {
 		let job = outcome.job.is_some();
 		self.path = engine.location().path().to_string_lossy().into_owned();
 		self.config.borrow_mut().apply(engine.config());
+		notify_config(&self.config);
 		let rows = rows_after(engine, Some(&outcome.changes));
 		self.set_rows(rows);
 		self.read_selection();
@@ -1569,10 +1989,33 @@ impl Directory {
 		for effect in outcome.effects {
 			match effect {
 				Effect::Prompt(Prompt::Rename { path, suggested }) => {
-					self.rename_requested(path.to_string_lossy().into_owned(), suggested);
+					let path = path.to_string_lossy().into_owned();
+					let suggested = self.rename_suggested(&path, suggested);
+					self.rename_requested(path, suggested);
 				}
 				Effect::Prompt(Prompt::OpenWith { path }) => {
 					self.open_with_requested(path.to_string_lossy().into_owned());
+				}
+				Effect::Prompt(Prompt::Number { path }) => {
+					self.number_requested(path.to_string_lossy().into_owned());
+				}
+				Effect::Launch(LaunchOutcome::NeedsConfirmation { id, warning }) => {
+					self.launch_confirm_requested(
+						id.0 as i32,
+						self.item_title(&warning.item.to_string_lossy()),
+						self.item_title(&launch_item),
+					);
+				}
+				Effect::Launch(LaunchOutcome::Blocked { reason }) => {
+					self.launch_failed(match reason {
+						LaunchBlockReason::MissingExec => {
+							String::from("This item has no Exec command.")
+						}
+						LaunchBlockReason::NotExecutable => {
+							String::from("This item is not executable.")
+						}
+						LaunchBlockReason::Unsupported(reason) => reason,
+					});
 				}
 				Effect::Prompt(Prompt::Destroy { paths }) => {
 					let paths: Vec<String> = paths
@@ -1587,7 +2030,13 @@ impl Directory {
 				_ => {}
 			}
 		}
-		if job {
+		// Providers rewrite toggle and number entries after their command
+		// returns, so re-read the folder once it has settled.
+		if job
+			|| action == ActionId::TOGGLE
+			|| action == ActionId::NUMBER
+			|| action == ActionId::RADIO
+		{
 			self.schedule_refresh(250);
 		}
 		serde_json::json!({
@@ -1598,11 +2047,73 @@ impl Directory {
 	}
 
 	#[qslot]
+	fn confirm_launch(&mut self, launch_id: i32) -> bool {
+		let Some(engine) = self.engine.as_mut() else {
+			return false;
+		};
+		engine
+			.dispatch(Command::ConfirmLaunch(LaunchId(launch_id as u64)))
+			.is_ok()
+	}
+
+	#[qslot]
+	fn cancel_launch(&mut self, launch_id: i32) {
+		if let Some(engine) = self.engine.as_mut() {
+			let _ = engine.dispatch(Command::CancelLaunch(LaunchId(launch_id as u64)));
+		}
+	}
+
+	#[qslot]
 	fn rename(&mut self, path: String, new_name: String) -> bool {
 		self.run_op(Op::Rename {
 			path: PathBuf::from(path),
 			new_name,
 		})
+	}
+
+	#[qslot]
+	fn destroy_paths(&mut self, paths_json: String, permanent: bool) -> bool {
+		let paths: Vec<String> = serde_json::from_str::<Vec<String>>(&paths_json)
+			.unwrap_or_default();
+		let mut changed = false;
+		let mut ordinary: Vec<String> = Vec::new();
+		for path in paths {
+			let Some(entry) = self.entry_for(&path) else {
+				ordinary.push(path);
+				continue;
+			};
+			if !entry.is_destroyable() {
+				// The caller should have offered Reset/Unmount instead.
+				continue;
+			}
+			if entry.destroy.is_some() {
+				let args = match entry.destroy_args() {
+					Ok(args) => args,
+					Err(_) => continue,
+				};
+				let pathbuf = Path::new(&path);
+				let parent = pathbuf.parent().unwrap_or(Path::new("."));
+				if self.hook_spawn(
+					&args,
+					&path,
+					entry.name.as_deref().unwrap_or_default(),
+					parent,
+				) {
+					changed = true;
+				}
+				continue;
+			}
+			ordinary.push(path);
+		}
+		for path in ordinary {
+			let json = serde_json::to_string(&[path])
+				.unwrap_or_else(|_| String::from("[]"));
+			changed |= self.trash(json, permanent);
+		}
+		if changed {
+			self.schedule_refresh(350);
+		}
+		changed
 	}
 
 	#[qslot]
@@ -1855,68 +2366,110 @@ impl Directory {
 		let json = {
 			let engine = self.engine.as_ref().unwrap();
 			match &view_spec {
-			ViewSpec::Folder(view) => match &view.mode {
-				FolderMode::Grid(grid) => serde_json::json!({
-					"mode": "grid",
-					"lines": grid.lines,
-					"count": view.slots.len(),
-					"icon_size": grid.icon_size,
-					"cell_width": grid.cell.width,
-					"cell_height": grid.cell.height,
-					"gap": grid.gap,
-					"horizontal": grid.horizontal,
-					"grouped": !view.headers.is_empty(),
-					"headers": view.headers.iter().map(|header| serde_json::json!({
-						"title": header.title,
-						"x": header.rect.x,
-						"y": header.rect.y,
-						"width": header.rect.width,
-						"height": header.rect.height,
-					})).collect::<Vec<_>>(),
-					"revision": view.revision,
-					"free": view.sort.key == hishell::view::SortKey::Free,
-					"slots": view.slots.iter().filter_map(|slot| {
-						engine.item(slot.item).map(|item| serde_json::json!({
-							"path": item.path.to_string_lossy(),
-							"name": item.name,
-							"title": item.title,
-							"icon": match &item.icon {
-								hishell::IconRef::Theme(name) => name.clone(),
-								hishell::IconRef::Path(path) => format!("file://{}", path.to_string_lossy()),
-							},
-							"is_image": item.mime.as_deref().is_some_and(|mime| mime.starts_with("image/")),
-							"is_directory": item.fs_kind == hishell::FsKind::Directory,
-							"is_symlink": item.is_symlink,
-							"control_kind": match item.kind {
-								hishell::ItemKind::Button => 1,
-								hishell::ItemKind::Toggle if item.toggle_on => 3,
-								hishell::ItemKind::Toggle => 2,
-								hishell::ItemKind::Number => 4,
-								_ => 0,
-							},
-							"number_value": item.number_value,
-							"x": slot.rect.x,
-							"y": slot.rect.y,
-							"width": slot.rect.width,
-							"height": slot.rect.height,
-						}))
-					}).collect::<Vec<_>>(),
-				})
-				.to_string(),
-				FolderMode::List(list) => serde_json::json!({
-					"mode": "list",
-					"columns": list.columns.iter().map(|column| column.as_key()).collect::<Vec<_>>(),
-					"header": list.header,
-					"grouped": !view.headers.is_empty(),
-					"revision": view.revision,
-				})
-				.to_string(),
-			},
-			ViewSpec::File(_) => String::from("{}"),
+				ViewSpec::Folder(view) => match &view.mode {
+					FolderMode::Grid(grid) => serde_json::json!({
+						"mode": "grid",
+						"lines": grid.lines,
+						"count": view.slots.len(),
+						"icon_size": grid.icon_size,
+						"cell_width": grid.cell.width,
+						"cell_height": grid.cell.height,
+						"gap": grid.gap,
+						"horizontal": grid.horizontal,
+						"grouped": !view.headers.is_empty(),
+						"headers": view.headers.iter().map(|header| serde_json::json!({
+							"title": header.title,
+							"x": header.rect.x,
+							"y": header.rect.y,
+							"width": header.rect.width,
+							"height": header.rect.height,
+						})).collect::<Vec<_>>(),
+						"revision": view.revision,
+						"free": view.sort.key == hishell::view::SortKey::Free,
+						"slots": view.slots.iter().filter_map(|slot| {
+							engine.item(slot.item).map(|item| serde_json::json!({
+								"path": item.path.to_string_lossy(),
+								"name": item.name,
+								"title": item.title,
+								"icon": match &item.icon {
+									hishell::IconRef::Theme(name) => name.clone(),
+									hishell::IconRef::Path(path) => format!("file://{}", path.to_string_lossy()),
+								},
+								"is_image": item.mime.as_deref().is_some_and(|mime| mime.starts_with("image/")),
+								"is_directory": item.fs_kind == hishell::FsKind::Directory,
+								"is_symlink": item.is_symlink,
+								"control_kind": match item.kind {
+									hishell::ItemKind::Button => 1,
+									hishell::ItemKind::Toggle if item.toggle_on => 3,
+									hishell::ItemKind::Toggle => 2,
+									hishell::ItemKind::Number => 4,
+									_ => 0,
+								},
+								"number_value": item.number_value,
+								"x": slot.rect.x,
+								"y": slot.rect.y,
+								"width": slot.rect.width,
+								"height": slot.rect.height,
+							}))
+						}).collect::<Vec<_>>(),
+					})
+					.to_string(),
+					FolderMode::List(list) => serde_json::json!({
+						"mode": "list",
+						"columns": list.columns.iter().map(|column| column.as_key()).collect::<Vec<_>>(),
+						"header": list.header,
+						"grouped": !view.headers.is_empty(),
+						"revision": view.revision,
+					})
+					.to_string(),
+				},
+				ViewSpec::File(_) => String::from("{}"),
 			}
 		};
 		self.sync_focus_layout(&view_spec);
 		json
+	}
+
+	#[qslot]
+	fn is_directory(&self, path: String) -> bool {
+		Path::new(&path).is_dir()
+	}
+
+	#[qslot]
+	fn play_sound(&self, event: String) {
+		let event = event.trim().to_string();
+		if event.is_empty() {
+			return;
+		}
+		std::thread::spawn(move || {
+			let _ = std::process::Command::new("canberra-gtk-play")
+				.arg("--id")
+				.arg(event)
+				.stdout(std::process::Stdio::null())
+				.stderr(std::process::Stdio::null())
+				.status();
+		});
+	}
+
+	#[qslot]
+	fn window_icon(&self) -> String {
+		let configured = self.config.borrow().icon.clone();
+		if configured.is_empty() {
+			return String::from("folder");
+		}
+		if configured.starts_with('/') {
+			return format!("file://{configured}");
+		}
+		configured
+	}
+
+	#[qslot]
+	fn comment(&self, path: String) -> String {
+		self.engine
+			.as_ref()
+			.and_then(|engine| engine.item_at(Path::new(&path)))
+			.map(|item| item.comment.clone())
+			.unwrap_or_default()
 	}
 
 	#[qslot]
@@ -2053,6 +2606,7 @@ fn percent_decode(input: &str) -> String {
 }
 
 fn initial_path(argument: Option<String>) -> PathBuf {
+	let explicit = argument.is_some();
 	let mut argument = argument.unwrap_or_else(|| String::from("."));
 	if let Some(rest) = argument.strip_prefix("file://") {
 		argument = percent_decode(rest);
@@ -2074,8 +2628,15 @@ fn initial_path(argument: Option<String>) -> PathBuf {
 			.map(|cwd| cwd.join(path))
 			.unwrap_or_else(|_| PathBuf::from(argument))
 	};
-	let saved = hishell::SessionStore::default().startup_location(&absolute);
-	let path = saved.path().to_path_buf();
+	let path = if explicit {
+		// An explicit path from the command line wins over the saved session.
+		absolute
+	} else {
+		hishell::SessionStore::default()
+			.startup_location(&absolute)
+			.path()
+			.to_path_buf()
+	};
 	if path.is_file() {
 		path.parent().map(Path::to_path_buf).unwrap_or(path)
 	} else {
@@ -2156,9 +2717,22 @@ fn self_test() {
 	let failed = !bridge.failures.is_empty();
 	drop(bridge);
 	if failed {
-		std::process::exit(1);
+		let _ = std::fs::remove_dir_all(root);
+		flush_and_exit(1);
 	}
 	let _ = std::fs::remove_dir_all(root);
+	flush_and_exit(0);
+}
+
+// The QML engine aborts during normal Qt teardown in the headless test.
+// Flush the report and leave through `_exit` so the exit status is meaningful.
+fn flush_and_exit(code: i32) -> ! {
+	use std::io::Write;
+	let _ = std::io::stdout().flush();
+	unsafe extern "C" {
+		fn _exit(code: i32) -> !;
+	}
+	unsafe { _exit(code) }
 }
 
 fn main() {
@@ -2226,6 +2800,6 @@ mod tests {
 		assert!(supported_action("rename"));
 		assert!(supported_action("trash"));
 		assert!(supported_action("open-with"));
-		assert!(!supported_action("copy"));
+		assert!(supported_action("copy"));
 	}
 }

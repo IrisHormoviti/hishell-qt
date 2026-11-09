@@ -4,9 +4,9 @@ import QtQuick.Layouts
 import QtQuick.Shapes
 import org.kde.kirigami as Kirigami
 
-// The old FileSlot rendering: selection plate, focus border, icon/thumbnail and
-// label. Pointer, drag and drop handling stay with the view so the input path
-// remains unchanged while the slot markup is shared.
+// The old FileSlot rendering: selection plate, focus outline, icon/thumbnail
+// and label. Pointer, drag and drop handling stay with the view so the input
+// path remains unchanged while the slot markup is shared.
 Item {
 	id: fileSlot
 
@@ -38,6 +38,13 @@ Item {
 	property int iconSize: 48
 	property int listIconSize: 18
 	property int gridSize: 0
+
+	readonly property string fileName: fileSlot.name
+	readonly property string displayTitle: fileSlot.title.length > 0
+		? fileSlot.title : fileSlot.name
+	readonly property string labelText: fileSlot.labelShowsFilename
+		|| fileSlot.title.length === 0
+		? fileSlot.name : fileSlot.displayTitle
 
 	readonly property string tooltipText: {
 		const label = fileSlot.title.length > 0 ? fileSlot.title : fileSlot.name
@@ -89,27 +96,39 @@ Item {
 	}
 
 	// The wash behind the active/radio choice and every selected item. The
-	// shared FocusBorder draws the focus brackets above it.
+	// view draws the focus outline above it.
 	Rectangle {
 		anchors.fill: parent
 		anchors.margins: fileSlot.selected
 			? Kirigami.Units.smallSpacing : 0
-		radius: 6
+		radius: Kirigami.Units.cornerRadius
 		color: Kirigami.Theme.highlightColor
 		opacity: (fileSlot.selected ? 0.25 : 0.0)
 			|| (fileSlot.active ? 0.5 : 0.0)
 	}
 
+	// A selected item in selection mode gets the old accent outline as well as
+	// the wash, so it reads as a selection rather than only the current item.
+	Rectangle {
+		visible: fileSlot.selectionActive && fileSlot.selected
+		anchors.fill: parent
+		anchors.margins: Kirigami.Units.smallSpacing
+		radius: Kirigami.Units.cornerRadius
+		color: "transparent"
+		border.width: 2
+		border.color: Kirigami.Theme.highlightColor
+	}
+
 	// Selection mode puts a check badge on every selected choice, with an
-	// empty circle on the rest.
+	// empty square on the rest.
 	Rectangle {
 		visible: fileSlot.selectionActive
 		anchors.top: parent.top
 		anchors.right: parent.right
-		anchors.margins: 8
-		width: 18
-		height: 18
-		radius: 9
+		anchors.margins: Kirigami.Units.mediumSpacing
+		width: Kirigami.Units.iconSizes.small
+		height: Kirigami.Units.iconSizes.small
+		radius: 4
 		border.width: 2
 		border.color: Kirigami.Theme.highlightColor
 		color: fileSlot.selected
@@ -129,7 +148,7 @@ Item {
 		visible: fileSlot.dropHovered
 		anchors.fill: parent
 		anchors.margins: 2
-		radius: 6
+		radius: Kirigami.Units.cornerRadius
 		color: Kirigami.Theme.focusColor
 		opacity: 0.35
 		border.color: Kirigami.Theme.highlightColor
@@ -157,7 +176,7 @@ Item {
 
 			readonly property bool down: fileSlot.pressed
 			readonly property bool hot: fileSlot.hovered
-			readonly property real plateRadius: 6
+			readonly property real plateRadius: Kirigami.Units.cornerRadius * 1.5
 			readonly property color body: down
 				? Qt.lighter(Kirigami.Theme.highlightColor, 1.25)
 				: (hot ? Qt.lighter(Kirigami.Theme.backgroundColor, 1.10)
@@ -245,7 +264,7 @@ Item {
 			id: radioPlate
 			anchors.fill: parent
 			anchors.margins: Kirigami.Units.smallSpacing
-			radius: 6
+			radius: Kirigami.Units.cornerRadius * 1.5
 			color: fileSlot.pressed
 				? Qt.alpha(Kirigami.Theme.highlightColor, 0.25)
 				: (fileSlot.hovered
@@ -364,11 +383,16 @@ Item {
 					&& !fileSlot.icon.startsWith("file:") && !fileSlot.isToggle
 			}
 
-			ToggleSwitch {
+			Switch {
 				anchors.centerIn: parent
-				width: parent.width
-				height: parent.height
-				on: fileSlot.toggleOn
+				checked: fileSlot.toggleOn
+				text: ""
+				focusPolicy: Qt.NoFocus
+				activeFocusOnTab: false
+				hoverEnabled: false
+				transformOrigin: Item.Center
+				scale: Math.min(parent.width / Math.max(1, implicitWidth),
+					parent.height / Math.max(1, implicitHeight))
 				visible: fileSlot.isToggle
 			}
 		}
@@ -381,13 +405,16 @@ Item {
 				: (fileSlot.labelsBeside && fileSlot.showLabels
 					? Math.max(0, fileSlot.width - fileSlot.iconDisplaySize
 						- Kirigami.Units.gridUnit * 2)
-					: fileSlot.width - Kirigami.Units.smallSpacing * 2)
+					: fileSlot.width - Kirigami.Units.smallSpacing * 4)
 			Layout.preferredWidth: maximumWidth
 			Layout.maximumWidth: maximumWidth
 			Layout.alignment: Qt.AlignVCenter
 			visible: fileSlot.showLabels
-			text: fileSlot.title.length > 0 ? fileSlot.title : fileSlot.name
-			elide: Text.ElideMiddle
+			text: fileSlot.labelText
+			textFormat: Text.PlainText
+			wrapMode: Text.Wrap
+			maximumLineCount: 2
+			elide: Text.ElideRight
 			font.bold: fileSlot.active
 			font.italic: fileSlot.isSymlink
 			horizontalAlignment: fileSlot.labelsBeside && fileSlot.showLabels
@@ -396,14 +423,14 @@ Item {
 	}
 	RowLayout {
 		anchors.fill: parent
-		anchors.leftMargin: 6
-		anchors.rightMargin: 6
-		spacing: 8
+		anchors.leftMargin: Kirigami.Units.smallSpacing * 2
+		anchors.rightMargin: Kirigami.Units.smallSpacing * 2
+		spacing: Kirigami.Units.mediumSpacing
 		visible: fileSlot.listMode
 
 		Item {
-			Layout.preferredWidth: 24
-			Layout.preferredHeight: 24
+			Layout.preferredWidth: fileSlot.listIconSize
+			Layout.preferredHeight: fileSlot.listIconSize
 
 			Image {
 				anchors.fill: parent
@@ -424,11 +451,16 @@ Item {
 				visible: fileSlot.thumb.length === 0
 					&& !fileSlot.icon.startsWith("file:") && !fileSlot.isToggle
 			}
-			ToggleSwitch {
+			Switch {
 				anchors.centerIn: parent
-				width: parent.width
-				height: parent.height
-				on: fileSlot.toggleOn
+				checked: fileSlot.toggleOn
+				text: ""
+				focusPolicy: Qt.NoFocus
+				activeFocusOnTab: false
+				hoverEnabled: false
+				transformOrigin: Item.Center
+				scale: Math.min(parent.width / Math.max(1, implicitWidth),
+					parent.height / Math.max(1, implicitHeight))
 				visible: fileSlot.isToggle
 			}
 		}
@@ -441,12 +473,13 @@ Item {
 				Layout.fillWidth: modelData.fill
 				Layout.preferredWidth: modelData.fill ? -1 : modelData.width
 				text: modelData.text
+				textFormat: Text.PlainText
+				maximumLineCount: 1
 				elide: Text.ElideRight
 				horizontalAlignment: modelData.align
 				font.bold: modelData.nameColumn && fileSlot.active
 				font.italic: modelData.nameColumn && fileSlot.isSymlink
 				opacity: modelData.nameColumn ? 1.0 : 0.85
-				visible: fileSlot.showLabels
 			}
 		}
 	}

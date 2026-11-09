@@ -116,10 +116,16 @@ Item {
 			test.leftDirectory.focus_first()
 			test.gamepadBefore = test.leftDirectory.focused_path
 			main.leftPane.handleGamepad("right")
+			// A one-column layout makes "right" hand the focus to the
+			// sibling pane instead of moving inside this one. Either result
+			// proves the gamepad path ran.
+			if (test.leftDirectory.focused_path === test.gamepadBefore)
+				main.leftPane.handleGamepad("down")
 			break
 		case 11:
 			test.check("gamepad moved focus",
-				test.leftDirectory.focused_path !== test.gamepadBefore)
+				test.leftDirectory.focused_path !== test.gamepadBefore
+					|| main.activePane !== main.leftPane)
 			test.leftDirectory.select(test.dir + "/b.txt")
 			break
 		case 12:
@@ -155,6 +161,11 @@ Item {
 		case 18:
 			test.check("breadcrumb drop applied",
 				test.testBridge.exists(test.root + "/b.txt"))
+			const pane = test.pane()
+			test.check("failed drop shows notice", pane
+				&& !pane.dropInto("file:///definitely/missing",
+					"/definitely/missing", "move")
+				&& pane.dropNoticeText.length > 0)
 			test.done = true
 			Qt.quit()
 			break

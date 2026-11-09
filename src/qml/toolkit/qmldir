@@ -1,9 +1,3 @@
 MenuBar MenuBar.qml
 PathBar PathBar.qml
 Spacer Spacer.qml
-WindowControl WindowControl.qml
-ViewActions ViewActions.qml
-ViewMenu ViewMenu.qml
-ViewSlider ViewSlider.qml
-ConfigureDialog ConfigureDialog.qml
-ShellMenuItem ShellMenuItem.qml

@@ -7,7 +7,9 @@
 #include <QMimeData>
 #include <QPixmap>
 #include <QQmlEngine>
+#include <QIcon>
 #include <QQuickItemGrabResult>
+#include <QQuickWindow>
 #include <QTimer>
 #include <QUrl>
 
@@ -62,11 +64,6 @@ bool DragHelper::isSource(const QString &path) const
 			return true;
 	}
 	return false;
-}
-
-bool DragHelper::platformDragPixmapSupported() const
-{
-	return QGuiApplication::platformName() != QStringLiteral("xcb");
 }
 
 bool DragHelper::isDropInvalid(const QString &target) const
@@ -126,6 +123,26 @@ void DragHelper::startDragManyFromGrab(QObject *grab, const QString &uris,
 	QTimer::singleShot(0, this, [this, list, image] {
 		performDrag(list, QPixmap::fromImage(image));
 	});
+}
+
+void DragHelper::setWindowIcon(QObject *window, const QString &source)
+{
+	auto *quickWindow = qobject_cast<QQuickWindow *>(window);
+	if (!quickWindow)
+		return;
+	if (source.isEmpty()) {
+		quickWindow->setIcon(QIcon());
+		return;
+	}
+	QIcon icon;
+	if (source.startsWith(QStringLiteral("file://")))
+		icon = QIcon(QPixmap(QUrl(source).toLocalFile()));
+	else if (source.startsWith('/'))
+		icon = QIcon(QPixmap(source));
+	else
+		icon = QIcon::fromTheme(source);
+	if (!icon.isNull())
+		quickWindow->setIcon(icon);
 }
 
 void DragHelper::performDrag(const QStringList &uris, const QPixmap &pixmap)
