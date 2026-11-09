@@ -21,9 +21,31 @@ Item {
 	property bool showIcon: true
 	property bool listMode: false
 	property var columnValues: []
+	property bool hovered: false
+	property bool pressed: false
+	property bool dragging: false
+	property bool dotfile: false
 	property int iconSize: 48
 	property int listIconSize: 18
 	property int gridSize: 0
+
+	opacity: fileSlot.dragging ? 0.2 : (fileSlot.dotfile ? 0.5 : 1.0)
+	scale: fileSlot.listMode ? 1.0
+		: (fileSlot.pressed ? 0.9 : (fileSlot.hovered ? 1.05 : 1.0))
+
+	Behavior on opacity {
+		NumberAnimation {
+			duration: 120
+			easing.type: Easing.OutCubic
+		}
+	}
+
+	Behavior on scale {
+		NumberAnimation {
+			duration: 120
+			easing.type: Easing.OutCubic
+		}
+	}
 
 	Rectangle {
 		anchors.fill: parent
@@ -132,6 +154,9 @@ Item {
 				Layout.preferredWidth: modelData.fill ? -1 : modelData.width
 				text: modelData.text
 				elide: Text.ElideRight
+				horizontalAlignment: modelData.align
+				font.bold: modelData.nameColumn && fileSlot.active
+				opacity: modelData.nameColumn ? 1.0 : 0.85
 				visible: fileSlot.showLabels
 			}
 		}

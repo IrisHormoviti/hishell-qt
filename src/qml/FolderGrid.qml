@@ -170,7 +170,9 @@ Item {
 		return folderGrid.listColumns.map(key => ({
 			"text": folderGrid.columnText(key, row),
 			"width": folderGrid.columnWidth(key),
-			"fill": folderGrid.isFillColumn(key)
+			"fill": folderGrid.isFillColumn(key),
+			"nameColumn": folderGrid.isFillColumn(key),
+			"align": key === "SIZE" ? Text.AlignRight : Text.AlignLeft
 		}))
 	}
 
@@ -287,7 +289,6 @@ Item {
 
 					width: grid.cellWidth
 					height: grid.cellHeight
-					opacity: dragArea.dragging ? 0.4 : 1.0
 
 					FileSlot {
 						anchors.fill: parent
@@ -301,6 +302,10 @@ Item {
 						showLabels: folderGrid.showLabels
 						labelsBeside: folderGrid.labelsBeside
 						iconSize: folderGrid.spec.icon_size || 48
+						hovered: dragArea.containsMouse
+						pressed: dragArea.pressed
+						dragging: dragArea.dragging
+						dotfile: cell.name.startsWith(".")
 					}
 					DropArea {
 						anchors.fill: parent
@@ -321,6 +326,7 @@ Item {
 					MouseArea {
 						id: dragArea
 						anchors.fill: parent
+						hoverEnabled: true
 						acceptedButtons: Qt.LeftButton | Qt.RightButton
 
 						property bool dragging: false
@@ -448,7 +454,6 @@ Item {
 
 					width: ListView.view.width
 					height: 30
-					opacity: dragArea.dragging ? 0.4 : 1.0
 					color: "transparent"
 
 					FileSlot {
@@ -463,6 +468,10 @@ Item {
 						active: pane.active && pane.directory.focused_path === row.path
 						showLabels: folderGrid.showLabels
 						columnValues: folderGrid.listColumnValues(row)
+						hovered: rowDrag.containsMouse
+						pressed: rowDrag.pressed
+						dragging: rowDrag.dragging
+						dotfile: row.name.startsWith(".")
 					}
 					DropArea {
 						anchors.fill: parent
@@ -483,6 +492,7 @@ Item {
 					MouseArea {
 						id: rowDrag
 						anchors.fill: parent
+						hoverEnabled: true
 						acceptedButtons: Qt.LeftButton | Qt.RightButton
 
 						property bool dragging: false
@@ -562,7 +572,6 @@ Item {
 					y: folderGrid.freeOffsetY + modelData.y
 					width: modelData.width
 					height: modelData.height
-					opacity: freeDrag.dragging ? 0.4 : 1.0
 
 					property string thumb: ""
 					Component.onCompleted: {
@@ -588,6 +597,10 @@ Item {
 						showLabels: folderGrid.showLabels
 						labelsBeside: folderGrid.labelsBeside
 						iconSize: 48
+						hovered: freeDrag.containsMouse
+						pressed: freeDrag.pressed
+						dragging: freeDrag.dragging
+						dotfile: modelData.name.startsWith(".")
 					}
 					DropArea {
 						anchors.fill: parent
@@ -608,6 +621,7 @@ Item {
 					MouseArea {
 						id: freeDrag
 						anchors.fill: parent
+						hoverEnabled: true
 						acceptedButtons: Qt.LeftButton | Qt.RightButton
 
 						property bool dragging: false
