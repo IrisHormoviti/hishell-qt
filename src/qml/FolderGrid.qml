@@ -172,6 +172,14 @@ Item {
 		return Qt.formatDateTime(new Date(Number(milliseconds)), "yyyy-MM-dd HH:mm")
 	}
 
+	function listColumnValues(row) {
+		return folderGrid.listColumns.map(key => ({
+			"text": folderGrid.columnText(key, row),
+			"width": folderGrid.columnWidth(key),
+			"fill": folderGrid.isFillColumn(key)
+		}))
+	}
+
 	function columnText(key, row) {
 		if (key === "TITLE")
 			return row.title.length > 0 ? row.title : row.name
@@ -483,64 +491,21 @@ Item {
 					width: ListView.view.width
 					height: 30
 					opacity: rowDrag.dragging ? 0.4 : 1.0
-					color: row.selected ? Qt.rgba(
-						Kirigami.Theme.highlightColor.r,
-						Kirigami.Theme.highlightColor.g,
-						Kirigami.Theme.highlightColor.b,
-						0.28) : "transparent"
+					color: "transparent"
 
-					Rectangle {
+					FileSlot {
 						anchors.fill: parent
-						anchors.margins: 1
-						color: "transparent"
-						border.width: 2
-						border.color: Kirigami.Theme.highlightColor
-						visible: pane.active && pane.directory.focused_path === path
+						listMode: true
+						name: row.name
+						title: row.title
+						icon: row.icon
+						thumb: row.thumb
+						isDirectory: row.is_directory
+						selected: row.selected
+						active: pane.active && pane.directory.focused_path === row.path
+						showLabels: folderGrid.showLabels
+						columnValues: folderGrid.listColumnValues(row)
 					}
-
-					RowLayout {
-						anchors.fill: parent
-						anchors.leftMargin: 6
-						anchors.rightMargin: 6
-						spacing: 8
-
-						Image {
-							source: row.thumb
-							width: 24
-							height: 24
-							fillMode: Image.PreserveAspectCrop
-							visible: row.thumb.length > 0
-						}
-
-						Image {
-							source: pane.isFileIcon(row.icon) ? row.icon : ""
-							width: 18
-							height: 18
-							fillMode: Image.PreserveAspectFit
-							visible: row.thumb.length === 0 && pane.isFileIcon(row.icon)
-						}
-
-						Kirigami.Icon {
-							source: row.icon
-							width: 18
-							height: 18
-							visible: row.thumb.length === 0 && !pane.isFileIcon(row.icon)
-						}
-
-						Repeater {
-							model: folderGrid.listColumns
-							Label {
-								required property string modelData
-								Layout.fillWidth: folderGrid.isFillColumn(modelData)
-								Layout.preferredWidth: folderGrid.isFillColumn(modelData)
-									? -1 : folderGrid.columnWidth(modelData)
-								visible: folderGrid.showLabels
-								text: folderGrid.columnText(modelData, row)
-								elide: Text.ElideRight
-							}
-						}
-					}
-
 					DropArea {
 						anchors.fill: parent
 						enabled: row.is_directory

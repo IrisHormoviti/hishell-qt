@@ -19,7 +19,10 @@ Item {
 	property bool showLabels: true
 	property bool labelsBeside: false
 	property bool showIcon: true
+	property bool listMode: false
+	property var columnValues: []
 	property int iconSize: 48
+	property int listIconSize: 18
 	property int gridSize: 0
 
 	Rectangle {
@@ -41,6 +44,7 @@ Item {
 
 	GridLayout {
 		anchors.centerIn: parent
+		visible: !fileSlot.listMode
 		columns: fileSlot.labelsBeside && fileSlot.showLabels ? 2 : 1
 		columnSpacing: 4
 		rowSpacing: 4
@@ -85,6 +89,51 @@ Item {
 			elide: Text.ElideMiddle
 			horizontalAlignment: fileSlot.labelsBeside && fileSlot.showLabels
 				? Text.AlignLeft : Text.AlignHCenter
+		}
+	}
+	RowLayout {
+		anchors.fill: parent
+		anchors.leftMargin: 6
+		anchors.rightMargin: 6
+		spacing: 8
+		visible: fileSlot.listMode
+
+		Item {
+			Layout.preferredWidth: 24
+			Layout.preferredHeight: 24
+
+			Image {
+				anchors.fill: parent
+				source: fileSlot.thumb
+				fillMode: Image.PreserveAspectCrop
+				visible: fileSlot.thumb.length > 0
+			}
+			Image {
+				anchors.fill: parent
+				source: fileSlot.icon.startsWith("file:") ? fileSlot.icon : ""
+				fillMode: Image.PreserveAspectFit
+				visible: fileSlot.thumb.length === 0
+					&& fileSlot.icon.startsWith("file:")
+			}
+			Kirigami.Icon {
+				anchors.fill: parent
+				source: fileSlot.icon
+				visible: fileSlot.thumb.length === 0
+					&& !fileSlot.icon.startsWith("file:")
+			}
+		}
+
+		Repeater {
+			model: fileSlot.columnValues
+
+			Label {
+				required property var modelData
+				Layout.fillWidth: modelData.fill
+				Layout.preferredWidth: modelData.fill ? -1 : modelData.width
+				text: modelData.text
+				elide: Text.ElideRight
+				visible: fileSlot.showLabels
+			}
 		}
 	}
 }
