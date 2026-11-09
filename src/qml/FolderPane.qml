@@ -26,21 +26,8 @@ Kirigami.Page {
 	property var contextViewMenu: null
 	property string springPath: ""
 	property string dragSourceUris: ""
-	property bool springPopupVisible: false
-	property string springFolderPath: ""
-	property var springFolders: []
-	property real springAnchorX: 0
-	property real springAnchorY: 0
-	property string springNestedPath: ""
-
-	Timer {
-		id: springNestedTimer
-		interval: 700
-		onTriggered: {
-			if (pane.springNestedPath.length > 0)
-				pane.openSpringFolder(pane.springNestedPath)
-		}
-	}
+	property string dragPath: ""
+	property bool dragActive: false
 
 	Timer {
 		id: springTimer
@@ -49,34 +36,29 @@ Kirigami.Page {
 		onTriggered: {
 			const target = pane.springPath
 			pane.springPath = ""
-			if (target.length === 0)
-				return
-			pane.openSpringFolder(target)
+			if (target.length > 0 && target !== pane.dragPath)
+				pane.directory.navigate(target)
 		}
 	}
 
-	function springEnter(path, x, y) {
-		if (x !== undefined) {
-			pane.springAnchorX = x
-			pane.springAnchorY = y
-		}
+	function springEnter(path) {
+		// Hovering the folder being dragged must not spring-load into itself.
+		if (path === pane.dragPath)
+			return
+		if (pane.springPath === path)
+			return
 		pane.springPath = path
 		springTimer.restart()
 	}
 
-	function openSpringFolder(path) {
-		let folders = []
-		try {
-			folders = JSON.parse(pane.directory.folders_json(path))
-		} catch (error) {
-			folders = []
-		}
-		if (folders.length === 0)
-			return
-		pane.springFolderPath = path
-		pane.springFolders = folders
-		pane.springPopupVisible = true
+	function beginDrag(path, uris, image) {
+		pane.dragPath = path
+		pane.dragActive = true
+		dragSource.Drag.mimeData = ({ "text/uri-list": uris })
+		dragSource.Drag.imageSource = image
+		dragSource.Drag.active = true
 	}
+
 
 	function pathFromUri(uri) {
 		let path = String(uri)
@@ -110,12 +92,10 @@ Kirigami.Page {
 		return true
 	}
 
-	function applyDrop(drop, dest) {
-		const uris = drop.urls && drop.urls.length > 0
-			? drop.urls.join("\n") : drop.text
-		pane.directory.drop(uris, dest, pane.dropAction(drop))
-		drop.acceptProposedAction()
-		pane.springPopupVisible = false
+
+	function springLeaveAll() {
+		springTimer.stop()
+		pane.springPath = ""
 	}
 
 	function springLeave(path) {
@@ -761,6 +741,7 @@ Kirigami.Page {
 
 			DropArea {
 				anchors.fill: parent
+				onPositionChanged: pane.springLeaveAll()
 				onDropped: function (drop) {
 					if (pane.repositionFromDrop(drop))
 						return
@@ -803,26 +784,13 @@ Kirigami.Page {
 					required property bool is_image
 
 					property string thumb: ""
+					property string dragImage: ""
 					Component.onCompleted: {
 						if (is_image)
 							thumb = pane.directory.thumbnail(path, 96)
 						cell.grabToImage(function (result) {
-							cell.Drag.imageSource = result.url
+							cell.dragImage = result.url
 						}, Qt.size(64, 64))
-					}
-
-					Drag.active: dragArea.dragging
-					Drag.dragType: Drag.Automatic
-					Drag.supportedActions: Qt.CopyAction | Qt.MoveAction | Qt.LinkAction
-					Drag.mimeData: ({ "text/uri-list": pane.dragUrl(path) })
-					Drag.hotSpot.x: 24
-					Drag.hotSpot.y: 24
-					Drag.imageSourceSize: Qt.size(64, 64)
-					Drag.onDragStarted: pane.dragSourceUris = pane.dragUrl(path)
-					Drag.onDragFinished: {
-						pane.dragSourceUris = ""
-						pane.springPopupVisible = false
-						dragArea.dragging = false
 					}
 
 					readonly property bool selected: {
@@ -832,7 +800,7 @@ Kirigami.Page {
 
 					width: grid.cellWidth
 					height: grid.cellHeight
-					opacity: dragArea.dragging ? 0.4 : 1.0
+					opacity: pane.dragActive && pane.dragPath === path ? 0.4 : 1.0
 
 					Rectangle {
 						anchors.fill: parent
@@ -900,11 +868,16 @@ Kirigami.Page {
 					DropArea {
 						anchors.fill: parent
 						enabled: cell.is_directory
-						onEntered: if (cell.is_directory) {
-							const point = cell.mapToItem(pane, cell.width / 2, cell.height / 2)
-							pane.springEnter(cell.path, point.x, point.y)
+						onEntered: if (cell.is_directory) pane.springEnter(cell.path)
+						onPositionChanged: function (drag) {
+							if (!cell.is_directory)
+								return
+							if (drag.x >= 0 && drag.x <= cell.width
+									&& drag.y >= 0 && drag.y <= cell.height)
+								pane.springEnter(cell.path)
+							else
+								pane.springLeave(cell.path)
 						}
-						onExited: pane.springLeave(cell.path)
 						onDropped: function (drop) {
 							pane.springLeave(cell.path)
 							if (!cell.is_directory)
@@ -920,6 +893,7 @@ Kirigami.Page {
 						id: dragArea
 						anchors.fill: parent
 						acceptedButtons: Qt.LeftButton | Qt.RightButton
+						drag.target: dragSource
 
 						property bool dragging: false
 						property point pressPoint
@@ -936,12 +910,9 @@ Kirigami.Page {
 							if (dx * dx + dy * dy < 36)
 								return
 							dragging = true
-							cell.Drag.active = true
+							pane.beginDrag(path, pane.dragUrl(path), cell.dragImage)
 						}
-						onReleased: {
-							dragging = false
-							cell.Drag.active = false
-						}
+						onReleased: dragging = false
 						onClicked: function (mouse) {
 							if (dragging) {
 								dragging = false
@@ -1036,26 +1007,13 @@ Kirigami.Page {
 					required property var accessed_time
 
 					property string thumb: ""
+					property string dragImage: ""
 					Component.onCompleted: {
 						if (is_image)
 							thumb = pane.directory.thumbnail(path, 32)
 						row.grabToImage(function (result) {
-							row.Drag.imageSource = result.url
+							row.dragImage = result.url
 						}, Qt.size(64, 64))
-					}
-
-					Drag.active: rowDrag.dragging
-					Drag.dragType: Drag.Automatic
-					Drag.supportedActions: Qt.CopyAction | Qt.MoveAction | Qt.LinkAction
-					Drag.mimeData: ({ "text/uri-list": pane.dragUrl(path) })
-					Drag.hotSpot.x: 24
-					Drag.hotSpot.y: 24
-					Drag.imageSourceSize: Qt.size(64, 64)
-					Drag.onDragStarted: pane.dragSourceUris = pane.dragUrl(path)
-					Drag.onDragFinished: {
-						pane.dragSourceUris = ""
-						pane.springPopupVisible = false
-						rowDrag.dragging = false
 					}
 
 					readonly property bool selected: {
@@ -1065,7 +1023,7 @@ Kirigami.Page {
 
 					width: ListView.view.width
 					height: 30
-					opacity: rowDrag.dragging ? 0.4 : 1.0
+					opacity: pane.dragActive && pane.dragPath === path ? 0.4 : 1.0
 					color: row.selected ? Qt.rgba(
 						Kirigami.Theme.highlightColor.r,
 						Kirigami.Theme.highlightColor.g,
@@ -1127,11 +1085,16 @@ Kirigami.Page {
 					DropArea {
 						anchors.fill: parent
 						enabled: row.is_directory
-						onEntered: if (row.is_directory) {
-							const point = row.mapToItem(pane, row.width / 2, row.height / 2)
-							pane.springEnter(row.path, point.x, point.y)
+						onEntered: if (row.is_directory) pane.springEnter(row.path)
+						onPositionChanged: function (drag) {
+							if (!row.is_directory)
+								return
+							if (drag.x >= 0 && drag.x <= row.width
+									&& drag.y >= 0 && drag.y <= row.height)
+								pane.springEnter(row.path)
+							else
+								pane.springLeave(row.path)
 						}
-						onExited: pane.springLeave(row.path)
 						onDropped: function (drop) {
 							pane.springLeave(row.path)
 							if (!row.is_directory)
@@ -1147,6 +1110,7 @@ Kirigami.Page {
 						id: rowDrag
 						anchors.fill: parent
 						acceptedButtons: Qt.LeftButton | Qt.RightButton
+						drag.target: dragSource
 
 						property bool dragging: false
 						property point pressPoint
@@ -1163,12 +1127,9 @@ Kirigami.Page {
 							if (dx * dx + dy * dy < 36)
 								return
 							dragging = true
-							row.Drag.active = true
+							pane.beginDrag(path, pane.dragUrl(path), row.dragImage)
 						}
-						onReleased: {
-							dragging = false
-							row.Drag.active = false
-						}
+						onReleased: dragging = false
 						onClicked: function (mouse) {
 							if (dragging) {
 								dragging = false
@@ -1206,6 +1167,7 @@ Kirigami.Page {
 
 				DropArea {
 					anchors.fill: parent
+					onPositionChanged: pane.springLeaveAll()
 					onDropped: function (drop) {
 						if (pane.repositionFromDrop(drop))
 							return
@@ -1228,34 +1190,22 @@ Kirigami.Page {
 					y: pane.freeOffsetY + modelData.y
 					width: modelData.width
 					height: modelData.height
-					opacity: freeDrag.dragging ? 0.4 : 1.0
+					opacity: pane.dragActive
+						&& pane.dragPath === modelData.path ? 0.4 : 1.0
 
 					property string thumb: ""
+					property string dragImage: ""
 					Component.onCompleted: {
 						if (modelData.is_image)
 							thumb = pane.directory.thumbnail(modelData.path, 64)
 						freeSlot.grabToImage(function (result) {
-							freeSlot.Drag.imageSource = result.url
+							freeSlot.dragImage = result.url
 						}, Qt.size(64, 64))
 					}
 
 					readonly property bool selected: {
 						pane.directory.selectionRevision
 						return pane.directory.is_selected(modelData.path)
-					}
-
-					Drag.active: freeDrag.dragging
-					Drag.dragType: Drag.Automatic
-					Drag.supportedActions: Qt.CopyAction | Qt.MoveAction | Qt.LinkAction
-					Drag.mimeData: ({ "text/uri-list": pane.dragUrl(modelData.path) })
-					Drag.hotSpot.x: 24
-					Drag.hotSpot.y: 24
-					Drag.imageSourceSize: Qt.size(64, 64)
-					Drag.onDragStarted: pane.dragSourceUris = pane.dragUrl(modelData.path)
-					Drag.onDragFinished: {
-						pane.dragSourceUris = ""
-						pane.springPopupVisible = false
-						freeDrag.dragging = false
 					}
 
 					Rectangle {
@@ -1323,12 +1273,17 @@ Kirigami.Page {
 					DropArea {
 						anchors.fill: parent
 						enabled: modelData.is_directory === true
-						onEntered: if (modelData.is_directory === true) {
-							const point = freeSlot.mapToItem(pane,
-								freeSlot.width / 2, freeSlot.height / 2)
-							pane.springEnter(modelData.path, point.x, point.y)
+						onEntered: if (modelData.is_directory === true)
+							pane.springEnter(modelData.path)
+						onPositionChanged: function (drag) {
+							if (modelData.is_directory !== true)
+								return
+							if (drag.x >= 0 && drag.x <= freeSlot.width
+									&& drag.y >= 0 && drag.y <= freeSlot.height)
+								pane.springEnter(modelData.path)
+							else
+								pane.springLeave(modelData.path)
 						}
-						onExited: pane.springLeave(modelData.path)
 						onDropped: function (drop) {
 							pane.springLeave(modelData.path)
 							if (modelData.is_directory !== true)
@@ -1344,6 +1299,7 @@ Kirigami.Page {
 						id: freeDrag
 						anchors.fill: parent
 						acceptedButtons: Qt.LeftButton | Qt.RightButton
+						drag.target: dragSource
 
 						property bool dragging: false
 						property point pressPoint
@@ -1360,12 +1316,10 @@ Kirigami.Page {
 							if (dx * dx + dy * dy < 36)
 								return
 							dragging = true
-							freeSlot.Drag.active = true
+							pane.beginDrag(modelData.path,
+								pane.dragUrl(modelData.path), freeSlot.dragImage)
 						}
-						onReleased: {
-							dragging = false
-							freeSlot.Drag.active = false
-						}
+						onReleased: dragging = false
 						onClicked: function (mouse) {
 							if (dragging) {
 								dragging = false
@@ -1407,72 +1361,22 @@ Kirigami.Page {
 
 
 
-	Rectangle {
-		id: springPopup
-		visible: pane.springPopupVisible && pane.springFolders.length > 0
-		x: Math.max(8, Math.min(pane.width - width - 8, pane.springAnchorX + 20))
-		y: Math.max(8, Math.min(pane.height - height - 8, pane.springAnchorY))
-		width: 220
-		height: Math.min(320, 34 + pane.springFolders.length * 30)
-		z: 40
-		radius: 6
-		color: Kirigami.Theme.backgroundColor
-		border.width: 1
-		border.color: Kirigami.Theme.highlightColor
+	Item {
+		id: dragSource
+		width: 1
+		height: 1
+		opacity: 0.01
 
-		DropArea {
-			anchors.fill: parent
-			onDropped: function (drop) {
-				pane.applyDrop(drop, pane.springFolderPath)
-			}
-		}
-
-		Column {
-			anchors.fill: parent
-			anchors.margins: 4
-			spacing: 0
-
-			Label {
-				height: 26
-				width: parent.width
-				text: String(pane.springFolderPath).split("/").pop()
-				font.bold: true
-				elide: Text.ElideRight
-			}
-
-			Repeater {
-				model: pane.springFolders
-
-				Rectangle {
-					required property var modelData
-					width: parent.width
-					height: 30
-					color: "transparent"
-
-					Label {
-						anchors.left: parent.left
-						anchors.leftMargin: 6
-						anchors.verticalCenter: parent.verticalCenter
-						text: modelData.name
-						elide: Text.ElideRight
-					}
-
-					DropArea {
-						anchors.fill: parent
-						onEntered: {
-							pane.springNestedPath = modelData.path
-							springNestedTimer.restart()
-						}
-						onExited: if (pane.springNestedPath === modelData.path) {
-							springNestedTimer.stop()
-							pane.springNestedPath = ""
-						}
-						onDropped: function (drop) {
-							pane.applyDrop(drop, modelData.path)
-						}
-					}
-				}
-			}
+		Drag.dragType: Drag.Automatic
+		Drag.supportedActions: Qt.CopyAction | Qt.MoveAction | Qt.LinkAction
+		Drag.hotSpot.x: 24
+		Drag.hotSpot.y: 24
+		Drag.onDragStarted: pane.dragSourceUris = String(
+			Drag.mimeData ? Drag.mimeData["text/uri-list"] : "")
+		Drag.onDragFinished: {
+			pane.dragActive = false
+			pane.dragPath = ""
+			pane.dragSourceUris = ""
 		}
 	}
 

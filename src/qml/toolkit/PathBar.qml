@@ -122,8 +122,12 @@ RowLayout {
 				Timer {
 					id: crumbSpring
 					interval: 700
-					onTriggered: if (pathBar.directory)
-						pathBar.directory.navigate(crumb.modelData.path)
+					onTriggered: {
+						const pane = pathBar.window ? pathBar.window.activePane : null
+						if (pathBar.directory && pane
+								&& pane.dragPath !== crumb.modelData.path)
+							pathBar.directory.navigate(crumb.modelData.path)
+					}
 				}
 
 				RowLayout {
@@ -160,7 +164,11 @@ RowLayout {
 				DropArea {
 					id: crumbDrop
 					anchors.fill: parent
-					onEntered: crumbSpring.restart()
+					onEntered: {
+						const pane = pathBar.window ? pathBar.window.activePane : null
+						if (!pane || pane.dragPath !== crumb.modelData.path)
+							crumbSpring.restart()
+					}
 					onExited: crumbSpring.stop()
 					onDropped: function (drop) {
 						crumbSpring.stop()

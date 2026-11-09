@@ -2381,8 +2381,9 @@ Out of scope. The core APIs above are the contract.
   into the first match.
 - Free placement repositions items by dragging them to another cell and persists
   `FreePlacementPositions` in the folder's `.directory`.
-- Hovering a folder during a drag opens a spring-loaded popup of its subfolders;
-  dropping on an entry moves the dragged items into that subfolder.
+- Hovering a folder during a drag navigates into it (spring loading) while the
+  platform drag icon stays with the pointer. The dragged folder itself never
+  spring-loads, and drag sources dim instead of moving.
 - Drags use Qt's platform drag image (`Drag.imageSource`), so the drag icon is
   drawn by the compositor rather than by an in-window ghost.
 - The menu bar shows the old context groups: Open and Edit when there is a target,
