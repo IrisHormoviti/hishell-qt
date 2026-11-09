@@ -12,7 +12,33 @@ MenuBar {
 	readonly property var config: rootMenuBar.directory ? rootMenuBar.directory.config : null
 	readonly property bool showShortcuts: rootMenuBar.config
 		? rootMenuBar.config.show_shortcuts : true
+	readonly property bool hasTarget: rootMenuBar.directory
+		? (rootMenuBar.directory.selectedCount > 0
+			|| rootMenuBar.directory.focused_path.length > 0) : false
+	readonly property bool imageTarget: rootMenuBar.directory
+		? rootMenuBar.directory.focusIsImage : false
+	readonly property bool folderTarget: rootMenuBar.directory
+		? rootMenuBar.directory.focusIsDirectory : false
+	readonly property var openActions: rootMenuBar.menuActions(["open", "open-with", "navigate"])
+	readonly property var imageActions: rootMenuBar.menuActions(["rotate-image"])
+	readonly property var folderActions: rootMenuBar.menuActions(["navigate", "open"])
 	property bool hasOpenMenu: false
+
+	function menuActions(ids) {
+		if (!rootMenuBar.directory)
+			return []
+		// Establish dependencies on the same state actions_json reads.
+		rootMenuBar.directory.selectionRevision
+		rootMenuBar.directory.revision
+		rootMenuBar.directory.focused_path
+		let actions = []
+		try {
+			actions = JSON.parse(rootMenuBar.directory.actions_json("context", "auto"))
+		} catch (error) {
+			actions = []
+		}
+		return actions.filter(action => ids.indexOf(action.id) !== -1)
+	}
 
 	Layout.alignment: Qt.AlignRight
 	spacing: Kirigami.Units.mediumSpacing
@@ -20,6 +46,7 @@ MenuBar {
 	delegate: MenuBarItem {
 		id: menuBarItem
 		hoverEnabled: true
+		visible: !menuBarItem.menu || menuBarItem.menu.groupVisible !== false
 		implicitWidth: visible ? implicitContentWidth + leftPadding + rightPadding : 0
 		implicitHeight: visible ? implicitContentHeight + topPadding + bottomPadding : 0
 		onHoveredChanged: {
@@ -45,24 +72,6 @@ MenuBar {
 			if (menu && menu.opened)
 				menu.close()
 		}
-	}
-
-	Action {
-		id: openAction
-		text: "Open"
-		icon.name: "document-open"
-		shortcut: rootMenuBar.showShortcuts ? "Ctrl+O" : ""
-		enabled: rootMenuBar.directory && rootMenuBar.directory.selectedCount > 0
-		onTriggered: if (rootMenuBar.directory) rootMenuBar.directory.invoke("open")
-	}
-
-	Action {
-		id: openWithAction
-		text: "Open With…"
-		icon.name: "document-open-recent"
-		shortcut: rootMenuBar.showShortcuts ? "Ctrl+Alt+O" : ""
-		enabled: rootMenuBar.directory && rootMenuBar.directory.selectedCount > 0
-		onTriggered: if (rootMenuBar.directory) rootMenuBar.directory.invoke("open-with")
 	}
 
 	Action {
@@ -133,17 +142,50 @@ MenuBar {
 	Menu {
 		title: "&Open"
 		icon.name: "document-open"
-		enabled: rootMenuBar.directory && rootMenuBar.directory.selectedCount > 0
+		property bool groupVisible: rootMenuBar.hasTarget
+			&& rootMenuBar.openActions.length > 0
 		onOpened: rootMenuBar.hasOpenMenu = true
 		onClosed: rootMenuBar.hasOpenMenu = rootMenuBar.isAnyMenuOpen()
 
-		ShellMenuItem { action: openAction }
-		ShellMenuItem { action: openWithAction }
+		Repeater {
+			model: rootMenuBar.openActions
+
+			ShellMenuItem {
+				required property var modelData
+				text: rootMenuBar.window.actionLabel(modelData.id)
+				iconName: modelData.icon || ""
+				shortcutText: rootMenuBar.showShortcuts ? (modelData.shortcut || "") : ""
+				enabled: modelData.enabled
+				onTriggered: rootMenuBar.directory.invoke(modelData.id)
+			}
+		}
+	}
+
+	Menu {
+		title: "&Image"
+		icon.name: "image-x-generic"
+		property bool groupVisible: rootMenuBar.imageTarget
+			&& rootMenuBar.imageActions.length > 0
+		onOpened: rootMenuBar.hasOpenMenu = true
+		onClosed: rootMenuBar.hasOpenMenu = rootMenuBar.isAnyMenuOpen()
+
+		Repeater {
+			model: rootMenuBar.imageActions
+
+			ShellMenuItem {
+				required property var modelData
+				text: rootMenuBar.window.actionLabel(modelData.id)
+				iconName: modelData.icon || ""
+				enabled: modelData.enabled
+				onTriggered: rootMenuBar.directory.invoke(modelData.id)
+			}
+		}
 	}
 
 	Menu {
 		title: "&Edit"
 		icon.name: "edit"
+		property bool groupVisible: rootMenuBar.hasTarget
 		onOpened: rootMenuBar.hasOpenMenu = true
 		onClosed: rootMenuBar.hasOpenMenu = rootMenuBar.isAnyMenuOpen()
 
@@ -166,6 +208,28 @@ MenuBar {
 
 		ShellMenuItem { action: newFolderAction }
 		ShellMenuItem { action: newTextAction }
+	}
+
+	Menu {
+		title: "&Folder"
+		icon.name: "folder"
+		property bool groupVisible: rootMenuBar.folderTarget
+			&& rootMenuBar.folderActions.length > 0
+		onOpened: rootMenuBar.hasOpenMenu = true
+		onClosed: rootMenuBar.hasOpenMenu = rootMenuBar.isAnyMenuOpen()
+
+		Repeater {
+			model: rootMenuBar.folderActions
+
+			ShellMenuItem {
+				required property var modelData
+				text: rootMenuBar.window.actionLabel(modelData.id)
+				iconName: modelData.icon || ""
+				shortcutText: rootMenuBar.showShortcuts ? (modelData.shortcut || "") : ""
+				enabled: modelData.enabled
+				onTriggered: rootMenuBar.directory.invoke(modelData.id)
+			}
+		}
 	}
 
 	ViewMenu {

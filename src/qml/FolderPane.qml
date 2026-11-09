@@ -385,6 +385,76 @@ Kirigami.Page {
 		return pane.labelText === "TITLE" && title.length > 0 ? title : name
 	}
 
+	readonly property var listColumns: {
+		const columns = pane.spec.columns
+		return columns && columns.length > 0 ? columns : ["TITLE"]
+	}
+
+	function isFillColumn(key) {
+		return key === "TITLE" || key === "FILENAME"
+	}
+
+	function columnLabel(key) {
+		const labels = {
+			"TITLE": "Title",
+			"FILENAME": "File Name",
+			"SIZE": "Size",
+			"MODIFIED": "Date Modified",
+			"CREATED": "Date Created",
+			"ACCESSED": "Date Accessed",
+			"TYPE": "Type"
+		}
+		return labels[key] || key
+	}
+
+	function columnWidth(key) {
+		if (key === "SIZE")
+			return 80
+		if (key === "MODIFIED" || key === "CREATED" || key === "ACCESSED")
+			return 140
+		if (key === "TYPE")
+			return 110
+		return -1
+	}
+
+	function formatSize(bytes) {
+		if (!(bytes > 0))
+			return ""
+		const units = ["B", "kB", "MB", "GB", "TB"]
+		let value = Number(bytes)
+		let unit = 0
+		while (value >= 1024 && unit < units.length - 1) {
+			value /= 1024
+			unit += 1
+		}
+		return unit === 0 ? value + " " + units[unit]
+			: value.toFixed(value >= 10 ? 0 : 1) + " " + units[unit]
+	}
+
+	function formatTime(milliseconds) {
+		if (!(milliseconds > 0))
+			return ""
+		return Qt.formatDateTime(new Date(Number(milliseconds)), "yyyy-MM-dd HH:mm")
+	}
+
+	function columnText(key, row) {
+		if (key === "TITLE")
+			return row.title.length > 0 ? row.title : row.name
+		if (key === "FILENAME")
+			return row.name
+		if (key === "SIZE")
+			return row.is_directory ? "" : pane.formatSize(row.size_bytes)
+		if (key === "MODIFIED")
+			return pane.formatTime(row.modified_time)
+		if (key === "CREATED")
+			return pane.formatTime(row.created_time)
+		if (key === "ACCESSED")
+			return pane.formatTime(row.accessed_time)
+		if (key === "TYPE")
+			return row.is_directory ? "Folder" : (row.mime.length > 0 ? row.mime : "File")
+		return ""
+	}
+
 	readonly property string wallpaperUrl: {
 		const path = pane.directory ? String(pane.directory.config.wallpaper) : ""
 		if (path.length === 0)
@@ -441,8 +511,9 @@ Kirigami.Page {
 				anchors.bottomMargin: pane.spec.horizontal
 					? Math.max(0, content.height - pane.gridOffsetY - pane.naturalHeight) : 0
 				clip: true
-				focus: pane.active && pane.spec.free !== true
-				visible: pane.spec.free !== true
+				focus: pane.active && pane.spec.mode === "grid" && pane.spec.free !== true
+				visible: pane.spec.mode === "grid" && pane.spec.free !== true
+					&& pane.spec.grouped !== true
 				model: pane.directory
 				cellWidth: pane.spec.cell_width || 96
 				cellHeight: pane.spec.cell_height || 96
@@ -496,42 +567,49 @@ Kirigami.Page {
 						visible: pane.active && pane.directory.focused_path === path
 					}
 
-					Column {
+					GridLayout {
 						anchors.centerIn: parent
-						spacing: 4
+						columns: pane.labelsBeside && pane.showLabels ? 2 : 1
+						columnSpacing: 4
+						rowSpacing: 4
 
-						Image {
-							width: pane.spec.icon_size || 48
-							height: width
-							source: cell.thumb
-							fillMode: Image.PreserveAspectCrop
-							visible: cell.thumb.length > 0
-							anchors.horizontalCenter: parent.horizontalCenter
-						}
+						Item {
+							Layout.preferredWidth: pane.spec.icon_size || 48
+							Layout.preferredHeight: Layout.preferredWidth
+							Layout.alignment: Qt.AlignHCenter
 
-						Image {
-							width: pane.spec.icon_size || 48
-							height: width
-							source: pane.isFileIcon(cell.icon) ? cell.icon : ""
-							fillMode: Image.PreserveAspectFit
-							visible: cell.thumb.length === 0 && pane.isFileIcon(cell.icon)
-							anchors.horizontalCenter: parent.horizontalCenter
-						}
+							Image {
+								anchors.fill: parent
+								source: cell.thumb
+								fillMode: Image.PreserveAspectCrop
+								visible: cell.thumb.length > 0
+							}
 
-						Kirigami.Icon {
-							width: pane.spec.icon_size || 48
-							height: width
-							source: cell.icon
-							visible: cell.thumb.length === 0 && !pane.isFileIcon(cell.icon)
-							anchors.horizontalCenter: parent.horizontalCenter
+							Image {
+								anchors.fill: parent
+								source: pane.isFileIcon(cell.icon) ? cell.icon : ""
+								fillMode: Image.PreserveAspectFit
+								visible: cell.thumb.length === 0 && pane.isFileIcon(cell.icon)
+							}
+
+							Kirigami.Icon {
+								anchors.fill: parent
+								source: cell.icon
+								visible: cell.thumb.length === 0 && !pane.isFileIcon(cell.icon)
+							}
 						}
 
 						Label {
-							width: grid.cellWidth - 8
+							Layout.fillWidth: pane.labelsBeside && pane.showLabels
+							Layout.preferredWidth: pane.labelsBeside && pane.showLabels
+								? Math.max(0, grid.cellWidth - (pane.spec.icon_size || 48) - 12)
+								: grid.cellWidth - 8
+							Layout.alignment: Qt.AlignVCenter
 							visible: pane.showLabels
 							text: pane.displayName(name, title)
 							elide: Text.ElideMiddle
-							horizontalAlignment: Text.AlignHCenter
+							horizontalAlignment: pane.labelsBeside && pane.showLabels
+								? Text.AlignLeft : Text.AlignHCenter
 						}
 					}
 
@@ -573,12 +651,57 @@ Kirigami.Page {
 				id: list
 				anchors.fill: parent
 				clip: true
-				focus: pane.active && pane.spec.free !== true
+				focus: pane.active && pane.spec.mode !== "grid" && pane.spec.free !== true
 				visible: pane.spec.mode !== "grid" && pane.spec.free !== true
 				model: pane.directory
 
 				Keys.onPressed: function (event) {
 					pane.handleKey(event)
+				}
+
+				header: Item {
+					width: list.width
+					height: pane.spec.header === true ? 28 : 0
+					visible: pane.spec.header === true
+
+					RowLayout {
+						anchors.fill: parent
+						anchors.leftMargin: 6
+						anchors.rightMargin: 6
+						spacing: 8
+
+						Item {
+							Layout.preferredWidth: 24
+						}
+						Repeater {
+							model: pane.listColumns
+							Label {
+								required property string modelData
+								Layout.fillWidth: pane.isFillColumn(modelData)
+								Layout.preferredWidth: pane.isFillColumn(modelData)
+									? -1 : pane.columnWidth(modelData)
+								text: pane.columnLabel(modelData)
+								elide: Text.ElideRight
+								font.bold: true
+							}
+						}
+					}
+				}
+
+				section.property: pane.spec.grouped === true ? "group_label" : ""
+				section.criteria: ViewSection.FullString
+				section.delegate: Item {
+					width: ListView.view ? ListView.view.width : list.width
+					height: 30
+
+					Label {
+						anchors.left: parent.left
+						anchors.leftMargin: 6
+						anchors.verticalCenter: parent.verticalCenter
+						text: section
+						font.bold: true
+						color: Kirigami.Theme.textColor
+					}
 				}
 
 				delegate: Rectangle {
@@ -587,8 +710,14 @@ Kirigami.Page {
 					required property string title
 					required property string path
 					required property string icon
+					required property string mime
+					required property string group_label
 					required property bool is_directory
 					required property bool is_image
+					required property var size_bytes
+					required property var modified_time
+					required property var created_time
+					required property var accessed_time
 
 					property string thumb: ""
 					Component.onCompleted: if (is_image)
@@ -652,11 +781,17 @@ Kirigami.Page {
 							visible: row.thumb.length === 0 && !pane.isFileIcon(row.icon)
 						}
 
-						Label {
-							visible: pane.showLabels
-							text: pane.displayName(row.name, row.title)
-							elide: Text.ElideRight
-							Layout.fillWidth: true
+						Repeater {
+							model: pane.listColumns
+							Label {
+								required property string modelData
+								Layout.fillWidth: pane.isFillColumn(modelData)
+								Layout.preferredWidth: pane.isFillColumn(modelData)
+									? -1 : pane.columnWidth(modelData)
+								visible: pane.showLabels
+								text: pane.columnText(modelData, row)
+								elide: Text.ElideRight
+							}
 						}
 					}
 
@@ -694,8 +829,33 @@ Kirigami.Page {
 				}
 			}
 
+			Flickable {
+				id: absoluteView
+				anchors.fill: parent
+				visible: pane.spec.free === true || pane.spec.grouped === true
+				clip: true
+				focus: pane.active && visible
+				contentWidth: Math.max(width, pane.freeNaturalWidth + pane.freeOffsetX)
+				contentHeight: Math.max(height, pane.freeNaturalHeight + pane.freeOffsetY)
+				boundsBehavior: Flickable.StopAtBounds
+
+				Keys.onPressed: function (event) {
+					pane.handleKey(event)
+				}
+
+				DropArea {
+					anchors.fill: parent
+					onDropped: function (drop) {
+						const uris = drop.urls && drop.urls.length > 0
+							? drop.urls.join("\n") : drop.text
+						pane.directory.drop(uris, pane.directory.path, pane.dropAction(drop))
+						drop.acceptProposedAction()
+					}
+				}
+
 			Repeater {
-				model: pane.spec.free === true ? pane.spec.slots : []
+				model: (pane.spec.free === true || pane.spec.grouped === true)
+					? pane.spec.slots : []
 
 				delegate: Item {
 					id: freeSlot
@@ -739,42 +899,48 @@ Kirigami.Page {
 						visible: pane.active && pane.directory.focused_path === modelData.path
 					}
 
-					Column {
+					GridLayout {
 						anchors.centerIn: parent
-						spacing: 4
+						columns: pane.labelsBeside && pane.showLabels ? 2 : 1
+						columnSpacing: 4
+						rowSpacing: 4
 
-						Image {
-							width: 48
-							height: 48
-							source: freeSlot.thumb
-							fillMode: Image.PreserveAspectCrop
-							visible: freeSlot.thumb.length > 0
-							anchors.horizontalCenter: parent.horizontalCenter
-						}
+						Item {
+							Layout.preferredWidth: 48
+							Layout.preferredHeight: 48
+							Layout.alignment: Qt.AlignHCenter
 
-						Image {
-							width: 48
-							height: 48
-							source: pane.isFileIcon(modelData.icon) ? modelData.icon : ""
-							fillMode: Image.PreserveAspectFit
-							visible: freeSlot.thumb.length === 0 && pane.isFileIcon(modelData.icon)
-							anchors.horizontalCenter: parent.horizontalCenter
-						}
+							Image {
+								anchors.fill: parent
+								source: freeSlot.thumb
+								fillMode: Image.PreserveAspectCrop
+								visible: freeSlot.thumb.length > 0
+							}
 
-						Kirigami.Icon {
-							width: 48
-							height: 48
-							source: modelData.icon
-							visible: freeSlot.thumb.length === 0 && !pane.isFileIcon(modelData.icon)
-							anchors.horizontalCenter: parent.horizontalCenter
+							Image {
+								anchors.fill: parent
+								source: pane.isFileIcon(modelData.icon) ? modelData.icon : ""
+								fillMode: Image.PreserveAspectFit
+								visible: freeSlot.thumb.length === 0 && pane.isFileIcon(modelData.icon)
+							}
+
+							Kirigami.Icon {
+								anchors.fill: parent
+								source: modelData.icon
+								visible: freeSlot.thumb.length === 0 && !pane.isFileIcon(modelData.icon)
+							}
 						}
 
 						Label {
-							width: parent.width
+							Layout.fillWidth: pane.labelsBeside && pane.showLabels
+							Layout.preferredWidth: pane.labelsBeside && pane.showLabels
+								? Math.max(0, freeSlot.width - 60) : freeSlot.width - 8
+							Layout.alignment: Qt.AlignVCenter
 							visible: pane.showLabels
 							text: pane.displayName(modelData.name, modelData.title || "")
 							elide: Text.ElideMiddle
-							horizontalAlignment: Text.AlignHCenter
+							horizontalAlignment: pane.labelsBeside && pane.showLabels
+								? Text.AlignLeft : Text.AlignHCenter
 						}
 					}
 
@@ -811,5 +977,23 @@ Kirigami.Page {
 					}
 				}
 			}
-		}
+
+			Repeater {
+				model: pane.spec.headers || []
+
+				Label {
+					required property var modelData
+					x: pane.freeOffsetX + modelData.x
+					y: pane.freeOffsetY + modelData.y
+					width: modelData.width
+					height: modelData.height
+					z: 2
+					text: modelData.title
+					font.bold: true
+					color: Kirigami.Theme.textColor
+					elide: Text.ElideRight
+				}
+			}
+			}
+	}
 }

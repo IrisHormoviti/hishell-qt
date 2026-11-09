@@ -595,15 +595,12 @@ pub struct DirectoryRow {
 	is_directory: bool,
 	icon: String,
 	title: String,
-	is_symlink: bool,
 	size_bytes: i64,
 	modified_time: i64,
 	created_time: i64,
-	control_kind: i32,
-	toggle_on: bool,
-	number_value: String,
-	comment: String,
-	icon_ready: bool,
+	accessed_time: i64,
+	mime: String,
+	group_label: String,
 	is_image: bool,
 }
 
@@ -617,6 +614,8 @@ pub struct Directory {
 	selected_count: i32,
 	selection_revision: i32,
 	focused_path: String,
+	focus_is_image: bool,
+	focus_is_directory: bool,
 	last_descriptor_epoch: u64,
 	has_meta: bool,
 }
@@ -633,6 +632,8 @@ impl Directory {
 			selected_count: 0,
 			selection_revision: 0,
 			focused_path: String::new(),
+			focus_is_image: false,
+			focus_is_directory: false,
 			last_descriptor_epoch: 0,
 			has_meta: path.join(".directory").is_file() || path.join(".cfg").is_file(),
 		};
@@ -664,18 +665,23 @@ impl Directory {
 	}
 
 	fn read_focus(&mut self) {
-		let path = self
+		let (path, is_image, is_directory) = self
 			.engine
 			.as_ref()
 			.and_then(|engine| {
-				engine
-					.focus()
-					.and_then(|id| engine.item(id))
-					.map(|item| item.path.to_string_lossy().into_owned())
+				engine.focus().and_then(|id| engine.item(id)).map(|item| {
+					(
+						item.path.to_string_lossy().into_owned(),
+						item.mime.as_deref().is_some_and(|mime| mime.starts_with("image/")),
+						item.fs_kind == hishell::FsKind::Directory,
+					)
+				})
 			})
 			.unwrap_or_default();
 		if self.focused_path != path {
 			self.focused_path = path;
+			self.focus_is_image = is_image;
+			self.focus_is_directory = is_directory;
 			self.focus_changed();
 		}
 	}
@@ -815,6 +821,16 @@ impl Directory {
 		"selectionRevision",
 		Member = selection_revision,
 		Notify = selection_changed
+	);
+	qproperty!(
+		"focusIsImage",
+		Member = focus_is_image,
+		Notify = focus_changed
+	);
+	qproperty!(
+		"focusIsDirectory",
+		Member = focus_is_directory,
+		Notify = focus_changed
 	);
 	qproperty!(
 		"focused_path",
@@ -1390,6 +1406,7 @@ impl Directory {
 					"mode": "list",
 					"columns": list.columns.iter().map(|column| column.as_key()).collect::<Vec<_>>(),
 					"header": list.header,
+					"grouped": !view.headers.is_empty(),
 					"revision": view.revision,
 				})
 				.to_string(),
@@ -1455,20 +1472,12 @@ fn row_from_item(item: &hishell::Item) -> DirectoryRow {
 			hishell::IconRef::Path(path) => format!("file://{}", path.to_string_lossy()),
 		},
 		title: item.title.clone(),
-		is_symlink: item.is_symlink,
 		size_bytes: item.size as i64,
 		modified_time: item.modified as i64,
 		created_time: item.created as i64,
-		control_kind: match item.kind {
-			hishell::ItemKind::Button => 1,
-			hishell::ItemKind::Toggle => 2,
-			hishell::ItemKind::Number => 3,
-			_ => 0,
-		},
-		toggle_on: item.toggle_on,
-		number_value: item.number_value.clone(),
-		comment: item.comment.clone(),
-		icon_ready: true,
+		accessed_time: item.accessed as i64,
+		mime: item.mime.clone().unwrap_or_default(),
+		group_label: item.group_label.clone(),
 		is_image: item
 			.mime
 			.as_deref()

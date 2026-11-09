@@ -2369,8 +2369,13 @@ Out of scope. The core APIs above are the contract.
 - `timeout 30s cargo run -p hishell-qt -- /tmp` and inspect.
 - Large folder on a slow target.
 - Grid and list modes; the View menu changes mode, sizing (lines or icon size),
-  lines/size, labels, columns, sorting, grouping, alignment, and stash and persists
-  in General scope or the folder's `.directory` in Here scope.
+  lines/size, labels (including beside icons), list columns and their header,
+  sorting, grouping, alignment, and stash and persists in General scope or the
+  folder's `.directory` in Here scope.
+- Grouped and stash views draw their section headers in both grid and list modes;
+  the absolute grouped/free layout scrolls.
+- The menu bar shows the old context groups: Open and Edit when there is a target,
+  Image for an image target, Folder for a folder target, and New and View always.
 - Here → Configure edits the layout JSON, window flags, folder title/icon, radio,
   and launch settings.
 - With `OpenOnClick` (the old default), a plain click opens; press-and-hold enters
