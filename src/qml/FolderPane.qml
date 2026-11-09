@@ -90,6 +90,21 @@ Kirigami.Page {
 		return labels[id] || id
 	}
 
+	// Drops copy by default; Shift moves and Ctrl+Shift links. Qt's proposed
+	// action defaults to move, which used to destroy a file dropped back into
+	// its own folder.
+	function dropAction(drop) {
+		if (drop.proposedAction === Qt.MoveAction)
+			return "move"
+		if (drop.proposedAction === Qt.LinkAction)
+			return "link"
+		return "copy"
+	}
+
+	function dragUrl(path) {
+		return "file://" + String(path).split("/").map(encodeURIComponent).join("/")
+	}
+
 	function clickTarget(path, modifiers) {
 		const directory = pane.directory
 		if (!directory)
@@ -409,11 +424,9 @@ Kirigami.Page {
 			DropArea {
 				anchors.fill: parent
 				onDropped: function (drop) {
-					const action = drop.proposedAction === Qt.MoveAction ? "move"
-						: drop.proposedAction === Qt.LinkAction ? "link" : "copy"
 					const uris = drop.urls && drop.urls.length > 0
 						? drop.urls.join("\n") : drop.text
-					pane.directory.drop(uris, pane.directory.path, action)
+					pane.directory.drop(uris, pane.directory.path, pane.dropAction(drop))
 					drop.acceptProposedAction()
 				}
 			}
@@ -454,9 +467,9 @@ Kirigami.Page {
 					Drag.active: dragArea.drag.active
 					Drag.dragType: Drag.Automatic
 					Drag.supportedActions: Qt.CopyAction | Qt.MoveAction | Qt.LinkAction
-					Drag.mimeData: ({ "text/uri-list": "file://" + path })
-					Drag.hotSpot.x: 8
-					Drag.hotSpot.y: 8
+					Drag.mimeData: ({ "text/uri-list": pane.dragUrl(path) })
+					Drag.hotSpot.x: 16
+					Drag.hotSpot.y: 16
 
 					readonly property bool selected: {
 						pane.directory.selectionRevision
@@ -528,11 +541,9 @@ Kirigami.Page {
 						onDropped: function (drop) {
 							if (!cell.is_directory)
 								return
-							const action = drop.proposedAction === Qt.MoveAction ? "move"
-								: drop.proposedAction === Qt.LinkAction ? "link" : "copy"
 							const uris = drop.urls && drop.urls.length > 0
 								? drop.urls.join("\n") : drop.text
-							pane.directory.drop(uris, cell.path, action)
+							pane.directory.drop(uris, cell.path, pane.dropAction(drop))
 							drop.acceptProposedAction()
 						}
 					}
@@ -586,9 +597,9 @@ Kirigami.Page {
 					Drag.active: rowDrag.drag.active
 					Drag.dragType: Drag.Automatic
 					Drag.supportedActions: Qt.CopyAction | Qt.MoveAction | Qt.LinkAction
-					Drag.mimeData: ({ "text/uri-list": "file://" + path })
-					Drag.hotSpot.x: 8
-					Drag.hotSpot.y: 8
+					Drag.mimeData: ({ "text/uri-list": pane.dragUrl(path) })
+					Drag.hotSpot.x: 16
+					Drag.hotSpot.y: 16
 
 					readonly property bool selected: {
 						pane.directory.selectionRevision
@@ -655,11 +666,9 @@ Kirigami.Page {
 						onDropped: function (drop) {
 							if (!row.is_directory)
 								return
-							const action = drop.proposedAction === Qt.MoveAction ? "move"
-								: drop.proposedAction === Qt.LinkAction ? "link" : "copy"
 							const uris = drop.urls && drop.urls.length > 0
 								? drop.urls.join("\n") : drop.text
-							pane.directory.drop(uris, row.path, action)
+							pane.directory.drop(uris, row.path, pane.dropAction(drop))
 							drop.acceptProposedAction()
 						}
 					}
@@ -709,9 +718,9 @@ Kirigami.Page {
 					Drag.active: freeDrag.drag.active
 					Drag.dragType: Drag.Automatic
 					Drag.supportedActions: Qt.CopyAction | Qt.MoveAction | Qt.LinkAction
-					Drag.mimeData: ({ "text/uri-list": "file://" + modelData.path })
-					Drag.hotSpot.x: 8
-					Drag.hotSpot.y: 8
+					Drag.mimeData: ({ "text/uri-list": pane.dragUrl(modelData.path) })
+					Drag.hotSpot.x: 16
+					Drag.hotSpot.y: 16
 
 					Rectangle {
 						anchors.fill: parent
@@ -775,11 +784,9 @@ Kirigami.Page {
 						onDropped: function (drop) {
 							if (modelData.is_directory !== true)
 								return
-							const action = drop.proposedAction === Qt.MoveAction ? "move"
-								: drop.proposedAction === Qt.LinkAction ? "link" : "copy"
 							const uris = drop.urls && drop.urls.length > 0
 								? drop.urls.join("\n") : drop.text
-							pane.directory.drop(uris, modelData.path, action)
+							pane.directory.drop(uris, modelData.path, pane.dropAction(drop))
 							drop.acceptProposedAction()
 						}
 					}

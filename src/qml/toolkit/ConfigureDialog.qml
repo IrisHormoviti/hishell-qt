@@ -185,12 +185,6 @@ Dialog {
 				onToggled: checked => configure.setc("native_menus", checked)
 			}
 			ToggleRow {
-				text: "Native drag"
-				checked: configure.config ? configure.config.native_drag : false
-				visible: configure.section === "window"
-				onToggled: checked => configure.setc("native_drag", checked)
-			}
-			ToggleRow {
 				text: "Show shortcuts"
 				checked: configure.config ? configure.config.show_shortcuts : true
 				visible: configure.section === "window"

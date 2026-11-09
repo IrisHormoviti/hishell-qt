@@ -11,8 +11,8 @@ use hishell::platform::{AppCatalog, FreeDesktopApps};
 use hishell::{
 	ActionId, ActionRequest, AppId, ChangeSet, Command, Config, ConfigKey, ConfigValue,
 	CopyOptions, Direction, Effect, Engine, FocusCommand, FolderDelta, FolderMode, LaunchRequest,
-	Location, MenuKind, Metrics, NavigationPlan, NavigationRequest, Op, Overwrite, PaneId, Prompt,
-	Target, ViewRequest, ViewSpec, Viewport,
+	Location, MenuKind, Metrics, NavigationPlan, NavigationRequest, Op, PaneId, Prompt, Target,
+	ViewRequest, ViewSpec, Viewport,
 };
 use qtbridge::{
 	QApp, QListModel, QListModelBase, QModelItem, QmlObject, include_bytes_qml, qobject,
@@ -31,7 +31,6 @@ pub struct ConfigBridge {
 	native_menubar: bool,
 	native_menus: bool,
 	native_titlebar: bool,
-	native_drag: bool,
 	show_shortcuts: bool,
 	execution_wrapper: String,
 	screen: String,
@@ -84,7 +83,6 @@ impl ConfigBridge {
 		Member = native_titlebar,
 		Notify = changed
 	);
-	qproperty!("native_drag", Member = native_drag, Notify = changed);
 	qproperty!("show_shortcuts", Member = show_shortcuts, Notify = changed);
 	qproperty!(
 		"executionWrapper",
@@ -216,7 +214,6 @@ impl ConfigBridge {
 			(ConfigKey::NativeMenuBar, ConfigValue::Bool(value)) => self.native_menubar = *value,
 			(ConfigKey::NativeMenus, ConfigValue::Bool(value)) => self.native_menus = *value,
 			(ConfigKey::NativeTitleBar, ConfigValue::Bool(value)) => self.native_titlebar = *value,
-			(ConfigKey::NativeDrag, ConfigValue::Bool(value)) => self.native_drag = *value,
 			(ConfigKey::ShowShortcuts, ConfigValue::Bool(value)) => self.show_shortcuts = *value,
 			(ConfigKey::ExecutionWrapper, ConfigValue::Str(value)) => {
 				self.execution_wrapper = value.clone()
@@ -347,7 +344,6 @@ impl ConfigBridge {
 			ConfigKey::NativeMenuBar => self.native_menubar,
 			ConfigKey::NativeMenus => self.native_menus,
 			ConfigKey::NativeTitleBar => self.native_titlebar,
-			ConfigKey::NativeDrag => self.native_drag,
 			ConfigKey::ShowShortcuts => self.show_shortcuts,
 			ConfigKey::ListHeader => self.list_header,
 			ConfigKey::ShowLabels => self.show_labels,
@@ -476,7 +472,6 @@ fn key_from_qml(name: &str) -> Option<ConfigKey> {
 		"native_menubar" => Some(ConfigKey::NativeMenuBar),
 		"native_menus" => Some(ConfigKey::NativeMenus),
 		"native_titlebar" => Some(ConfigKey::NativeTitleBar),
-		"native_drag" => Some(ConfigKey::NativeDrag),
 		"show_shortcuts" => Some(ConfigKey::ShowShortcuts),
 		"execution_wrapper" | "executionWrapper" => Some(ConfigKey::ExecutionWrapper),
 		"screen_name" | "screen" => Some(ConfigKey::Screen),
@@ -1185,14 +1180,22 @@ impl Directory {
 		if !dest.is_dir() {
 			return false;
 		}
-		let sources = parse_uris(&uris);
+		let sources: Vec<PathBuf> = parse_uris(&uris)
+			.into_iter()
+			.filter(|source| {
+				// Dropping an item back where it already is, or dropping a
+				// folder into itself, must never touch the source.
+				source.parent() != Some(dest.as_path())
+					&& *source != dest
+					&& !(source.is_dir() && dest.starts_with(source))
+			})
+			.collect();
 		if sources.is_empty() {
 			return false;
 		}
-		let options = CopyOptions {
-			overwrite: Overwrite::Replace,
-			..CopyOptions::default()
-		};
+		// Never replace an existing destination: an overwrite is what turns a
+		// same-folder drop into data loss.
+		let options = CopyOptions::default();
 		let op = match action.as_str() {
 			"move" => Op::Move {
 				sources,
