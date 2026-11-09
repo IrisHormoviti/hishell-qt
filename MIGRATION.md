@@ -2651,6 +2651,12 @@ slot, later moves animate x/y for 160 ms with `Easing.OutCubic`. It also hides
 while the user drags or flicks the view (`moving`/`flicking`), like the old
 `!grid.userScrolling` condition.
 
+Focus changes also run the old `ensureFocusVisible`: the view centres the cursor
+when `CenterFocus` is on, otherwise scrolls only when it falls outside the
+viewport. Geometry comes from the layout, not the delegate, so a lazy view can
+reveal an item it has not built. `SmoothScrolling` animates the scroll for
+110 ms with `Easing.OutCubic`.
+
 ### Clipboard, properties, and new windows
 
 - Copy/Cut/Paste use a frontend clipboard holding a `ClipboardSnapshot`; Paste

@@ -314,6 +314,128 @@ Item {
 		return view ? (view.moving || view.flicking) : false
 	}
 
+	readonly property string focusVisibilityKey: folderGrid.directory
+		? folderGrid.directory.focused_path + ":"
+			+ folderGrid.directory.focusOnEmpty + ":"
+			+ folderGrid.directory.focusColumn + ":"
+			+ folderGrid.directory.focusRow
+		: ""
+
+	onFocusVisibilityKeyChanged: Qt.callLater(folderGrid.ensureFocusVisible)
+	onWidthChanged: if (folderGrid.focusTarget !== null)
+		Qt.callLater(folderGrid.ensureFocusVisible)
+	onHeightChanged: if (folderGrid.focusTarget !== null)
+		Qt.callLater(folderGrid.ensureFocusVisible)
+
+	// Focus geometry in view-content coordinates, from the layout rather than
+	// the delegate, so a lazy view can scroll to an item it has not built.
+	function focusContentRect() {
+		if (!folderGrid.directory)
+			return null
+		const cw = folderGrid.spec.cell_width || 96
+		const ch = folderGrid.spec.cell_height || 96
+		const gap = folderGrid.spec.gap || 0
+		if (folderGrid.directory.focusOnEmpty
+				&& (folderGrid.spec.free === true
+					|| folderGrid.spec.grouped === true)) {
+			return {
+				"x": folderGrid.freeOffsetX
+					+ folderGrid.directory.focusColumn * (cw + gap),
+				"y": folderGrid.freeOffsetY
+					+ folderGrid.directory.focusRow * (ch + gap),
+				"width": cw,
+				"height": ch
+			}
+		}
+		if (folderGrid.focusedIndex < 0)
+			return null
+		if (folderGrid.spec.free === true || folderGrid.spec.grouped === true) {
+			const slots = folderGrid.spec.slots || []
+			for (const slot of slots) {
+				if (slot.path !== folderGrid.directory.focused_path)
+					continue
+				return {
+					"x": folderGrid.freeOffsetX + slot.x,
+					"y": folderGrid.freeOffsetY + slot.y,
+					"width": slot.width,
+					"height": slot.height
+				}
+			}
+			return null
+		}
+		if (folderGrid.spec.mode === "grid") {
+			const count = Math.max(1, folderGrid.spec.count || 0)
+			const lines = Math.max(1, folderGrid.spec.lines || 4)
+			const horizontal = folderGrid.spec.horizontal === true
+			const index = folderGrid.focusedIndex
+			const column = horizontal
+				? Math.floor(index / lines) : index % lines
+			const row = horizontal
+				? index % lines : Math.floor(index / lines)
+			const pitchX = cw + gap
+			const pitchY = ch + gap
+			return {
+				"x": column * pitchX,
+				"y": row * pitchY,
+				"width": cw,
+				"height": ch
+			}
+		}
+		const headerHeight = list.headerItem ? list.headerItem.height : 0
+		return {
+			"x": 0,
+			"y": headerHeight + folderGrid.focusedIndex * 30,
+			"width": list.width,
+			"height": 30
+		}
+	}
+
+	// Keep the cursor visible: centre it when CenterFocus is on, otherwise
+	// scroll only when it falls outside the viewport.
+	function ensureFocusVisible() {
+		const view = folderGrid.viewFlickable
+		if (!folderGrid.pane || !folderGrid.pane.active || !view
+				|| view.width <= 0 || view.height <= 0)
+			return
+		const rect = folderGrid.focusContentRect()
+		if (!rect)
+			return
+		let targetX = view.contentX
+		let targetY = view.contentY
+		if (folderGrid.directory && folderGrid.directory.config.center_focus) {
+			targetX = rect.x + rect.width / 2 - view.width / 2
+			targetY = rect.y + rect.height / 2 - view.height / 2
+		} else {
+			if (rect.x < view.contentX)
+				targetX = rect.x
+			else if (rect.x + rect.width > view.contentX + view.width)
+				targetX = rect.x + rect.width - view.width
+			if (rect.y < view.contentY)
+				targetY = rect.y
+			else if (rect.y + rect.height > view.contentY + view.height)
+				targetY = rect.y + rect.height - view.height
+		}
+		targetX = Math.max(0, Math.min(targetX,
+			view.contentWidth - view.width))
+		targetY = Math.max(0, Math.min(targetY,
+			view.contentHeight - view.height))
+		if (Math.abs(targetX - view.contentX) < 1
+				&& Math.abs(targetY - view.contentY) < 1)
+			return
+		if (folderGrid.directory
+				&& folderGrid.directory.config.smoothScrolling) {
+			focusScrollX.to = targetX
+			focusScrollY.to = targetY
+			focusScrollX.restart()
+			focusScrollY.restart()
+		} else {
+			focusScrollX.stop()
+			focusScrollY.stop()
+			view.contentX = targetX
+			view.contentY = targetY
+		}
+	}
+
 	// Scroll the view when the drag cursor is within an edge margin. Farther
 	// into the margin scrolls faster.
 	function updateDragEdgeScroll() {
@@ -1317,6 +1439,23 @@ Item {
 
 
 
+
+
+	NumberAnimation {
+		id: focusScrollX
+		target: folderGrid.viewFlickable
+		property: "contentX"
+		duration: 110
+		easing.type: Easing.OutCubic
+	}
+
+	NumberAnimation {
+		id: focusScrollY
+		target: folderGrid.viewFlickable
+		property: "contentY"
+		duration: 110
+		easing.type: Easing.OutCubic
+	}
 
 	FocusBorder {
 		id: focusBorder
