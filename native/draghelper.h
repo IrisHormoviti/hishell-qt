@@ -26,6 +26,9 @@ public:
 	Q_INVOKABLE void startDragManyFromGrab(QObject *grab, const QString &uris,
 		bool withPixmap);
 	Q_INVOKABLE bool isSource(const QString &path) const;
+	// True when target is a source itself or inside a dragged folder, which
+	// the old drop validator rejected before spring-loading into it.
+	Q_INVOKABLE bool isDropInvalid(const QString &target) const;
 	Q_INVOKABLE QPoint cursorPosition() const;
 	Q_INVOKABLE bool mousePressed() const;
 	Q_INVOKABLE void setSpringTarget(const QString &path);

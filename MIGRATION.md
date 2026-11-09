@@ -2670,6 +2670,11 @@ updates, and `movementEnded` settles it immediately.
 and the gamepad menu button: an item gets its item actions, while focus on an
 empty slot gets the folder Here/New/View menu.
 
+Drop hover matches the old FileSlot: entering a folder arms the spring-load
+timer, `onPositionChanged` keeps it alive when the drag started already inside,
+and leaving clears it. A source folder rejects hovering itself or one of its
+descendants before arming the timer, as the old drop validator did.
+
 ### Clipboard, properties, and new windows
 
 - Copy/Cut/Paste use a frontend clipboard holding a `ClipboardSnapshot`; Paste

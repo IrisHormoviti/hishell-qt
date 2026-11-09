@@ -1093,12 +1093,29 @@ Item {
 						id: cellDrop
 						anchors.fill: parent
 						enabled: cell.is_directory
-						onEntered: if (cell.is_directory) pane.springEnter(cell.path)
+						keys: ["text/uri-list", "text/plain"]
+						onEntered: if (enabled
+								&& !DragHelper.isDropInvalid(cell.path))
+							pane.springEnter(cell.path)
+						onPositionChanged: function (drag) {
+							if (!enabled || DragHelper.isDropInvalid(cell.path)) {
+								pane.springLeave()
+								return
+							}
+							if (drag.x >= 0 && drag.x <= width
+									&& drag.y >= 0 && drag.y <= height)
+								pane.springEnter(cell.path)
+							else
+								pane.springLeave()
+						}
 						onExited: pane.springLeave()
 						onDropped: function (drop) {
 							pane.springLeave()
-							if (!cell.is_directory)
+							if (!cell.is_directory
+									|| DragHelper.isDropInvalid(cell.path)) {
+								drop.accepted = false
 								return
+							}
 							const uris = drop.urls && drop.urls.length > 0
 								? drop.urls.join("\n") : drop.text
 							pane.directory.drop(uris, cell.path, pane.dropAction(drop))
@@ -1282,12 +1299,29 @@ Item {
 						id: rowDrop
 						anchors.fill: parent
 						enabled: row.is_directory
-						onEntered: if (row.is_directory) pane.springEnter(row.path)
+						keys: ["text/uri-list", "text/plain"]
+						onEntered: if (enabled
+								&& !DragHelper.isDropInvalid(row.path))
+							pane.springEnter(row.path)
+						onPositionChanged: function (drag) {
+							if (!enabled || DragHelper.isDropInvalid(row.path)) {
+								pane.springLeave()
+								return
+							}
+							if (drag.x >= 0 && drag.x <= width
+									&& drag.y >= 0 && drag.y <= height)
+								pane.springEnter(row.path)
+							else
+								pane.springLeave()
+						}
 						onExited: pane.springLeave()
 						onDropped: function (drop) {
 							pane.springLeave()
-							if (!row.is_directory)
+							if (!row.is_directory
+									|| DragHelper.isDropInvalid(row.path)) {
+								drop.accepted = false
 								return
+							}
 							const uris = drop.urls && drop.urls.length > 0
 								? drop.urls.join("\n") : drop.text
 							pane.directory.drop(uris, row.path, pane.dropAction(drop))
@@ -1451,12 +1485,30 @@ Item {
 						id: freeDrop
 						anchors.fill: parent
 						enabled: modelData.is_directory === true
-						onEntered: if (modelData.is_directory === true) pane.springEnter(modelData.path)
+						keys: ["text/uri-list", "text/plain"]
+						onEntered: if (enabled
+								&& !DragHelper.isDropInvalid(modelData.path))
+							pane.springEnter(modelData.path)
+						onPositionChanged: function (drag) {
+							if (!enabled
+									|| DragHelper.isDropInvalid(modelData.path)) {
+								pane.springLeave()
+								return
+							}
+							if (drag.x >= 0 && drag.x <= width
+									&& drag.y >= 0 && drag.y <= height)
+								pane.springEnter(modelData.path)
+							else
+								pane.springLeave()
+						}
 						onExited: pane.springLeave()
 						onDropped: function (drop) {
 							pane.springLeave()
-							if (modelData.is_directory !== true)
+							if (modelData.is_directory !== true
+									|| DragHelper.isDropInvalid(modelData.path)) {
+								drop.accepted = false
 								return
+							}
 							const uris = drop.urls && drop.urls.length > 0
 								? drop.urls.join("\n") : drop.text
 							pane.directory.drop(uris, modelData.path, pane.dropAction(drop))

@@ -41,10 +41,12 @@ void DragHelper::setSpringTarget(const QString &path)
 		if (QUrl(source).toLocalFile() == path)
 			return;
 	}
+	if (m_spring == path)
+		return;
 	m_spring = path;
-	QTimer::singleShot(700, this, [this] {
-		if (!m_spring.isEmpty())
-			emit springRequested(m_spring);
+	QTimer::singleShot(700, this, [this, path] {
+		if (m_spring == path)
+			emit springRequested(path);
 	});
 }
 
@@ -57,6 +59,16 @@ bool DragHelper::isSource(const QString &path) const
 {
 	for (const QString &source : m_sources) {
 		if (QUrl(source).toLocalFile() == path)
+			return true;
+	}
+	return false;
+}
+
+bool DragHelper::isDropInvalid(const QString &target) const
+{
+	for (const QString &source : m_sources) {
+		const QString path = QUrl(source).toLocalFile();
+		if (target == path || target.startsWith(path + QLatin1Char('/')))
 			return true;
 	}
 	return false;
