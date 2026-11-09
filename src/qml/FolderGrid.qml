@@ -24,6 +24,32 @@ Item {
 	property bool repositionActive: false
 	property var repositionEntries: []
 	property var repositionAnchor: null
+	property var dragPaths: []
+
+	Connections {
+		target: DragHelper
+		function onDragFinished() {
+			folderGrid.dragPaths = []
+		}
+	}
+
+	function isDragging(path) {
+		return folderGrid.dragPaths.indexOf(path) !== -1
+	}
+
+	function dragPathsFor(path) {
+		const selected = folderGrid.selectedPaths()
+		return selected.indexOf(path) !== -1 ? selected : [path]
+	}
+
+	function startDrag(grab, path, modifiers) {
+		const paths = folderGrid.dragPathsFor(path)
+		folderGrid.dragPaths = paths
+		folderGrid.beginDragTooltip(modifiers)
+		DragHelper.startDragManyFromGrab(grab,
+			paths.map(entry => folderGrid.dragUrl(entry)).join("\n"),
+			Kirigami.Theme.backgroundColor)
+	}
 
 	function isRadioMember(path, isDir, name) {
 		const config = folderGrid.directory ? folderGrid.directory.config : null
@@ -135,6 +161,7 @@ Item {
 		folderGrid.repositionActive = true
 		folderGrid.repositionEntries = entries
 		folderGrid.repositionAnchor = anchor
+		folderGrid.dragPaths = entries.map(entry => entry.path)
 		folderGrid.updateReposition(x, y)
 
 		const window = folderGrid.pane.window
@@ -155,6 +182,39 @@ Item {
 		return true
 	}
 
+	function beginDragTooltip(modifiers) {
+		const window = folderGrid.pane ? folderGrid.pane.window : null
+		if (!window)
+			return
+		window.dragTooltipReposition = false
+		if (modifiers & Qt.ShiftModifier)
+			window.dragTooltipAction =
+				(modifiers & Qt.ControlModifier) ? "link" : "move"
+		else
+			window.dragTooltipAction = "copy"
+		window.dragTooltipActive = true
+	}
+
+	function cursorOutsideWindow(x, y) {
+		const window = folderGrid.pane ? folderGrid.pane.window : null
+		if (!window || !window.contentItem)
+			return false
+		return x < 0 || y < 0
+			|| x > window.contentItem.width || y > window.contentItem.height
+	}
+
+	function handOffReposition(grab) {
+		const paths = folderGrid.repositionEntries.map(entry => entry.path)
+		const uris = paths.map(path => folderGrid.dragUrl(path))
+		folderGrid.clearReposition()
+		if (uris.length === 0)
+			return
+		folderGrid.dragPaths = paths
+		folderGrid.beginDragTooltip(0)
+		DragHelper.startDragManyFromGrab(grab, uris.join("\n"),
+			Kirigami.Theme.backgroundColor)
+	}
+
 	function updateReposition(x, y) {
 		if (!folderGrid.repositionActive)
 			return
@@ -170,6 +230,7 @@ Item {
 		folderGrid.repositionActive = false
 		folderGrid.repositionEntries = []
 		folderGrid.repositionAnchor = null
+		folderGrid.dragPaths = []
 		const window = folderGrid.pane ? folderGrid.pane.window : null
 		if (window) {
 			window.dragPreviewActive = false
@@ -571,7 +632,7 @@ Item {
 						iconSize: folderGrid.spec.icon_size || 48
 						hovered: dragArea.containsMouse
 						pressed: dragArea.pressed
-						dragging: dragArea.dragging
+						dragging: folderGrid.isDragging(cell.path)
 						dotfile: cell.name.startsWith(".")
 					}
 					DropArea {
@@ -611,7 +672,7 @@ Item {
 							if (dx * dx + dy * dy < 36)
 								return
 							dragging = true
-							DragHelper.startDragFromGrab(cell.dragGrab, folderGrid.dragUrl(path))
+							folderGrid.startDrag(cell.dragGrab, path, mouse.modifiers)
 						}
 						onReleased: dragging = false
 						onClicked: function (mouse) {
@@ -753,7 +814,7 @@ Item {
 						columnValues: folderGrid.listColumnValues(row)
 						hovered: rowDrag.containsMouse
 						pressed: rowDrag.pressed
-						dragging: rowDrag.dragging
+						dragging: folderGrid.isDragging(row.path)
 						dotfile: row.name.startsWith(".")
 					}
 					DropArea {
@@ -793,7 +854,7 @@ Item {
 							if (dx * dx + dy * dy < 36)
 								return
 							dragging = true
-							DragHelper.startDragFromGrab(row.dragGrab, folderGrid.dragUrl(path))
+							folderGrid.startDrag(row.dragGrab, path, mouse.modifiers)
 						}
 						onReleased: dragging = false
 						onClicked: function (mouse) {
@@ -896,7 +957,7 @@ Item {
 						iconSize: 48
 						hovered: freeDrag.containsMouse
 						pressed: freeDrag.pressed
-						dragging: freeDrag.dragging
+						dragging: folderGrid.isDragging(modelData.path)
 						dotfile: modelData.name.startsWith(".")
 					}
 					DropArea {
@@ -923,6 +984,7 @@ Item {
 
 						property bool dragging: false
 						property bool repositioning: false
+						property bool handedOff: false
 						property bool suppressClick: false
 						property point pressPoint
 						property point lastPoint
@@ -930,6 +992,7 @@ Item {
 						onPressed: function (mouse) {
 							dragging = false
 							repositioning = false
+							handedOff = false
 							suppressClick = false
 							pressPoint = Qt.point(mouse.x, mouse.y)
 							lastPoint = pressPoint
@@ -937,6 +1000,15 @@ Item {
 						onPositionChanged: function (mouse) {
 							lastPoint = Qt.point(mouse.x, mouse.y)
 							if (repositioning) {
+								const scene = freeDrag.mapToItem(null,
+									mouse.x, mouse.y)
+								if (folderGrid.cursorOutsideWindow(scene.x, scene.y)) {
+									folderGrid.handOffReposition(freeSlot.dragGrab)
+									repositioning = false
+									handedOff = true
+									suppressClick = true
+									return
+								}
 								const point = freeDrag.mapToItem(folderGrid,
 									mouse.x, mouse.y)
 								folderGrid.updateReposition(point.x, point.y)
@@ -955,10 +1027,15 @@ Item {
 								repositioning = true
 								return
 							}
-							DragHelper.startDragFromGrab(freeSlot.dragGrab,
-								folderGrid.dragUrl(modelData.path))
+							folderGrid.startDrag(freeSlot.dragGrab,
+								modelData.path, mouse.modifiers)
 						}
 						onReleased: {
+							if (handedOff) {
+								handedOff = false
+								dragging = false
+								return
+							}
 							if (repositioning) {
 								const point = freeDrag.mapToItem(folderGrid,
 									lastPoint.x, lastPoint.y)

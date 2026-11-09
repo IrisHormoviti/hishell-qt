@@ -2608,7 +2608,13 @@ its URL uses the `itemgrabber` scheme, not a file path.
 Free-placement drags of items already in the folder stay in the window as a
 reposition gesture, like the old `DragPreview`: the selection follows the
 cursor as a ghost, the `DragTooltip` shows `Reposition`, and the drop writes the
-moved block plus any displaced occupants through `set_free_positions`.
+moved block plus any displaced occupants through `set_free_positions`. If the
+gesture leaves the window it hands the same selection over to the platform
+drag, as the old `handOffRepositionDrag` did.
+
+During a platform drag the helper polls the cursor and keyboard modifiers, so
+the `DragTooltip` follows the pointer and switches between `Copy`, `Move`, and
+`Link` like the old `DragDropHandler`.
 
 ### Clipboard, properties, and new windows
 

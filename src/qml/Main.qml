@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import hishell_qt
+import NativeDrag 1.0
 
 ApplicationWindow {
 	id: window
@@ -229,5 +230,30 @@ ApplicationWindow {
 		cursorX: window.dragCursorX
 		cursorY: window.dragCursorY
 		previewData: window.dragPreviewData
+	}
+
+	Connections {
+		target: DragHelper
+
+		function onCursorMoved(x, y) {
+			if (!window.dragTooltipActive && !window.dragPreviewActive)
+				return
+			if (!window.contentItem)
+				return
+			const point = window.contentItem.mapFromGlobal(x, y)
+			window.dragCursorX = point.x
+			window.dragCursorY = point.y
+		}
+
+		function onDragActionChanged(action) {
+			window.dragTooltipAction = action
+		}
+
+		function onDragFinished() {
+			if (window.dragPreviewActive)
+				return
+			window.dragTooltipActive = false
+			window.dragTooltipReposition = false
+		}
 	}
 }
