@@ -556,6 +556,7 @@ dependencies = [
 name = "hishell-qt"
 version = "0.1.0"
 dependencies = [
+ "cc",
  "gilrs",
  "hishell",
  "once_cell",

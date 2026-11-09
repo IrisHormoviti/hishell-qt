@@ -2591,11 +2591,11 @@ The frontend is:
 ### Spring-loaded drag
 
 Qt Quick's drag source is the delegate `QQuickItem`. Spring navigation replaces
-the folder rows and destroys that item while Qt still owns the drag, which
-aborts the process. The old UI avoided this with a native `DragDropHandler` that
-kept the `QDrag` in a persistent object. This frontend has no `QDrag` access
-through `qtbridge`, so spring navigation is disabled rather than implemented as
-a crash-prone QML workaround. Enabling it requires a small native drag helper.
+the folder rows and would destroy that item while Qt owns the drag. The
+frontend now uses a small native `DragHelper` singleton (`native/draghelper.*`)
+that owns the `QDrag` and survives the view change, like the old
+`DragDropHandler`. Hovering a folder during a drag navigates into it, and the
+drag continues so the drop completes there.
 
 ### Clipboard, properties, and new windows
 

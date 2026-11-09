@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import NativeDrag 1.0
 
 // Old FolderGrid role: owns the view geometry, grid/list/free delegates and
 // their delegate-owned drag. FolderView keeps the pane chrome and actions.
@@ -16,6 +17,14 @@ Item {
 		? folderGrid.directory.config.show_labels : true
 	readonly property bool labelsBeside: folderGrid.directory
 		? folderGrid.directory.config.gridLabelsBesidesIcons : false
+		Connections {
+		target: DragHelper
+		function onDragFinished() {
+			folderGrid.dragActive = false
+			folderGrid.dragPath = ""
+		}
+	}
+
 	readonly property bool filterActive: folderGrid.directory
 		? String(folderGrid.directory.filter).length > 0 : false
 
@@ -172,6 +181,10 @@ Item {
 		return Qt.formatDateTime(new Date(Number(milliseconds)), "yyyy-MM-dd HH:mm")
 	}
 
+	function dragUrl(path) {
+		return "file://" + String(path).split("/").map(encodeURIComponent).join("/")
+	}
+
 	function listColumnValues(row) {
 		return folderGrid.listColumns.map(key => ({
 			"text": folderGrid.columnText(key, row),
@@ -280,26 +293,15 @@ Item {
 					required property bool is_image
 
 					property string thumb: ""
+					property string dragImage: ""
 					Component.onCompleted: {
 						if (is_image)
 							thumb = pane.directory.thumbnail(path, 96)
 						cell.grabToImage(function (result) {
-							cell.Drag.imageSource = result.url
+							cell.dragImage = result.url
 						}, Qt.size(64, 64))
 					}
 
-					Drag.active: dragArea.dragging
-					Drag.dragType: Drag.Automatic
-					Drag.supportedActions: Qt.CopyAction | Qt.MoveAction | Qt.LinkAction
-					Drag.mimeData: ({ "text/uri-list": pane.dragUrl(path) })
-					Drag.hotSpot.x: 24
-					Drag.hotSpot.y: 24
-					Drag.imageSourceSize: Qt.size(64, 64)
-					Drag.onDragStarted: pane.dragSourceUris = pane.dragUrl(path)
-					Drag.onDragFinished: {
-						pane.dragSourceUris = ""
-										dragArea.dragging = false
-					}
 
 					readonly property bool selected: {
 						pane.directory.selectionRevision
@@ -362,12 +364,9 @@ Item {
 							if (dx * dx + dy * dy < 36)
 								return
 							dragging = true
-							cell.Drag.active = true
+							DragHelper.startDrag(folderGrid.dragUrl(path), "")
 						}
-						onReleased: {
-							dragging = false
-							cell.Drag.active = false
-						}
+						onReleased: dragging = false
 						onClicked: function (mouse) {
 							if (dragging) {
 								dragging = false
@@ -462,26 +461,15 @@ Item {
 					required property var accessed_time
 
 					property string thumb: ""
+					property string dragImage: ""
 					Component.onCompleted: {
 						if (is_image)
 							thumb = pane.directory.thumbnail(path, 32)
 						row.grabToImage(function (result) {
-							row.Drag.imageSource = result.url
+							row.dragImage = result.url
 						}, Qt.size(64, 64))
 					}
 
-					Drag.active: rowDrag.dragging
-					Drag.dragType: Drag.Automatic
-					Drag.supportedActions: Qt.CopyAction | Qt.MoveAction | Qt.LinkAction
-					Drag.mimeData: ({ "text/uri-list": pane.dragUrl(path) })
-					Drag.hotSpot.x: 24
-					Drag.hotSpot.y: 24
-					Drag.imageSourceSize: Qt.size(64, 64)
-					Drag.onDragStarted: pane.dragSourceUris = pane.dragUrl(path)
-					Drag.onDragFinished: {
-						pane.dragSourceUris = ""
-										rowDrag.dragging = false
-					}
 
 					readonly property bool selected: {
 						pane.directory.selectionRevision
@@ -490,7 +478,7 @@ Item {
 
 					width: ListView.view.width
 					height: 30
-					opacity: rowDrag.dragging ? 0.4 : 1.0
+					opacity: dragArea.dragging ? 0.4 : 1.0
 					color: "transparent"
 
 					FileSlot {
@@ -545,12 +533,9 @@ Item {
 							if (dx * dx + dy * dy < 36)
 								return
 							dragging = true
-							row.Drag.active = true
+							DragHelper.startDrag(folderGrid.dragUrl(path), "")
 						}
-						onReleased: {
-							dragging = false
-							row.Drag.active = false
-						}
+						onReleased: dragging = false
 						onClicked: function (mouse) {
 							if (dragging) {
 								dragging = false
@@ -613,11 +598,12 @@ Item {
 					opacity: freeDrag.dragging ? 0.4 : 1.0
 
 					property string thumb: ""
+					property string dragImage: ""
 					Component.onCompleted: {
 						if (modelData.is_image)
 							thumb = pane.directory.thumbnail(modelData.path, 64)
 						freeSlot.grabToImage(function (result) {
-							freeSlot.Drag.imageSource = result.url
+							freeSlot.dragImage = result.url
 						}, Qt.size(64, 64))
 					}
 
@@ -626,18 +612,6 @@ Item {
 						return pane.directory.is_selected(modelData.path)
 					}
 
-					Drag.active: freeDrag.dragging
-					Drag.dragType: Drag.Automatic
-					Drag.supportedActions: Qt.CopyAction | Qt.MoveAction | Qt.LinkAction
-					Drag.mimeData: ({ "text/uri-list": pane.dragUrl(modelData.path) })
-					Drag.hotSpot.x: 24
-					Drag.hotSpot.y: 24
-					Drag.imageSourceSize: Qt.size(64, 64)
-					Drag.onDragStarted: pane.dragSourceUris = pane.dragUrl(modelData.path)
-					Drag.onDragFinished: {
-						pane.dragSourceUris = ""
-										freeDrag.dragging = false
-					}
 
 					FileSlot {
 						anchors.fill: parent
@@ -692,12 +666,9 @@ Item {
 							if (dx * dx + dy * dy < 36)
 								return
 							dragging = true
-							freeSlot.Drag.active = true
+							DragHelper.startDrag(folderGrid.dragUrl(modelData.path), "")
 						}
-						onReleased: {
-							dragging = false
-							freeSlot.Drag.active = false
-						}
+						onReleased: dragging = false
 						onClicked: function (mouse) {
 							if (dragging) {
 								dragging = false

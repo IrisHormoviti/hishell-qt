@@ -19,6 +19,10 @@ use qtbridge::{
 	QApp, QListModel, QListModelBase, QModelItem, QmlObject, include_bytes_qml, qobject,
 };
 
+unsafe extern "C" {
+	fn hishell_register_drag_helper();
+}
+
 static CLIPBOARD: once_cell::sync::Lazy<Mutex<Option<hishell::ops::ClipboardSnapshot>>> =
 	once_cell::sync::Lazy::new(|| Mutex::new(None));
 
@@ -1862,6 +1866,7 @@ fn self_test() {
 	std::fs::write(dir.join("keep.txt"), b"keep").unwrap();
 
 	let mut app = QApp::new();
+	unsafe { hishell_register_drag_helper() };
 	let bridge = Rc::new(RefCell::new(TestBridge {
 		root: root.to_string_lossy().into_owned(),
 		..TestBridge::default()
@@ -1907,6 +1912,7 @@ fn main() {
 	#[cfg(feature = "gamepad")]
 	gamepad::init();
 	let mut app = QApp::new();
+	unsafe { hishell_register_drag_helper() };
 	app.application_name("hishell-qt")
 		.register::<ConfigBridge>()
 		.register::<Directory>()

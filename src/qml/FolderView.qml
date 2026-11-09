@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import hishell_qt
 import org.kde.kirigami as Kirigami
+import NativeDrag 1.0
 import "toolkit"
 
 Kirigami.Page {
@@ -46,16 +47,26 @@ Kirigami.Page {
 		id: springTimer
 		interval: 700
 		repeat: false
-		onTriggered: pane.springPath = ""
+		onTriggered: {
+			const target = pane.springPath
+			pane.springPath = ""
+			if (target.length > 0 && !DragHelper.isSource(target))
+				pane.directory.navigate(target)
+		}
 	}
 
-	function springEnter(path, x, y) {
-		if (x !== undefined) {
-			pane.springAnchorX = x
-			pane.springAnchorY = y
+	function springEnter(path) {
+		DragHelper.setSpringTarget(path)
+	}
+
+	Connections {
+		target: DragHelper
+		function onSpringRequested(path) {
+			if (pane.springPath !== path) {
+				pane.springPath = path
+				pane.directory.navigate(path)
+			}
 		}
-		pane.springPath = path
-		springTimer.restart()
 	}
 
 	function openSpringFolder(path) {
@@ -113,6 +124,7 @@ Kirigami.Page {
 	}
 
 	function springLeave(path) {
+		DragHelper.clearSpringTarget()
 		if (pane.springPath === path) {
 			springTimer.stop()
 			pane.springPath = ""
