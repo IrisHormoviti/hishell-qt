@@ -709,6 +709,24 @@ Kirigami.Page {
 						}, Qt.size(64, 64))
 					}
 
+					Drag.active: dragArea.dragging
+					Drag.dragType: Drag.Automatic
+					Drag.supportedActions: Qt.CopyAction | Qt.MoveAction | Qt.LinkAction
+					Drag.mimeData: ({ "text/uri-list": pane.dragUrl(path) })
+					Drag.imageSource: cell.dragImage
+					Drag.imageSourceSize: Qt.size(64, 64)
+					Drag.hotSpot.x: 24
+					Drag.hotSpot.y: 24
+					Drag.onDragStarted: {
+						pane.dragPath = path
+						pane.directory.set_drag_active(true)
+					}
+					Drag.onDragFinished: {
+						pane.dragPath = ""
+						pane.directory.set_drag_active(false)
+						dragArea.dragging = false
+					}
+
 					readonly property bool selected: {
 						pane.directory.selectionRevision
 						return pane.directory.is_selected(path)
@@ -718,69 +736,19 @@ Kirigami.Page {
 					height: grid.cellHeight
 					opacity: pane.dragActive && pane.dragPath === path ? 0.4 : 1.0
 
-					Rectangle {
+					FileSlot {
 						anchors.fill: parent
-						anchors.margins: 2
-						radius: 6
-						color: Kirigami.Theme.highlightColor
-						opacity: cell.selected ? 0.28 : 0
+						name: cell.name
+						title: cell.title
+						icon: cell.icon
+						thumb: cell.thumb
+						isDirectory: cell.is_directory
+						selected: cell.selected
+						active: pane.active && pane.directory.focused_path === cell.path
+						showLabels: pane.showLabels
+						labelsBeside: pane.labelsBeside
+						iconSize: pane.spec.icon_size || 48
 					}
-
-					Rectangle {
-						anchors.fill: parent
-						anchors.margins: 1
-						color: "transparent"
-						border.width: 2
-						border.color: Kirigami.Theme.highlightColor
-						visible: pane.active && pane.directory.focused_path === path
-					}
-
-					GridLayout {
-						anchors.centerIn: parent
-						columns: pane.labelsBeside && pane.showLabels ? 2 : 1
-						columnSpacing: 4
-						rowSpacing: 4
-
-						Item {
-							Layout.preferredWidth: pane.spec.icon_size || 48
-							Layout.preferredHeight: Layout.preferredWidth
-							Layout.alignment: Qt.AlignHCenter
-
-							Image {
-								anchors.fill: parent
-								source: cell.thumb
-								fillMode: Image.PreserveAspectCrop
-								visible: cell.thumb.length > 0
-							}
-
-							Image {
-								anchors.fill: parent
-								source: pane.isFileIcon(cell.icon) ? cell.icon : ""
-								fillMode: Image.PreserveAspectFit
-								visible: cell.thumb.length === 0 && pane.isFileIcon(cell.icon)
-							}
-
-							Kirigami.Icon {
-								anchors.fill: parent
-								source: cell.icon
-								visible: cell.thumb.length === 0 && !pane.isFileIcon(cell.icon)
-							}
-						}
-
-						Label {
-							Layout.fillWidth: pane.labelsBeside && pane.showLabels
-							Layout.preferredWidth: pane.labelsBeside && pane.showLabels
-								? Math.max(0, grid.cellWidth - (pane.spec.icon_size || 48) - 12)
-								: grid.cellWidth - 8
-							Layout.alignment: Qt.AlignVCenter
-							visible: pane.showLabels
-							text: pane.displayName(name, title)
-							elide: Text.ElideMiddle
-							horizontalAlignment: pane.labelsBeside && pane.showLabels
-								? Text.AlignLeft : Text.AlignHCenter
-						}
-					}
-
 					DropArea {
 						anchors.fill: parent
 						enabled: cell.is_directory
@@ -809,7 +777,7 @@ Kirigami.Page {
 						id: dragArea
 						anchors.fill: parent
 						acceptedButtons: Qt.LeftButton | Qt.RightButton
-						drag.target: dragSource
+						drag.target: cell
 
 						property bool dragging: false
 						property point pressPoint
@@ -826,7 +794,6 @@ Kirigami.Page {
 							if (dx * dx + dy * dy < 36)
 								return
 							dragging = true
-							pane.beginDrag(path, pane.dragUrl(path), cell.dragImage)
 						}
 						onReleased: dragging = false
 						onClicked: function (mouse) {
@@ -1124,68 +1091,19 @@ Kirigami.Page {
 						return pane.directory.is_selected(modelData.path)
 					}
 
-					Rectangle {
+					FileSlot {
 						anchors.fill: parent
-						anchors.margins: 2
-						radius: 6
-						color: Kirigami.Theme.highlightColor
-						opacity: freeSlot.selected ? 0.28 : 0
+						name: modelData.name
+						title: modelData.title || ""
+						icon: modelData.icon
+						thumb: freeSlot.thumb
+						isDirectory: modelData.is_directory
+						selected: freeSlot.selected
+						active: pane.active && pane.directory.focused_path === modelData.path
+						showLabels: pane.showLabels
+						labelsBeside: pane.labelsBeside
+						iconSize: 48
 					}
-
-					Rectangle {
-						anchors.fill: parent
-						anchors.margins: 1
-						color: "transparent"
-						border.width: 2
-						border.color: Kirigami.Theme.highlightColor
-						visible: pane.active && pane.directory.focused_path === modelData.path
-					}
-
-					GridLayout {
-						anchors.centerIn: parent
-						columns: pane.labelsBeside && pane.showLabels ? 2 : 1
-						columnSpacing: 4
-						rowSpacing: 4
-
-						Item {
-							Layout.preferredWidth: 48
-							Layout.preferredHeight: 48
-							Layout.alignment: Qt.AlignHCenter
-
-							Image {
-								anchors.fill: parent
-								source: freeSlot.thumb
-								fillMode: Image.PreserveAspectCrop
-								visible: freeSlot.thumb.length > 0
-							}
-
-							Image {
-								anchors.fill: parent
-								source: pane.isFileIcon(modelData.icon) ? modelData.icon : ""
-								fillMode: Image.PreserveAspectFit
-								visible: freeSlot.thumb.length === 0 && pane.isFileIcon(modelData.icon)
-							}
-
-							Kirigami.Icon {
-								anchors.fill: parent
-								source: modelData.icon
-								visible: freeSlot.thumb.length === 0 && !pane.isFileIcon(modelData.icon)
-							}
-						}
-
-						Label {
-							Layout.fillWidth: pane.labelsBeside && pane.showLabels
-							Layout.preferredWidth: pane.labelsBeside && pane.showLabels
-								? Math.max(0, freeSlot.width - 60) : freeSlot.width - 8
-							Layout.alignment: Qt.AlignVCenter
-							visible: pane.showLabels
-							text: pane.displayName(modelData.name, modelData.title || "")
-							elide: Text.ElideMiddle
-							horizontalAlignment: pane.labelsBeside && pane.showLabels
-								? Text.AlignLeft : Text.AlignHCenter
-						}
-					}
-
 					DropArea {
 						anchors.fill: parent
 						enabled: modelData.is_directory === true
