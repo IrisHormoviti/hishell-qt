@@ -6,17 +6,21 @@ mod gamepad;
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Mutex;
 
 use hishell::platform::{AppCatalog, FreeDesktopApps};
 use hishell::{
 	ActionId, ActionRequest, AppId, ChangeSet, Command, Config, ConfigKey, ConfigValue,
 	CopyOptions, Direction, Effect, Engine, FocusCommand, FolderDelta, FolderMode, LaunchRequest,
-	Location, MenuKind, Metrics, NavigationPlan, NavigationRequest, Op, PaneId, Prompt, Target,
+	Location, MenuKind, Metrics, NavigationPlan, NavigationRequest, Op, Overwrite, PaneId, Prompt, Target,
 	ViewRequest, ViewSpec, Viewport,
 };
 use qtbridge::{
 	QApp, QListModel, QListModelBase, QModelItem, QmlObject, include_bytes_qml, qobject,
 };
+
+static CLIPBOARD: once_cell::sync::Lazy<Mutex<Option<hishell::ops::ClipboardSnapshot>>> =
+	once_cell::sync::Lazy::new(|| Mutex::new(None));
 
 #[derive(Default)]
 pub struct ConfigBridge {
@@ -387,6 +391,8 @@ fn supported_action(id: &str) -> bool {
 			| "select-all"
 			| "new-folder"
 			| "new-text-file"
+			| "copy" | "cut" | "paste"
+			| "properties"
 			| "duplicate"
 			| "create-link"
 			| "rename"
@@ -898,6 +904,9 @@ impl Directory {
 	fn filter_changed(&mut self);
 
 	#[qsignal]
+	fn properties_requested(&mut self, path: String);
+
+	#[qsignal]
 	fn rename_requested(&mut self, path: String, suggested: String);
 
 	#[qsignal]
@@ -1033,6 +1042,98 @@ impl Directory {
 		self.apply_filter();
 		self.reset();
 		self.filter_changed();
+	}
+
+	#[qslot]
+	fn copy_selection(&mut self) -> bool {
+		let paths = self.target_paths();
+		if paths.is_empty() {
+			return false;
+		}
+		*CLIPBOARD.lock().unwrap() = Some(hishell::ops::ClipboardSnapshot {
+			paths,
+			cut: false,
+		});
+		true
+	}
+
+	#[qslot]
+	fn cut_selection(&mut self) -> bool {
+		let paths = self.target_paths();
+		if paths.is_empty() {
+			return false;
+		}
+		*CLIPBOARD.lock().unwrap() = Some(hishell::ops::ClipboardSnapshot {
+			paths,
+			cut: true,
+		});
+		true
+	}
+
+	#[qslot]
+	fn paste(&mut self) -> bool {
+		let Some(snapshot) = CLIPBOARD.lock().unwrap().clone() else {
+			return false;
+		};
+		let Some(engine) = self.engine.as_mut() else {
+			return false;
+		};
+		let op = Op::Paste {
+			snapshot: snapshot.clone(),
+			dest: PathBuf::from(&self.path),
+			options: hishell::ops::PasteOptions {
+				cut: snapshot.cut,
+				overwrite: Overwrite::Never,
+			},
+		};
+		let Ok(outcome) = engine.dispatch(Command::Run(op)) else {
+			return false;
+		};
+		if snapshot.cut {
+			*CLIPBOARD.lock().unwrap() = None;
+		}
+		let job = outcome.job.is_some();
+		let rows = rows_after(engine, Some(&outcome.changes));
+		self.set_rows(rows);
+		self.read_selection();
+		self.read_focus();
+		self.reset();
+		self.revision += 1;
+		self.revision_changed();
+		if job {
+			self.schedule_refresh(250);
+		}
+		true
+	}
+
+	#[qslot]
+	fn properties_json(&self, path: String) -> String {
+		let path = PathBuf::from(path);
+		let metadata = std::fs::metadata(&path).ok();
+		let kind = if path.is_dir() { "Folder" } else { "File" };
+		serde_json::json!({
+			"name": path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default(),
+			"path": path.to_string_lossy(),
+			"type": kind,
+			"size": metadata.as_ref().map(|meta| meta.len() as i64).unwrap_or(0),
+			"modified": metadata.as_ref().and_then(|meta| meta.modified().ok())
+				.and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+				.map(|duration| duration.as_millis() as i64).unwrap_or(0),
+			"mime": hishell::icon::mime_for_path(&path).unwrap_or_default(),
+		})
+		.to_string()
+	}
+
+	#[qslot]
+	fn open_in_new_window(&self, path: String) -> bool {
+		let path = PathBuf::from(path);
+		let target = if path.is_dir() { path } else {
+			path.parent().map(Path::to_path_buf).unwrap_or(path)
+		};
+		let Ok(executable) = std::env::current_exe() else {
+			return false;
+		};
+		std::process::Command::new(executable).arg(target).spawn().is_ok()
 	}
 
 	#[qslot]
@@ -1240,6 +1341,24 @@ impl Directory {
 		let Some(action) = ActionId::from_str(&id) else {
 			return String::from("{}");
 		};
+		if action == ActionId::COPY {
+			self.copy_selection();
+			return String::from("{}");
+		}
+		if action == ActionId::CUT {
+			self.cut_selection();
+			return String::from("{}");
+		}
+		if action == ActionId::PASTE {
+			self.paste();
+			return String::from("{}");
+		}
+		if action == ActionId::PROPERTIES {
+			if let Some(path) = self.target_paths().first() {
+				self.properties_requested(path.to_string_lossy().into_owned());
+			}
+			return String::from("{}");
+		}
 		if action == ActionId::RENAME
 			|| action == ActionId::TRASH
 			|| action == ActionId::DELETE

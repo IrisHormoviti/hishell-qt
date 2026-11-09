@@ -75,6 +75,30 @@ MenuBar {
 	}
 
 	Action {
+		id: copyAction
+		text: "Copy"
+		icon.name: "edit-copy"
+		shortcut: rootMenuBar.showShortcuts ? "Ctrl+C" : ""
+		onTriggered: if (rootMenuBar.directory) rootMenuBar.directory.copy_selection()
+	}
+
+	Action {
+		id: cutAction
+		text: "Cut"
+		icon.name: "edit-cut"
+		shortcut: rootMenuBar.showShortcuts ? "Ctrl+X" : ""
+		onTriggered: if (rootMenuBar.directory) rootMenuBar.directory.cut_selection()
+	}
+
+	Action {
+		id: pasteAction
+		text: "Paste"
+		icon.name: "edit-paste"
+		shortcut: rootMenuBar.showShortcuts ? "Ctrl+V" : ""
+		onTriggered: if (rootMenuBar.directory) rootMenuBar.directory.paste()
+	}
+
+	Action {
 		id: duplicateAction
 		text: "Duplicate"
 		icon.name: "edit-duplicate"
@@ -189,6 +213,10 @@ MenuBar {
 		onOpened: rootMenuBar.hasOpenMenu = true
 		onClosed: rootMenuBar.hasOpenMenu = rootMenuBar.isAnyMenuOpen()
 
+		ShellMenuItem { action: copyAction }
+		ShellMenuItem { action: cutAction }
+		ShellMenuItem { action: pasteAction }
+		MenuSeparator {}
 		ShellMenuItem { action: duplicateAction }
 		ShellMenuItem { action: linkAction }
 		MenuSeparator {}

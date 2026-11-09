@@ -133,10 +133,26 @@ Item {
 			break
 		case 14:
 			test.check("clear selection", test.leftDirectory.selectedCount === 0)
+			test.leftDirectory.select(test.dir + "/b.txt")
+			test.check("copy submitted", test.leftDirectory.copy_selection())
+			test.leftDirectory.navigate(test.child)
+			break
+		case 15:
+			test.check("paste submitted", test.leftDirectory.paste())
+			break
+		case 16:
+			test.check("copied into child",
+				test.testBridge.exists(test.child + "/b.txt"))
+			const properties = JSON.parse(test.leftDirectory.properties_json(
+				test.child + "/b.txt"))
+			test.check("properties read", properties.name === "b.txt")
+			test.leftDirectory.go_up()
+			break
+		case 17:
 			test.check("breadcrumb drop submitted", main.headerPathBar.dropUris(
 				"file://" + test.dir + "/b.txt", test.root))
 			break
-		case 15:
+		case 18:
 			test.check("breadcrumb drop applied",
 				test.testBridge.exists(test.root + "/b.txt"))
 			test.done = true

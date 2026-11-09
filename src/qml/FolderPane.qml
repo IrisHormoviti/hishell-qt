@@ -180,6 +180,10 @@ Kirigami.Page {
 			"select-all": "Select All",
 			"new-folder": "New Folder",
 			"new-text-file": "New Text File",
+			"copy": "Copy",
+			"cut": "Cut",
+			"paste": "Paste",
+			"properties": "Properties",
 			"duplicate": "Duplicate",
 			"create-link": "Create Link",
 			"rename": "Rename…",
@@ -343,6 +347,10 @@ Kirigami.Page {
 			trashDialog.permanent = permanent
 			trashDialog.open()
 		}
+		function onProperties_requested(path) {
+			propertiesDialog.rows = JSON.parse(pane.directory.properties_json(path))
+			propertiesDialog.open()
+		}
 		function onOpen_with_requested(path) {
 			openWithDialog.targetPath = path
 			openWithDialog.open()
@@ -442,6 +450,48 @@ Kirigami.Page {
 		}
 	}
 
+	Dialog {
+		id: propertiesDialog
+		property var rows: []
+		modal: true
+		title: "Properties"
+		standardButtons: Dialog.Close
+
+		ColumnLayout {
+			anchors.fill: parent
+			RowLayout {
+				Layout.fillWidth: true
+				Label { text: "Name"; Layout.preferredWidth: 90; font.bold: true }
+				Label { text: propertiesDialog.rows.name || ""; Layout.fillWidth: true; elide: Text.ElideMiddle }
+			}
+			RowLayout {
+				Layout.fillWidth: true
+				Label { text: "Path"; Layout.preferredWidth: 90; font.bold: true }
+				Label { text: propertiesDialog.rows.path || ""; Layout.fillWidth: true; elide: Text.ElideMiddle }
+			}
+			RowLayout {
+				Layout.fillWidth: true
+				Label { text: "Type"; Layout.preferredWidth: 90; font.bold: true }
+				Label { text: propertiesDialog.rows.type || ""; Layout.fillWidth: true }
+			}
+			RowLayout {
+				Layout.fillWidth: true
+				Label { text: "Size"; Layout.preferredWidth: 90; font.bold: true }
+				Label { text: pane.formatSize(propertiesDialog.rows.size || 0); Layout.fillWidth: true }
+			}
+			RowLayout {
+				Layout.fillWidth: true
+				Label { text: "Modified"; Layout.preferredWidth: 90; font.bold: true }
+				Label { text: pane.formatTime(propertiesDialog.rows.modified || 0); Layout.fillWidth: true }
+			}
+			RowLayout {
+				Layout.fillWidth: true
+				Label { text: "MIME"; Layout.preferredWidth: 90; font.bold: true }
+				Label { text: propertiesDialog.rows.mime || ""; Layout.fillWidth: true }
+			}
+		}
+	}
+
 	Menu {
 		id: contextMenu
 		onAboutToShow: {
@@ -515,6 +565,19 @@ Kirigami.Page {
 				shortcutText: modelData.shortcut || ""
 				enabled: modelData.enabled
 				onTriggered: pane.directory.invoke(modelData.id)
+			}
+		}
+
+		MenuSeparator {}
+
+		ShellMenuItem {
+			text: "Open in New Window"
+			iconName: "window-new"
+			onTriggered: {
+				const path = pane.contextTarget === "location"
+					? pane.directory.path : pane.directory.focused_path
+				if (path.length > 0)
+					pane.directory.open_in_new_window(path)
 			}
 		}
 	}
@@ -748,7 +811,7 @@ Kirigami.Page {
 						}, Qt.size(64, 64))
 					}
 
-					Drag.active: dragArea.drag.active
+					Drag.active: dragArea.dragging
 					Drag.dragType: Drag.Automatic
 					Drag.supportedActions: Qt.CopyAction | Qt.MoveAction | Qt.LinkAction
 					Drag.mimeData: ({ "text/uri-list": pane.dragUrl(path) })
@@ -759,6 +822,7 @@ Kirigami.Page {
 					Drag.onDragFinished: {
 						pane.dragSourceUris = ""
 						pane.springPopupVisible = false
+						dragArea.dragging = false
 					}
 
 					readonly property bool selected: {
@@ -768,6 +832,7 @@ Kirigami.Page {
 
 					width: grid.cellWidth
 					height: grid.cellHeight
+					opacity: dragArea.dragging ? 0.4 : 1.0
 
 					Rectangle {
 						anchors.fill: parent
@@ -855,8 +920,33 @@ Kirigami.Page {
 						id: dragArea
 						anchors.fill: parent
 						acceptedButtons: Qt.LeftButton | Qt.RightButton
-						drag.target: cell
+
+						property bool dragging: false
+						property point pressPoint
+
+						onPressed: function (mouse) {
+							dragging = false
+							pressPoint = Qt.point(mouse.x, mouse.y)
+						}
+						onPositionChanged: function (mouse) {
+							if (dragging || !pressed)
+								return
+							const dx = mouse.x - pressPoint.x
+							const dy = mouse.y - pressPoint.y
+							if (dx * dx + dy * dy < 36)
+								return
+							dragging = true
+							cell.Drag.active = true
+						}
+						onReleased: {
+							dragging = false
+							cell.Drag.active = false
+						}
 						onClicked: function (mouse) {
+							if (dragging) {
+								dragging = false
+								return
+							}
 							if (mouse.button === Qt.RightButton) {
 								pane.activated()
 								pane.directory.focus_path(cell.path)
@@ -866,7 +956,7 @@ Kirigami.Page {
 								pane.clickTarget(cell.path, mouse.modifiers)
 							}
 						}
-						onPressAndHold: pane.holdTarget(cell.path)
+						onPressAndHold: if (!dragArea.dragging) pane.holdTarget(cell.path)
 						onDoubleClicked: pane.doubleTarget(cell.path)
 					}
 				}
@@ -954,7 +1044,7 @@ Kirigami.Page {
 						}, Qt.size(64, 64))
 					}
 
-					Drag.active: rowDrag.drag.active
+					Drag.active: rowDrag.dragging
 					Drag.dragType: Drag.Automatic
 					Drag.supportedActions: Qt.CopyAction | Qt.MoveAction | Qt.LinkAction
 					Drag.mimeData: ({ "text/uri-list": pane.dragUrl(path) })
@@ -965,6 +1055,7 @@ Kirigami.Page {
 					Drag.onDragFinished: {
 						pane.dragSourceUris = ""
 						pane.springPopupVisible = false
+						rowDrag.dragging = false
 					}
 
 					readonly property bool selected: {
@@ -974,6 +1065,7 @@ Kirigami.Page {
 
 					width: ListView.view.width
 					height: 30
+					opacity: rowDrag.dragging ? 0.4 : 1.0
 					color: row.selected ? Qt.rgba(
 						Kirigami.Theme.highlightColor.r,
 						Kirigami.Theme.highlightColor.g,
@@ -1055,8 +1147,33 @@ Kirigami.Page {
 						id: rowDrag
 						anchors.fill: parent
 						acceptedButtons: Qt.LeftButton | Qt.RightButton
-						drag.target: row
+
+						property bool dragging: false
+						property point pressPoint
+
+						onPressed: function (mouse) {
+							dragging = false
+							pressPoint = Qt.point(mouse.x, mouse.y)
+						}
+						onPositionChanged: function (mouse) {
+							if (dragging || !pressed)
+								return
+							const dx = mouse.x - pressPoint.x
+							const dy = mouse.y - pressPoint.y
+							if (dx * dx + dy * dy < 36)
+								return
+							dragging = true
+							row.Drag.active = true
+						}
+						onReleased: {
+							dragging = false
+							row.Drag.active = false
+						}
 						onClicked: function (mouse) {
+							if (dragging) {
+								dragging = false
+								return
+							}
 							if (mouse.button === Qt.RightButton) {
 								pane.activated()
 								pane.directory.focus_path(row.path)
@@ -1066,7 +1183,7 @@ Kirigami.Page {
 								pane.clickTarget(row.path, mouse.modifiers)
 							}
 						}
-						onPressAndHold: pane.holdTarget(row.path)
+						onPressAndHold: if (!rowDrag.dragging) pane.holdTarget(row.path)
 						onDoubleClicked: pane.doubleTarget(row.path)
 					}
 				}
@@ -1111,6 +1228,7 @@ Kirigami.Page {
 					y: pane.freeOffsetY + modelData.y
 					width: modelData.width
 					height: modelData.height
+					opacity: freeDrag.dragging ? 0.4 : 1.0
 
 					property string thumb: ""
 					Component.onCompleted: {
@@ -1126,7 +1244,7 @@ Kirigami.Page {
 						return pane.directory.is_selected(modelData.path)
 					}
 
-					Drag.active: freeDrag.drag.active
+					Drag.active: freeDrag.dragging
 					Drag.dragType: Drag.Automatic
 					Drag.supportedActions: Qt.CopyAction | Qt.MoveAction | Qt.LinkAction
 					Drag.mimeData: ({ "text/uri-list": pane.dragUrl(modelData.path) })
@@ -1137,6 +1255,7 @@ Kirigami.Page {
 					Drag.onDragFinished: {
 						pane.dragSourceUris = ""
 						pane.springPopupVisible = false
+						freeDrag.dragging = false
 					}
 
 					Rectangle {
@@ -1225,8 +1344,33 @@ Kirigami.Page {
 						id: freeDrag
 						anchors.fill: parent
 						acceptedButtons: Qt.LeftButton | Qt.RightButton
-						drag.target: freeSlot
+
+						property bool dragging: false
+						property point pressPoint
+
+						onPressed: function (mouse) {
+							dragging = false
+							pressPoint = Qt.point(mouse.x, mouse.y)
+						}
+						onPositionChanged: function (mouse) {
+							if (dragging || !pressed)
+								return
+							const dx = mouse.x - pressPoint.x
+							const dy = mouse.y - pressPoint.y
+							if (dx * dx + dy * dy < 36)
+								return
+							dragging = true
+							freeSlot.Drag.active = true
+						}
+						onReleased: {
+							dragging = false
+							freeSlot.Drag.active = false
+						}
 						onClicked: function (mouse) {
+							if (dragging) {
+								dragging = false
+								return
+							}
 							if (mouse.button === Qt.RightButton) {
 								pane.activated()
 								pane.directory.focus_path(modelData.path)
@@ -1236,7 +1380,7 @@ Kirigami.Page {
 								pane.clickTarget(modelData.path, mouse.modifiers)
 							}
 						}
-						onPressAndHold: pane.holdTarget(modelData.path)
+						onPressAndHold: if (!freeDrag.dragging) pane.holdTarget(modelData.path)
 						onDoubleClicked: pane.doubleTarget(modelData.path)
 					}
 				}
