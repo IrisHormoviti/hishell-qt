@@ -20,10 +20,7 @@ Kirigami.Page {
 
 	property var directory: null
 
-	property var contextActions: []
 	property string contextTarget: "location"
-	property var contextNewMenu: null
-	property var contextViewMenu: null
 	property string springPath: ""
 	property string dragSourceUris: ""
 	property string dragPath: ""
@@ -472,94 +469,13 @@ Kirigami.Page {
 		}
 	}
 
-	Menu {
+	ShellContextMenu {
 		id: contextMenu
-		onAboutToShow: {
-			const background = pane.contextTarget === "location"
-			pane.contextActions = JSON.parse(
-				pane.directory.actions_json("context", pane.contextTarget))
-				.filter(action => background ? action.here : action.items)
-			if (background)
-				pane.contextActions = pane.contextActions.filter(action =>
-					action.id !== "new-folder" && action.id !== "new-text-file")
-
-			if (background) {
-				if (!pane.contextNewMenu) {
-					pane.contextNewMenu = newMenuComponent.createObject(contextMenu)
-					contextMenu.addMenu(pane.contextNewMenu)
-				}
-				if (!pane.contextViewMenu) {
-					pane.contextViewMenu = viewMenuComponent.createObject(contextMenu, {
-						"directory": pane.directory,
-						"window": pane.window
-					})
-					contextMenu.addMenu(pane.contextViewMenu)
-				}
-			} else {
-				if (pane.contextNewMenu) {
-					contextMenu.removeMenu(pane.contextNewMenu)
-					pane.contextNewMenu.destroy()
-					pane.contextNewMenu = null
-				}
-				if (pane.contextViewMenu) {
-					contextMenu.removeMenu(pane.contextViewMenu)
-					pane.contextViewMenu.destroy()
-					pane.contextViewMenu = null
-				}
-			}
-		}
-
-		Component {
-			id: newMenuComponent
-
-			Menu {
-				title: "New"
-				icon.name: "document-new"
-
-				ShellMenuItem {
-					text: "New Folder"
-					iconName: "folder-new"
-					onTriggered: if (pane.directory) pane.directory.invoke("new-folder")
-				}
-				ShellMenuItem {
-					text: "New Text File"
-					iconName: "document-new"
-					onTriggered: if (pane.directory) pane.directory.invoke("new-text-file")
-				}
-			}
-		}
-
-		Component {
-			id: viewMenuComponent
-
-			ViewMenu {}
-		}
-
-		Repeater {
-			model: pane.contextActions
-
-			ShellMenuItem {
-				required property var modelData
-				text: pane.actionLabel(modelData.id)
-				iconName: modelData.icon || ""
-				shortcutText: modelData.shortcut || ""
-				enabled: modelData.enabled
-				onTriggered: pane.directory.invoke(modelData.id)
-			}
-		}
-
-		MenuSeparator {}
-
-		ShellMenuItem {
-			text: "Open in New Window"
-			iconName: "window-new"
-			onTriggered: {
-				const path = pane.contextTarget === "location"
-					? pane.directory.path : pane.directory.focused_path
-				if (path.length > 0)
-					pane.directory.open_in_new_window(path)
-			}
-		}
+		directory: pane.directory
+		window: pane.window
+		targetIsBackground: pane.contextTarget === "location"
+		targetIsDir: pane.directory ? pane.directory.focusIsDirectory : false
+		targetIsImage: pane.directory ? pane.directory.focusIsImage : false
 	}
 
 	readonly property var spec: {
