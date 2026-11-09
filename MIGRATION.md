@@ -2666,6 +2666,10 @@ clipped focused slot moves the cursor to the fully visible item nearest its
 centre, without scrolling back. A 60 ms follow timer throttles wheel/flick
 updates, and `movementEnded` settles it immediately.
 
+`openFocusedMenu` is the shared context-menu path for the Menu key, Shift+F10,
+and the gamepad menu button: an item gets its item actions, while focus on an
+empty slot gets the folder Here/New/View menu.
+
 ### Clipboard, properties, and new windows
 
 - Copy/Cut/Paste use a frontend clipboard holding a `ClipboardSnapshot`; Paste

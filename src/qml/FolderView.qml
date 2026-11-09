@@ -47,6 +47,23 @@ Kirigami.Page {
 		contextMenu.popup()
 	}
 
+	// Context menu for the focused item, shared by the Menu key, Shift+F10,
+	// and the gamepad menu button. An empty slot is background, so it opens
+	// the folder menu.
+	function openFocusedMenu() {
+		if (!pane.active || !pane.directory)
+			return
+		if (pane.directory.focusOnEmpty) {
+			pane.contextTarget = "location"
+			contextMenu.popup()
+			return
+		}
+		if (pane.directory.focused_path.length > 0) {
+			pane.contextTarget = "focus"
+			contextMenu.popup()
+		}
+	}
+
 	function closeDialogs() {
 		renameDialog.close()
 		trashDialog.close()
@@ -74,7 +91,7 @@ Kirigami.Page {
 		} else if (action === "cancel") {
 			pane.directory.go_up()
 		} else if (action === "menu") {
-			contextMenu.popup()
+			pane.openFocusedMenu()
 		} else if (action === "select") {
 			if (pane.directory.focused_path.length > 0)
 				pane.directory.toggle_select(pane.directory.focused_path)
@@ -191,6 +208,11 @@ Kirigami.Page {
 		} else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
 			if (pane.directory.focused_path.length > 0)
 				pane.directory.open(pane.directory.focused_path)
+			event.accepted = true
+		} else if (event.key === Qt.Key_Menu
+				|| (event.key === Qt.Key_F10
+					&& (event.modifiers & Qt.ShiftModifier))) {
+			pane.openFocusedMenu()
 			event.accepted = true
 		} else if (event.key === Qt.Key_Escape) {
 			pane.directory.clear_selection()
