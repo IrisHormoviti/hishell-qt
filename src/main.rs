@@ -612,6 +612,10 @@ pub struct DirectoryRow {
 	mime: String,
 	group_label: String,
 	is_image: bool,
+	is_symlink: bool,
+	/// 1 button, 2 toggle off, 3 toggle on, 4 number.
+	control_kind: i32,
+	number_value: String,
 }
 
 pub struct Directory {
@@ -943,6 +947,31 @@ impl Directory {
 	}
 
 	#[qslot]
+	fn selected_paths_json(&self) -> String {
+		let Some(engine) = &self.engine else {
+			return String::from("[]");
+		};
+		let paths: Vec<String> = engine
+			.selection()
+			.filter(|selection| selection.active())
+			.map(|selection| {
+				selection
+					.items()
+					.iter()
+					.filter_map(|id| engine.item(*id))
+					.map(|item| item.path.to_string_lossy().into_owned())
+					.collect()
+			})
+			.unwrap_or_default();
+		serde_json::to_string(&paths).unwrap_or_else(|_| String::from("[]"))
+	}
+
+	#[qslot]
+	fn radio_value(&self, path: String) -> String {
+		hishell::folder::radio_value(Path::new(&path))
+	}
+
+	#[qslot]
 	fn home_directory(&self) -> String {
 		std::env::var("HOME").unwrap_or_default()
 	}
@@ -1146,6 +1175,43 @@ impl Directory {
 			return false;
 		};
 		let Ok(outcome) = engine.dispatch(Command::SetFreePosition { name, column, row })
+		else {
+			return false;
+		};
+		self.config.borrow_mut().apply(engine.config());
+		let rows = rows_after(engine, Some(&outcome.changes));
+		self.set_rows(rows);
+		self.read_selection();
+		self.read_focus();
+		self.reset();
+		self.revision += 1;
+		self.revision_changed();
+		true
+	}
+
+	#[qslot]
+	fn set_free_positions(&mut self, json: String) -> bool {
+		let Ok(map) =
+			serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&json)
+		else {
+			return false;
+		};
+		let positions: Vec<(String, i32, i32)> = map
+			.into_iter()
+			.filter_map(|(name, value)| {
+				let values = value.as_array()?;
+				let column = values.first()?.as_i64()? as i32;
+				let row = values.get(1)?.as_i64()? as i32;
+				Some((name, column, row))
+			})
+			.collect();
+		if positions.is_empty() {
+			return false;
+		}
+		let Some(engine) = self.engine.as_mut() else {
+			return false;
+		};
+		let Ok(outcome) = engine.dispatch(Command::SetFreePositions { positions })
 		else {
 			return false;
 		};
@@ -1668,12 +1734,22 @@ impl Directory {
 						engine.item(slot.item).map(|item| serde_json::json!({
 							"path": item.path.to_string_lossy(),
 							"name": item.name,
+							"title": item.title,
 							"icon": match &item.icon {
 								hishell::IconRef::Theme(name) => name.clone(),
 								hishell::IconRef::Path(path) => format!("file://{}", path.to_string_lossy()),
 							},
 							"is_image": item.mime.as_deref().is_some_and(|mime| mime.starts_with("image/")),
 							"is_directory": item.fs_kind == hishell::FsKind::Directory,
+							"is_symlink": item.is_symlink,
+							"control_kind": match item.kind {
+								hishell::ItemKind::Button => 1,
+								hishell::ItemKind::Toggle if item.toggle_on => 3,
+								hishell::ItemKind::Toggle => 2,
+								hishell::ItemKind::Number => 4,
+								_ => 0,
+							},
+							"number_value": item.number_value,
 							"x": slot.rect.x,
 							"y": slot.rect.y,
 							"width": slot.rect.width,
@@ -1762,6 +1838,15 @@ fn row_from_item(item: &hishell::Item) -> DirectoryRow {
 			.mime
 			.as_deref()
 			.is_some_and(|mime| mime.starts_with("image/")),
+		is_symlink: item.is_symlink,
+		control_kind: match item.kind {
+			hishell::ItemKind::Button => 1,
+			hishell::ItemKind::Toggle if item.toggle_on => 3,
+			hishell::ItemKind::Toggle => 2,
+			hishell::ItemKind::Number => 4,
+			_ => 0,
+		},
+		number_value: item.number_value.clone(),
 	}
 }
 

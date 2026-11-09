@@ -27,6 +27,13 @@ ApplicationWindow {
 	property string testMiddleLayout: ""
 	property var panes: []
 	property Item activePane: null
+	property bool dragPreviewActive: false
+	property var dragPreviewData: null
+	property real dragCursorX: 0
+	property real dragCursorY: 0
+	property bool dragTooltipActive: false
+	property bool dragTooltipReposition: false
+	property string dragTooltipAction: "copy"
 
 	Component.onCompleted: {
 		if (leftDirectory && leftDirectory.config.maximized)
@@ -207,5 +214,20 @@ ApplicationWindow {
 			for (let i = 0; i < window.panes.length; i++)
 				window.panes[i].directory.poll_descriptors()
 		}
+	}
+
+	DragTooltip {
+		active: window.dragTooltipActive
+		action: window.dragTooltipAction
+		reposition: window.dragTooltipReposition
+		cursorX: window.dragCursorX
+		cursorY: window.dragCursorY
+	}
+
+	DragPreview {
+		previewActive: window.dragPreviewActive && !!window.dragPreviewData
+		cursorX: window.dragCursorX
+		cursorY: window.dragCursorY
+		previewData: window.dragPreviewData
 	}
 }

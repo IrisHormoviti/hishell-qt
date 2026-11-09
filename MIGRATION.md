@@ -2574,8 +2574,14 @@ The frontend is:
   `QApp` entry point.
 - `src/qml/Main.qml` — the window and its Header/Top/Middle/Bottom layout engines.
 - `src/qml/LayoutEngine.qml` — loads the configured layout entries.
-- `src/qml/FolderPane.qml` — one pane: Qt Quick Controls, `Kirigami.Icon`, the
-  plain focus rectangle, file-operation dialogs, and the `NavigationPlan` transition.
+- `src/qml/FolderView.qml` — one pane: Qt Quick Controls, the file-operation
+  dialogs, and the `NavigationPlan` transition.
+- `src/qml/FolderGrid.qml` — the grid, list, grouped, and free-placement views,
+  their geometry, selection input, and drag/drop wiring.
+- `src/qml/FileSlot.qml` — the slot rendering: icon/thumbnail, label faces,
+  selection and focus, control/radio plates, and the toggle switch.
+- `src/qml/DragPreview.qml` and `src/qml/DragTooltip.qml` — the free-placement
+  reposition ghost and its action tooltip.
 - `src/qml/toolkit/PathBar.qml` — breadcrumbs with a slash between segments and
   the current item's icon; the current crumb opens the Here menu, which carries
   the Configure submenu.
@@ -2598,6 +2604,11 @@ that owns the `QDrag` and survives the view change, like the old
 drag continues so the drop completes there. The drag pixmap is the slot's
 cached `grabToImage` result; the helper reads the grab result itself because
 its URL uses the `itemgrabber` scheme, not a file path.
+
+Free-placement drags of items already in the folder stay in the window as a
+reposition gesture, like the old `DragPreview`: the selection follows the
+cursor as a ghost, the `DragTooltip` shows `Reposition`, and the drop writes the
+moved block plus any displaced occupants through `set_free_positions`.
 
 ### Clipboard, properties, and new windows
 

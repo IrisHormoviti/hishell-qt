@@ -21,6 +21,257 @@ Item {
 	readonly property bool filterActive: folderGrid.directory
 		? String(folderGrid.directory.filter).length > 0 : false
 
+	property bool repositionActive: false
+	property var repositionEntries: []
+	property var repositionAnchor: null
+
+	function isRadioMember(path, isDir, name) {
+		const config = folderGrid.directory ? folderGrid.directory.config : null
+		if (!config || !config.radio_enabled)
+			return false
+		if (String(name).startsWith("."))
+			return false
+		const only = String(config.radio_only)
+		if (only === "DIRECTORIES")
+			return isDir
+		if (only === "FILES")
+			return !isDir
+		return true
+	}
+
+	function isRadioSelected(path, isDir, name) {
+		if (!folderGrid.isRadioMember(path, isDir, name))
+			return false
+		return String(folderGrid.directory.config.radio_selected)
+			=== String(folderGrid.directory.radio_value(path))
+	}
+
+	function selectedPaths() {
+		if (!folderGrid.directory)
+			return []
+		try {
+			return JSON.parse(folderGrid.directory.selected_paths_json())
+		} catch (error) {
+			return []
+		}
+	}
+
+	function freeSlotList() {
+		const cw = folderGrid.spec.cell_width || 96
+		const ch = folderGrid.spec.cell_height || 96
+		const gap = folderGrid.spec.gap || 0
+		return (folderGrid.spec.slots || []).map(slot => ({
+			"path": slot.path,
+			"name": slot.name,
+			"title": slot.title || "",
+			"icon": slot.icon,
+			"isDir": slot.is_directory === true,
+			"c": Math.round(slot.x / Math.max(1, cw + gap)),
+			"r": Math.round(slot.y / Math.max(1, ch + gap))
+		}))
+	}
+
+	function itemName(path) {
+		const sep = String(path).lastIndexOf("/")
+		return sep >= 0 ? String(path).substring(sep + 1) : String(path)
+	}
+
+	function nearestFreeCell(taken, columns, rows, col, row) {
+		let best = null
+		let bestDist = Infinity
+		for (let r = 0; r < rows; r++) {
+			for (let c = 0; c < columns; c++) {
+				if (taken[c + "," + r])
+					continue
+				const dist = Math.abs(r - row) + Math.abs(c - col)
+				if (dist < bestDist) {
+					bestDist = dist
+					best = { "c": c, "r": r }
+				}
+			}
+		}
+		return best
+	}
+
+	function beginReposition(path, x, y, hotspotX, hotspotY) {
+		if (!folderGrid.pane || folderGrid.spec.free !== true)
+			return false
+		let paths = folderGrid.selectedPaths()
+		if (paths.indexOf(path) === -1)
+			paths = [path]
+		const entries = folderGrid.freeSlotList()
+			.filter(entry => paths.indexOf(entry.path) !== -1)
+		if (entries.length === 0)
+			return false
+		let anchor = null
+		for (const entry of entries) {
+			if (entry.path === path) {
+				anchor = entry
+				break
+			}
+		}
+		if (!anchor) {
+			anchor = entries[0]
+			for (const entry of entries) {
+				if (entry.c < anchor.c || (entry.c === anchor.c && entry.r < anchor.r))
+					anchor = entry
+			}
+		}
+
+		const cw = folderGrid.spec.cell_width || 96
+		const ch = folderGrid.spec.cell_height || 96
+		const gap = folderGrid.spec.gap || 0
+		const items = entries.map(entry => ({
+			"path": entry.path,
+			"title": entry.title,
+			"icon": entry.icon,
+			"isDir": entry.isDir,
+			"x": (entry.c - anchor.c) * (cw + gap),
+			"y": (entry.r - anchor.r) * (ch + gap),
+			"w": cw,
+			"h": ch
+		}))
+
+		folderGrid.repositionActive = true
+		folderGrid.repositionEntries = entries
+		folderGrid.repositionAnchor = anchor
+		folderGrid.updateReposition(x, y)
+
+		const window = folderGrid.pane.window
+		if (window) {
+			window.dragPreviewData = {
+				"hotspotX": hotspotX,
+				"hotspotY": hotspotY,
+				"gridSize": folderGrid.spec.icon_size || 48,
+				"showLabels": folderGrid.showLabels,
+				"labelsBeside": folderGrid.labelsBeside,
+				"items": items
+			}
+			window.dragPreviewActive = true
+			window.dragTooltipActive = true
+			window.dragTooltipReposition = true
+			window.dragTooltipAction = "move"
+		}
+		return true
+	}
+
+	function updateReposition(x, y) {
+		if (!folderGrid.repositionActive)
+			return
+		const window = folderGrid.pane ? folderGrid.pane.window : null
+		if (!window)
+			return
+		const point = folderGrid.mapToItem(null, x, y)
+		window.dragCursorX = point.x
+		window.dragCursorY = point.y
+	}
+
+	function clearReposition() {
+		folderGrid.repositionActive = false
+		folderGrid.repositionEntries = []
+		folderGrid.repositionAnchor = null
+		const window = folderGrid.pane ? folderGrid.pane.window : null
+		if (window) {
+			window.dragPreviewActive = false
+			window.dragPreviewData = null
+			window.dragTooltipActive = false
+			window.dragTooltipReposition = false
+			window.dragTooltipAction = "copy"
+		}
+	}
+
+	function freeColumns() {
+		const cw = folderGrid.spec.cell_width || 96
+		const gap = folderGrid.spec.gap || 0
+		return Math.max(1, Math.floor((content.width + gap) / Math.max(1, cw + gap)))
+	}
+
+	function freeRows() {
+		const ch = folderGrid.spec.cell_height || 96
+		const gap = folderGrid.spec.gap || 0
+		return Math.max(1, Math.floor((content.height + gap) / Math.max(1, ch + gap)))
+	}
+
+	function freeSlotAt(x, y) {
+		const cw = folderGrid.spec.cell_width || 96
+		const ch = folderGrid.spec.cell_height || 96
+		const gap = folderGrid.spec.gap || 0
+		return {
+			"col": Math.max(0, Math.min(folderGrid.freeColumns() - 1, Math.round(
+				(x - folderGrid.freeOffsetX - cw / 2) / Math.max(1, cw + gap)))),
+			"row": Math.max(0, Math.min(folderGrid.freeRows() - 1, Math.round(
+				(y - folderGrid.freeOffsetY - ch / 2) / Math.max(1, ch + gap))))
+		}
+	}
+
+	function endReposition(x, y) {
+		if (!folderGrid.repositionActive)
+			return false
+		const slot = folderGrid.freeSlotAt(x, y)
+		const entries = folderGrid.repositionEntries
+		const anchor = folderGrid.repositionAnchor
+		folderGrid.clearReposition()
+		if (!entries.length || !anchor || !folderGrid.directory)
+			return false
+
+		const all = folderGrid.freeSlotList()
+
+		let dCol = slot.col - anchor.c
+		let dRow = slot.row - anchor.r
+		let minCol = 0
+		let minRow = 0
+		for (const entry of entries) {
+			minCol = Math.min(minCol, entry.c + dCol)
+			minRow = Math.min(minRow, entry.r + dRow)
+		}
+		dCol -= minCol
+		dRow -= minRow
+
+		const movingTo = ({})
+		const movingNames = ({})
+		for (const entry of entries) {
+			movingTo[(entry.c + dCol) + "," + (entry.r + dRow)] = true
+			movingNames[entry.name] = true
+		}
+
+		const taken = ({})
+		for (const cell in movingTo)
+			taken[cell] = true
+
+		const displaced = []
+		for (const entry of all) {
+			if (movingNames[entry.name])
+				continue
+			const cell = entry.c + "," + entry.r
+			if (movingTo[cell])
+				displaced.push(entry)
+			else
+				taken[cell] = true
+		}
+
+		const moved = ({})
+		for (const entry of entries)
+			moved[entry.name] = [entry.c + dCol, entry.r + dRow]
+		folderGrid.directory.set_free_positions(JSON.stringify(moved))
+
+		if (entries.length === 1 && displaced.length === 1) {
+			folderGrid.directory.set_free_position(
+				displaced[0].name, entries[0].c, entries[0].r)
+		} else {
+			for (const entry of displaced) {
+				const cell = folderGrid.nearestFreeCell(
+					taken, folderGrid.freeColumns(), folderGrid.freeRows(),
+					entry.c, entry.r)
+				if (!cell)
+					continue
+				taken[cell.c + "," + cell.r] = true
+				folderGrid.directory.set_free_position(entry.name, cell.c, cell.r)
+			}
+		}
+		folderGrid.directory.clear_selection()
+		return true
+	}
+
 	function pathFromUri(uri) {
 		let path = String(uri)
 		if (path.startsWith("file://"))
@@ -274,6 +525,9 @@ Item {
 					required property string icon
 					required property bool is_directory
 					required property bool is_image
+					required property bool is_symlink
+					required property int control_kind
+					required property string number_value
 
 					property string thumb: ""
 					property var dragGrab: null
@@ -301,8 +555,17 @@ Item {
 						icon: cell.icon
 						thumb: cell.thumb
 						isDirectory: cell.is_directory
+						isSymlink: cell.is_symlink
+						controlKind: cell.control_kind
+						numberValue: cell.number_value
+						radioActive: folderGrid.isRadioMember(
+							cell.path, cell.is_directory, cell.name)
+						radioSelected: folderGrid.isRadioSelected(
+							cell.path, cell.is_directory, cell.name)
 						selected: cell.selected
-						active: pane.active && pane.directory.focused_path === cell.path
+						active: (pane.active && pane.directory.focused_path === cell.path)
+							|| folderGrid.isRadioSelected(
+								cell.path, cell.is_directory, cell.name)
 						showLabels: folderGrid.showLabels
 						labelsBeside: folderGrid.labelsBeside
 						iconSize: folderGrid.spec.icon_size || 48
@@ -439,6 +702,9 @@ Item {
 					required property string group_label
 					required property bool is_directory
 					required property bool is_image
+					required property bool is_symlink
+					required property int control_kind
+					required property string number_value
 					required property var size_bytes
 					required property var modified_time
 					required property var created_time
@@ -472,8 +738,17 @@ Item {
 						icon: row.icon
 						thumb: row.thumb
 						isDirectory: row.is_directory
+						isSymlink: row.is_symlink
+						controlKind: row.control_kind
+						numberValue: row.number_value
+						radioActive: folderGrid.isRadioMember(
+							row.path, row.is_directory, row.name)
+						radioSelected: folderGrid.isRadioSelected(
+							row.path, row.is_directory, row.name)
 						selected: row.selected
-						active: pane.active && pane.directory.focused_path === row.path
+						active: (pane.active && pane.directory.focused_path === row.path)
+							|| folderGrid.isRadioSelected(
+								row.path, row.is_directory, row.name)
 						showLabels: folderGrid.showLabels
 						columnValues: folderGrid.listColumnValues(row)
 						hovered: rowDrag.containsMouse
@@ -604,8 +879,18 @@ Item {
 						icon: modelData.icon
 						thumb: freeSlot.thumb
 						isDirectory: modelData.is_directory
+						isSymlink: modelData.is_symlink === true
+						controlKind: modelData.control_kind || 0
+						numberValue: modelData.number_value || ""
+						radioActive: folderGrid.isRadioMember(
+							modelData.path, modelData.is_directory, modelData.name)
+						radioSelected: folderGrid.isRadioSelected(
+							modelData.path, modelData.is_directory, modelData.name)
 						selected: freeSlot.selected
-						active: pane.active && pane.directory.focused_path === modelData.path
+						active: (pane.active
+								&& pane.directory.focused_path === modelData.path)
+							|| folderGrid.isRadioSelected(
+								modelData.path, modelData.is_directory, modelData.name)
 						showLabels: folderGrid.showLabels
 						labelsBeside: folderGrid.labelsBeside
 						iconSize: 48
@@ -637,13 +922,26 @@ Item {
 						acceptedButtons: Qt.LeftButton | Qt.RightButton
 
 						property bool dragging: false
+						property bool repositioning: false
+						property bool suppressClick: false
 						property point pressPoint
+						property point lastPoint
 
 						onPressed: function (mouse) {
 							dragging = false
+							repositioning = false
+							suppressClick = false
 							pressPoint = Qt.point(mouse.x, mouse.y)
+							lastPoint = pressPoint
 						}
 						onPositionChanged: function (mouse) {
+							lastPoint = Qt.point(mouse.x, mouse.y)
+							if (repositioning) {
+								const point = freeDrag.mapToItem(folderGrid,
+									mouse.x, mouse.y)
+								folderGrid.updateReposition(point.x, point.y)
+								return
+							}
 							if (dragging || !pressed)
 								return
 							const dx = mouse.x - pressPoint.x
@@ -651,12 +949,30 @@ Item {
 							if (dx * dx + dy * dy < 36)
 								return
 							dragging = true
-							DragHelper.startDragFromGrab(freeSlot.dragGrab, folderGrid.dragUrl(modelData.path))
+							const point = freeDrag.mapToItem(folderGrid, mouse.x, mouse.y)
+							if (folderGrid.beginReposition(modelData.path,
+									point.x, point.y, mouse.x, mouse.y)) {
+								repositioning = true
+								return
+							}
+							DragHelper.startDragFromGrab(freeSlot.dragGrab,
+								folderGrid.dragUrl(modelData.path))
 						}
-						onReleased: dragging = false
+						onReleased: {
+							if (repositioning) {
+								const point = freeDrag.mapToItem(folderGrid,
+									lastPoint.x, lastPoint.y)
+								folderGrid.endReposition(point.x, point.y)
+								repositioning = false
+								suppressClick = true
+							}
+							dragging = false
+						}
 						onClicked: function (mouse) {
-							if (dragging) {
+							if (dragging || repositioning || suppressClick) {
 								dragging = false
+								repositioning = false
+								suppressClick = false
 								return
 							}
 							if (mouse.button === Qt.RightButton) {
