@@ -2678,7 +2678,11 @@ descendants before arming the timer, as the old drop validator did.
 Free placement disables the per-folder DropArea, like the old FileSlot. Its
 background DropArea tracks the folder under the pointer, springs into it on
 hover, and resolves an external drop to that folder; same-folder drops remain
-repositions.
+repositions. This was verified with a two-pane drag from a grid pane into a
+free-placement folder.
+
+The gamepad directory button opens the folder Here/New/View menu, matching the
+old `directory_menu_requested`; it no longer selects everything.
 
 ### Clipboard, properties, and new windows
 

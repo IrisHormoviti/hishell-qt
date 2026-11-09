@@ -96,7 +96,8 @@ Kirigami.Page {
 			if (pane.directory.focused_path.length > 0)
 				pane.directory.toggle_select(pane.directory.focused_path)
 		} else if (action === "directory") {
-			pane.directory.select_all()
+			pane.contextTarget = "location"
+			contextMenu.popup()
 		}
 	}
 
