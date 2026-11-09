@@ -115,8 +115,8 @@ RowLayout {
 				Timer {
 					id: crumbSpring
 					interval: 700
-					onTriggered: if (bar.directory)
-						bar.directory.navigate(crumb.modelData.path)
+					onTriggered: if (pathBar.directory)
+						pathBar.directory.navigate(crumb.modelData.path)
 				}
 
 				RowLayout {
@@ -157,7 +157,7 @@ RowLayout {
 					onExited: crumbSpring.stop()
 					onDropped: function (drop) {
 						crumbSpring.stop()
-						const pane = bar.window ? bar.window.activePane : null
+						const pane = pathBar.window ? pathBar.window.activePane : null
 						if (!pane)
 							return
 						const uris = drop.urls && drop.urls.length > 0

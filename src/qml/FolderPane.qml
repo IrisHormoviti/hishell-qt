@@ -76,6 +76,38 @@ Kirigami.Page {
 		pane.springPopupVisible = true
 	}
 
+	function pathFromUri(uri) {
+		let path = String(uri)
+		if (path.startsWith("file://"))
+			path = path.substring(7)
+		try {
+			return decodeURIComponent(path)
+		} catch (error) {
+			return path
+		}
+	}
+
+	function repositionFromDrop(drop) {
+		if (pane.spec.free !== true || !pane.directory)
+			return false
+		if (!drop.urls || drop.urls.length === 0)
+			return false
+		const source = pane.pathFromUri(drop.urls[0])
+		if (!pane.directory.row_visible(source))
+			return false
+		const name = source.split("/").pop()
+		const cw = pane.spec.cell_width || 96
+		const ch = pane.spec.cell_height || 96
+		const gap = pane.spec.gap || 0
+		const column = Math.max(0, Math.round(
+			(drop.x - pane.freeOffsetX - cw / 2) / Math.max(1, cw + gap)))
+		const row = Math.max(0, Math.round(
+			(drop.y - pane.freeOffsetY - ch / 2) / Math.max(1, ch + gap)))
+		pane.directory.set_free_position(name, column, row)
+		drop.acceptProposedAction()
+		return true
+	}
+
 	function applyDrop(drop, dest) {
 		const uris = drop.urls && drop.urls.length > 0
 			? drop.urls.join("\n") : drop.text
@@ -611,6 +643,8 @@ Kirigami.Page {
 			DropArea {
 				anchors.fill: parent
 				onDropped: function (drop) {
+					if (pane.repositionFromDrop(drop))
+						return
 					const uris = drop.urls && drop.urls.length > 0
 						? drop.urls.join("\n") : drop.text
 					pane.directory.drop(uris, pane.directory.path, pane.dropAction(drop))
@@ -1000,6 +1034,8 @@ Kirigami.Page {
 				DropArea {
 					anchors.fill: parent
 					onDropped: function (drop) {
+						if (pane.repositionFromDrop(drop))
+							return
 						const uris = drop.urls && drop.urls.length > 0
 							? drop.urls.join("\n") : drop.text
 						pane.directory.drop(uris, pane.directory.path, pane.dropAction(drop))
@@ -1015,20 +1051,10 @@ Kirigami.Page {
 					id: freeSlot
 					required property var modelData
 
-					property real dragDX: 0
-					property real dragDY: 0
-
-					Item {
-						id: freeDragPlaceholder
-						width: 0
-						height: 0
-					}
-
-					x: pane.freeOffsetX + modelData.x + dragDX
-					y: pane.freeOffsetY + modelData.y + dragDY
+					x: pane.freeOffsetX + modelData.x
+					y: pane.freeOffsetY + modelData.y
 					width: modelData.width
 					height: modelData.height
-					z: freeDrag.pressed ? 2 : 0
 
 					property string thumb: ""
 					Component.onCompleted: {
@@ -1044,7 +1070,7 @@ Kirigami.Page {
 						return pane.directory.is_selected(modelData.path)
 					}
 
-					Drag.active: pane.spec.free !== true && freeDrag.drag.active
+					Drag.active: freeDrag.drag.active
 					Drag.dragType: Drag.Automatic
 					Drag.supportedActions: Qt.CopyAction | Qt.MoveAction | Qt.LinkAction
 					Drag.mimeData: ({ "text/uri-list": pane.dragUrl(modelData.path) })
@@ -1144,42 +1170,7 @@ Kirigami.Page {
 						anchors.fill: parent
 						acceptedButtons: Qt.LeftButton | Qt.RightButton
 						drag.target: freeSlot
-
-						property bool moved: false
-
-						onPressed: function (mouse) {
-							moved = false
-						}
-						onReleased: function (mouse) {
-							if (pane.spec.free !== true)
-								return
-							const gap = pane.spec.gap || 0
-							const pitchX = Math.max(1, freeSlot.width + gap)
-							const pitchY = Math.max(1, freeSlot.height + gap)
-							const baseX = pane.freeOffsetX + modelData.x
-							const baseY = pane.freeOffsetY + modelData.y
-							if (Math.abs(freeSlot.x - baseX) > 2
-									|| Math.abs(freeSlot.y - baseY) > 2)
-								moved = true
-							if (!moved)
-								return
-							const column = Math.max(0, Math.round(
-								(freeSlot.x - pane.freeOffsetX) / pitchX))
-							const row = Math.max(0, Math.round(
-								(freeSlot.y - pane.freeOffsetY) / pitchY))
-							pane.directory.set_free_position(modelData.name, column, row)
-							freeSlot.x = Qt.binding(function () {
-								return pane.freeOffsetX + modelData.x
-							})
-							freeSlot.y = Qt.binding(function () {
-								return pane.freeOffsetY + modelData.y
-							})
-						}
 						onClicked: function (mouse) {
-							if (moved) {
-								moved = false
-								return
-							}
 							if (mouse.button === Qt.RightButton) {
 								pane.activated()
 								pane.directory.focus_path(modelData.path)
@@ -1189,7 +1180,7 @@ Kirigami.Page {
 								pane.clickTarget(modelData.path, mouse.modifiers)
 							}
 						}
-						onPressAndHold: if (!moved) pane.holdTarget(modelData.path)
+						onPressAndHold: pane.holdTarget(modelData.path)
 						onDoubleClicked: pane.doubleTarget(modelData.path)
 					}
 				}
