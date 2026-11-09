@@ -2588,6 +2588,15 @@ The frontend is:
 - `src/gamepad.rs` — gilrs polling adapted to `Directory` focus commands; built with
   `--features gamepad` so a host without libudev development files can still build.
 
+### Spring-loaded drag
+
+Qt Quick's drag source is the delegate `QQuickItem`. Spring navigation replaces
+the folder rows and destroys that item while Qt still owns the drag, which
+aborts the process. The old UI avoided this with a native `DragDropHandler` that
+kept the `QDrag` in a persistent object. This frontend has no `QDrag` access
+through `qtbridge`, so spring navigation is disabled rather than implemented as
+a crash-prone QML workaround. Enabling it requires a small native drag helper.
+
 ### Clipboard, properties, and new windows
 
 - Copy/Cut/Paste use a frontend clipboard holding a `ClipboardSnapshot`; Paste
