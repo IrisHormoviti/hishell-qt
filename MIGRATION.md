@@ -2621,6 +2621,12 @@ platform drag and the in-window reposition gesture. A horizontal
 `ScrollDirection` uses the old `GridView.TopToBottom` flow with its edge scroll
 along X; other modes scroll along Y.
 
+`NativeDrag` keeps the old choice: by default the window draws the dragged
+slot as an in-window ghost and the platform drag gets no pixmap; with
+`NativeDrag=true` the ghost is hidden and the platform provides the drag
+image. The ghost keeps its grab alive on the window, so spring navigation can
+replace the view without losing the image.
+
 ### Clipboard, properties, and new windows
 
 - Copy/Cut/Paste use a frontend clipboard holding a `ClipboardSnapshot`; Paste

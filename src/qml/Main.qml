@@ -33,6 +33,11 @@ ApplicationWindow {
 	property real dragCursorX: 0
 	property real dragCursorY: 0
 	property bool dragActive: false
+	property bool dragGhostActive: false
+	property string dragGhostSource: ""
+	property var dragGhostGrab: null
+	property real dragGhostWidth: 0
+	property real dragGhostHeight: 0
 	property bool dragTooltipActive: false
 	property bool dragTooltipReposition: false
 	property string dragTooltipAction: "copy"
@@ -233,6 +238,23 @@ ApplicationWindow {
 		previewData: window.dragPreviewData
 	}
 
+	// The shell's ghost stands in for the compositor's drag icon unless the
+	// folder asks for the native one, like the old ShellWindow ghost.
+	Image {
+		z: 9997
+		source: window.dragGhostSource
+		width: window.dragGhostWidth
+		height: window.dragGhostHeight
+		x: window.dragCursorX - width / 2
+		y: window.dragCursorY - height / 2
+		visible: window.dragGhostActive && source != "" && width > 0
+			&& !(window.currentDirectory
+				&& window.currentDirectory.config.native_drag)
+		opacity: 0.9
+		enabled: false
+		fillMode: Image.PreserveAspectFit
+	}
+
 	Connections {
 		target: DragHelper
 
@@ -252,6 +274,9 @@ ApplicationWindow {
 
 		function onDragFinished() {
 			window.dragActive = false
+			window.dragGhostActive = false
+			window.dragGhostSource = ""
+			window.dragGhostGrab = null
 			if (window.dragPreviewActive)
 				return
 			window.dragTooltipActive = false

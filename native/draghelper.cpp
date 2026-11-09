@@ -97,10 +97,11 @@ void DragHelper::startDragFromGrab(QObject *grab, const QString &uri)
 	});
 }
 
-void DragHelper::startDragManyFromGrab(QObject *grab, const QString &uris)
+void DragHelper::startDragManyFromGrab(QObject *grab, const QString &uris,
+	bool withPixmap)
 {
 	auto *result = qobject_cast<QQuickItemGrabResult *>(grab);
-	const QImage image = result ? result->image() : QImage();
+	const QImage image = withPixmap && result ? result->image() : QImage();
 	const QStringList list = uris.split('\n', Qt::SkipEmptyParts);
 	if (list.isEmpty())
 		return;

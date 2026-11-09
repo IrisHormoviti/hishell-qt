@@ -68,12 +68,23 @@ Item {
 		return selected.indexOf(path) !== -1 ? selected : [path]
 	}
 
-	function startDrag(grab, path, modifiers) {
+	function startDrag(grab, path, modifiers, width, height) {
 		const paths = folderGrid.dragPathsFor(path)
 		folderGrid.dragPaths = paths
 		folderGrid.beginDragTooltip(modifiers)
+		const window = folderGrid.pane ? folderGrid.pane.window : null
+		if (window) {
+			window.dragGhostGrab = grab
+			window.dragGhostSource = grab ? String(grab.url) : ""
+			window.dragGhostWidth = width
+			window.dragGhostHeight = height
+			window.dragGhostActive = true
+		}
+		const nativeDrag = folderGrid.directory
+			? folderGrid.directory.config.native_drag : false
 		DragHelper.startDragManyFromGrab(grab,
-			paths.map(entry => folderGrid.dragUrl(entry)).join("\n"))
+			paths.map(entry => folderGrid.dragUrl(entry)).join("\n"),
+			nativeDrag)
 	}
 
 	function isRadioMember(path, isDir, name) {
@@ -284,7 +295,7 @@ Item {
 			|| x > window.contentItem.width || y > window.contentItem.height
 	}
 
-	function handOffReposition(grab) {
+	function handOffReposition(grab, width, height) {
 		const paths = folderGrid.repositionEntries.map(entry => entry.path)
 		const uris = paths.map(path => folderGrid.dragUrl(path))
 		folderGrid.clearReposition()
@@ -292,7 +303,17 @@ Item {
 			return
 		folderGrid.dragPaths = paths
 		folderGrid.beginDragTooltip(0)
-		DragHelper.startDragManyFromGrab(grab, uris.join("\n"))
+		const window = folderGrid.pane ? folderGrid.pane.window : null
+		if (window) {
+			window.dragGhostGrab = grab
+			window.dragGhostSource = grab ? String(grab.url) : ""
+			window.dragGhostWidth = width
+			window.dragGhostHeight = height
+			window.dragGhostActive = true
+		}
+		const nativeDrag = folderGrid.directory
+			? folderGrid.directory.config.native_drag : false
+		DragHelper.startDragManyFromGrab(grab, uris.join("\n"), nativeDrag)
 	}
 
 	function updateReposition(sceneX, sceneY) {
@@ -688,7 +709,7 @@ Item {
 							thumb = pane.directory.thumbnail(path, 96)
 						dragGrab = cell.grabToImage(function (result) {
 							cell.dragGrab = result
-						}, Qt.size(64, 64))
+						})
 					}
 
 
@@ -763,7 +784,8 @@ Item {
 							if (dx * dx + dy * dy < 36)
 								return
 							dragging = true
-							folderGrid.startDrag(cell.dragGrab, path, mouse.modifiers)
+							folderGrid.startDrag(cell.dragGrab, path, mouse.modifiers,
+								cell.width, cell.height)
 						}
 						onReleased: dragging = false
 						onClicked: function (mouse) {
@@ -869,7 +891,7 @@ Item {
 							thumb = pane.directory.thumbnail(path, 32)
 						dragGrab = row.grabToImage(function (result) {
 							row.dragGrab = result
-						}, Qt.size(64, 32))
+						})
 					}
 
 
@@ -945,7 +967,8 @@ Item {
 							if (dx * dx + dy * dy < 36)
 								return
 							dragging = true
-							folderGrid.startDrag(row.dragGrab, path, mouse.modifiers)
+							folderGrid.startDrag(row.dragGrab, path, mouse.modifiers,
+								row.width, row.height)
 						}
 						onReleased: dragging = false
 						onClicked: function (mouse) {
@@ -1015,7 +1038,7 @@ Item {
 							thumb = pane.directory.thumbnail(modelData.path, 64)
 						dragGrab = freeSlot.grabToImage(function (result) {
 							freeSlot.dragGrab = result
-						}, Qt.size(64, 64))
+						})
 					}
 
 					readonly property bool selected: {
@@ -1094,7 +1117,8 @@ Item {
 								const scene = folderGrid.cursorScene()
 									|| freeDrag.mapToItem(null, mouse.x, mouse.y)
 								if (folderGrid.cursorOutsideWindow(scene.x, scene.y)) {
-									folderGrid.handOffReposition(freeSlot.dragGrab)
+									folderGrid.handOffReposition(freeSlot.dragGrab,
+									freeSlot.width, freeSlot.height)
 									repositioning = false
 									handedOff = true
 									suppressClick = true
@@ -1118,7 +1142,8 @@ Item {
 								return
 							}
 							folderGrid.startDrag(freeSlot.dragGrab,
-								modelData.path, mouse.modifiers)
+								modelData.path, mouse.modifiers,
+								freeSlot.width, freeSlot.height)
 						}
 						onReleased: {
 							if (handedOff) {

@@ -38,6 +38,7 @@ pub struct ConfigBridge {
 	header_layout: String,
 	native_menubar: bool,
 	native_menus: bool,
+	native_drag: bool,
 	native_titlebar: bool,
 	show_shortcuts: bool,
 	execution_wrapper: String,
@@ -86,6 +87,7 @@ impl ConfigBridge {
 	qproperty!("header_layout", Member = header_layout, Notify = changed);
 	qproperty!("native_menubar", Member = native_menubar, Notify = changed);
 	qproperty!("native_menus", Member = native_menus, Notify = changed);
+	qproperty!("native_drag", Member = native_drag, Notify = changed);
 	qproperty!(
 		"native_titlebar",
 		Member = native_titlebar,
@@ -221,6 +223,7 @@ impl ConfigBridge {
 			(ConfigKey::Header, ConfigValue::Json(value)) => self.header_layout = value.clone(),
 			(ConfigKey::NativeMenuBar, ConfigValue::Bool(value)) => self.native_menubar = *value,
 			(ConfigKey::NativeMenus, ConfigValue::Bool(value)) => self.native_menus = *value,
+			(ConfigKey::NativeDrag, ConfigValue::Bool(value)) => self.native_drag = *value,
 			(ConfigKey::NativeTitleBar, ConfigValue::Bool(value)) => self.native_titlebar = *value,
 			(ConfigKey::ShowShortcuts, ConfigValue::Bool(value)) => self.show_shortcuts = *value,
 			(ConfigKey::ExecutionWrapper, ConfigValue::Str(value)) => {
@@ -351,6 +354,7 @@ impl ConfigBridge {
 			ConfigKey::Maximized => self.maximized,
 			ConfigKey::NativeMenuBar => self.native_menubar,
 			ConfigKey::NativeMenus => self.native_menus,
+			ConfigKey::NativeDrag => self.native_drag,
 			ConfigKey::NativeTitleBar => self.native_titlebar,
 			ConfigKey::ShowShortcuts => self.show_shortcuts,
 			ConfigKey::ListHeader => self.list_header,
@@ -481,6 +485,7 @@ fn key_from_qml(name: &str) -> Option<ConfigKey> {
 		"header_layout" | "header" => Some(ConfigKey::Header),
 		"native_menubar" => Some(ConfigKey::NativeMenuBar),
 		"native_menus" => Some(ConfigKey::NativeMenus),
+		"native_drag" | "nativeDrag" => Some(ConfigKey::NativeDrag),
 		"native_titlebar" => Some(ConfigKey::NativeTitleBar),
 		"show_shortcuts" => Some(ConfigKey::ShowShortcuts),
 		"execution_wrapper" | "executionWrapper" => Some(ConfigKey::ExecutionWrapper),

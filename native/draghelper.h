@@ -23,7 +23,8 @@ public:
 	Q_INVOKABLE void startDrag(const QString &uri, const QString &imageUrl);
 	Q_INVOKABLE void startDragFromGrab(QObject *grab, const QString &uri);
 	// URIs separated by newlines, for a multi-item selection handoff.
-	Q_INVOKABLE void startDragManyFromGrab(QObject *grab, const QString &uris);
+	Q_INVOKABLE void startDragManyFromGrab(QObject *grab, const QString &uris,
+		bool withPixmap);
 	Q_INVOKABLE bool isSource(const QString &path) const;
 	Q_INVOKABLE QPoint cursorPosition() const;
 	Q_INVOKABLE bool mousePressed() const;
