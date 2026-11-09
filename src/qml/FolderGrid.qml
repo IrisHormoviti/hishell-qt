@@ -80,8 +80,9 @@ Item {
 			window.dragGhostHeight = height
 			window.dragGhostActive = true
 		}
-		const nativeDrag = folderGrid.directory
-			? folderGrid.directory.config.native_drag : false
+		const nativeDrag = (folderGrid.directory
+			? folderGrid.directory.config.native_drag : false)
+			&& DragHelper.platformDragPixmapSupported()
 		DragHelper.startDragManyFromGrab(grab,
 			paths.map(entry => folderGrid.dragUrl(entry)).join("\n"),
 			nativeDrag)
@@ -653,8 +654,9 @@ Item {
 			window.dragGhostHeight = height
 			window.dragGhostActive = true
 		}
-		const nativeDrag = folderGrid.directory
-			? folderGrid.directory.config.native_drag : false
+		const nativeDrag = (folderGrid.directory
+			? folderGrid.directory.config.native_drag : false)
+			&& DragHelper.platformDragPixmapSupported()
 		DragHelper.startDragManyFromGrab(grab, uris.join("\n"), nativeDrag)
 	}
 

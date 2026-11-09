@@ -9,6 +9,10 @@ import "toolkit"
 Menu {
 	id: contextMenu
 
+	// Take the keyboard while open so the controller and the arrow keys drive
+	// the menu instead of the view behind it.
+	focus: true
+
 	property var directory: null
 	property var window: null
 	property bool targetIsDir: false

@@ -258,8 +258,9 @@ ApplicationWindow {
 		x: window.dragCursorX - width / 2
 		y: window.dragCursorY - height / 2
 		visible: window.dragGhostActive && source != "" && width > 0
-			&& !(window.currentDirectory
-				&& window.currentDirectory.config.native_drag)
+			&& (!(window.currentDirectory
+					&& window.currentDirectory.config.native_drag)
+				|| !DragHelper.platformDragPixmapSupported())
 		opacity: 0.9
 		enabled: false
 		fillMode: Image.PreserveAspectFit

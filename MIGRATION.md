@@ -2629,6 +2629,11 @@ slot as an in-window ghost and the platform drag gets no pixmap; with
 image. The ghost keeps its grab alive on the window, so spring navigation can
 replace the view without losing the image.
 
+On X11 the platform drag-pixmap window needs a compositor; without one it is
+painted solid black. `NativeDrag=true` falls back to the slot ghost there and
+sends no platform pixmap, so the drag stays readable under Xvfb while Wayland
+or a composited X11 session still uses the platform image.
+
 `Directory.activeRevision` mirrors the old `focusManager.active_revision`:
 a two-second refresh asks the core's execution state which items have a
 running/suspended app and bumps the revision when that set changes. Grid and
@@ -2668,7 +2673,9 @@ updates, and `movementEnded` settles it immediately.
 
 `openFocusedMenu` is the shared context-menu path for the Menu key, Shift+F10,
 and the gamepad menu button: an item gets its item actions, while focus on an
-empty slot gets the folder Here/New/View menu.
+empty slot gets the folder Here/New/View menu. `ShellContextMenu` takes the
+keyboard while open, like the old menu, so arrows and the controller drive it
+instead of the view behind.
 
 Drop hover matches the old FileSlot: entering a folder arms the spring-load
 timer, `onPositionChanged` keeps it alive when the drag started already inside,

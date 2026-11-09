@@ -64,6 +64,11 @@ bool DragHelper::isSource(const QString &path) const
 	return false;
 }
 
+bool DragHelper::platformDragPixmapSupported() const
+{
+	return QGuiApplication::platformName() != QStringLiteral("xcb");
+}
+
 bool DragHelper::isDropInvalid(const QString &target) const
 {
 	for (const QString &source : m_sources) {
