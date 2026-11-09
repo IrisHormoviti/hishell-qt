@@ -2641,6 +2641,11 @@ the focused grid cell, list row, or free slot via `Directory.row_index`, and
 keeps the two-breath pulse. The per-slot focus rectangle is gone; the old
 active/selection wash sits behind the content.
 
+`FocusEmptySlots` is wired through `Directory.focusOnEmpty`, `focusColumn`, and
+`focusRow`. `view_json` feeds the core focus state its order, positions, grid
+extent, and empty-slot setting, and the shared border draws over the empty free
+cell the cursor rests on, like the old `onEmpty` path.
+
 ### Clipboard, properties, and new windows
 
 - Copy/Cut/Paste use a frontend clipboard holding a `ClipboardSnapshot`; Paste

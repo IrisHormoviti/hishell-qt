@@ -95,8 +95,27 @@ Item {
 	}
 
 	readonly property var focusTarget: {
-		if (!folderGrid.pane || !folderGrid.pane.active
-				|| folderGrid.focusedIndex < 0)
+		if (!folderGrid.pane || !folderGrid.pane.active)
+			return null
+		if (folderGrid.directory.focusOnEmpty
+				&& (folderGrid.spec.free === true
+					|| folderGrid.spec.grouped === true)) {
+			const cw = folderGrid.spec.cell_width || 96
+			const ch = folderGrid.spec.cell_height || 96
+			const gap = folderGrid.spec.gap || 0
+			const origin = absoluteView.mapToItem(folderGrid, 0, 0)
+			return {
+				"x": origin.x + folderGrid.freeOffsetX
+					+ folderGrid.directory.focusColumn * (cw + gap)
+					- absoluteView.contentX,
+				"y": origin.y + folderGrid.freeOffsetY
+					+ folderGrid.directory.focusRow * (ch + gap)
+					- absoluteView.contentY,
+				"width": cw,
+				"height": ch
+			}
+		}
+		if (folderGrid.focusedIndex < 0)
 			return null
 		if (folderGrid.spec.free === true || folderGrid.spec.grouped === true) {
 			const slots = folderGrid.spec.slots || []
@@ -1301,7 +1320,11 @@ Item {
 		width: folderGrid.focusTarget ? folderGrid.focusTarget.width : 0
 		height: folderGrid.focusTarget ? folderGrid.focusTarget.height : 0
 		pulseKey: folderGrid.directory
-			? folderGrid.directory.focused_path : ""
+			? folderGrid.directory.focused_path + ":"
+				+ folderGrid.directory.focusOnEmpty + ":"
+				+ folderGrid.directory.focusColumn + ":"
+				+ folderGrid.directory.focusRow
+			: ""
 	}
 
 }

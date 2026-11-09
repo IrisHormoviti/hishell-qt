@@ -641,6 +641,10 @@ pub struct Directory {
 	focused_path: String,
 	focus_is_image: bool,
 	focus_is_directory: bool,
+	focus_on_empty: bool,
+	focus_column: i32,
+	focus_row: i32,
+	focus_revision: i32,
 	last_descriptor_epoch: u64,
 	has_meta: bool,
 }
@@ -665,6 +669,10 @@ impl Directory {
 			focused_path: String::new(),
 			focus_is_image: false,
 			focus_is_directory: false,
+			focus_on_empty: false,
+			focus_column: -1,
+			focus_row: -1,
+			focus_revision: 0,
 			last_descriptor_epoch: 0,
 			has_meta: path.join(".directory").is_file() || path.join(".cfg").is_file(),
 		};
@@ -710,10 +718,27 @@ impl Directory {
 				})
 			})
 			.unwrap_or_default();
-		if self.focused_path != path {
+		let (on_empty, column, row) = self
+			.engine
+			.as_ref()
+			.map(|engine| {
+				let focus = engine.focus_state();
+				let (column, row) = focus.cursor().unwrap_or((-1, -1));
+				(focus.on_empty_slot(), column, row)
+			})
+			.unwrap_or((false, -1, -1));
+		if self.focused_path != path
+			|| self.focus_on_empty != on_empty
+			|| self.focus_column != column
+			|| self.focus_row != row
+		{
 			self.focused_path = path;
 			self.focus_is_image = is_image;
 			self.focus_is_directory = is_directory;
+			self.focus_on_empty = on_empty;
+			self.focus_column = column;
+			self.focus_row = row;
+			self.focus_revision += 1;
 			self.focus_changed();
 		}
 	}
@@ -913,6 +938,26 @@ impl Directory {
 	qproperty!(
 		"focused_path",
 		Member = focused_path,
+		Notify = focus_changed
+	);
+	qproperty!(
+		"focusOnEmpty",
+		Member = focus_on_empty,
+		Notify = focus_changed
+	);
+	qproperty!(
+		"focusColumn",
+		Member = focus_column,
+		Notify = focus_changed
+	);
+	qproperty!(
+		"focusRow",
+		Member = focus_row,
+		Notify = focus_changed
+	);
+	qproperty!(
+		"focusRevision",
+		Member = focus_revision,
 		Notify = focus_changed
 	);
 
@@ -1337,12 +1382,21 @@ impl Directory {
 			return false;
 		};
 		let before = engine.focus();
+		let before_empty = (
+			engine.focus_state().on_empty_slot(),
+			engine.focus_state().cursor(),
+		);
 		let Ok(outcome) = engine.dispatch(Command::Focus(FocusCommand::Move(direction))) else {
 			return false;
 		};
 		let after = engine.focus();
+		let after_empty = (
+			engine.focus_state().on_empty_slot(),
+			engine.focus_state().cursor(),
+		);
 		self.read_focus();
-		before != after && outcome.changes.focus.is_some()
+		(before != after || before_empty != after_empty)
+			&& outcome.changes.focus.is_some()
 	}
 
 	#[qslot]
@@ -1707,35 +1761,93 @@ impl Directory {
 			.join(",")
 	}
 
+	fn sync_focus_layout(&mut self, spec: &ViewSpec) {
+		let ViewSpec::Folder(view) = spec else {
+			return;
+		};
+		let Some(engine) = self.engine.as_mut() else {
+			return;
+		};
+		let pane = engine.focus_state().pane();
+		let positions: Vec<(i32, i32)> = view
+			.slots
+			.iter()
+			.map(|slot| (slot.cell.0 as i32, slot.cell.1 as i32))
+			.collect();
+		let order: Vec<hishell::ItemId> = view.slots.iter().map(|slot| slot.item).collect();
+		let count = view.slots.len().max(1) as i32;
+		let (columns, rows, horizontal) = match &view.mode {
+			FolderMode::Grid(grid) => {
+				let lines = grid.lines.max(1) as i32;
+				let (mut columns, mut rows) = if grid.horizontal {
+					((count + lines - 1) / lines, lines)
+				} else {
+					(lines, (count + lines - 1) / lines)
+				};
+				for slot in &view.slots {
+					columns = columns.max(slot.cell.0 as i32 + 1);
+					rows = rows.max(slot.cell.1 as i32 + 1);
+				}
+				(columns, rows, grid.horizontal)
+			}
+			FolderMode::List(_) => (1, count, false),
+		};
+		let _ = engine.dispatch(Command::Focus(FocusCommand::SetOrder {
+			pane,
+			order,
+			columns: columns as usize,
+			horizontal,
+		}));
+		let _ = engine.dispatch(Command::Focus(FocusCommand::SetPositions {
+			pane,
+			positions,
+		}));
+		let _ = engine.dispatch(Command::Focus(FocusCommand::SetGrid {
+			pane,
+			columns,
+			rows,
+		}));
+		let enabled = engine.config().focus_empty_slots;
+		let _ = engine.dispatch(Command::Focus(FocusCommand::SetEmptySlots {
+			pane,
+			enabled,
+		}));
+	}
+
 	#[qslot]
 	fn view_json(
-		&self,
+		&mut self,
 		width: f64,
 		height: f64,
 		grid_unit: f64,
 		small_spacing: f64,
 		label_height: f64,
 	) -> String {
-		let Some(engine) = &self.engine else {
-			return String::from("{}");
+		let view_spec = {
+			let Some(engine) = self.engine.as_mut() else {
+				return String::from("{}");
+			};
+			let request = ViewRequest {
+				viewport: Viewport {
+					width,
+					height,
+					horizontal_scrollbar: 8.0,
+					vertical_scrollbar: 8.0,
+				},
+				metrics: Metrics {
+					grid_unit,
+					small_spacing,
+					medium_spacing: small_spacing * 1.5,
+					large_spacing: small_spacing * 2.0,
+					label_height,
+				},
+			};
+			engine.view(request)
 		};
-		let request = ViewRequest {
-			viewport: Viewport {
-				width,
-				height,
-				horizontal_scrollbar: 8.0,
-				vertical_scrollbar: 8.0,
-			},
-			metrics: Metrics {
-				grid_unit,
-				small_spacing,
-				medium_spacing: small_spacing * 1.5,
-				large_spacing: small_spacing * 2.0,
-				label_height,
-			},
-		};
-		match engine.view(request) {
-			ViewSpec::Folder(view) => match view.mode {
+		let json = {
+			let engine = self.engine.as_ref().unwrap();
+			match &view_spec {
+			ViewSpec::Folder(view) => match &view.mode {
 				FolderMode::Grid(grid) => serde_json::json!({
 					"mode": "grid",
 					"lines": grid.lines,
@@ -1793,7 +1905,10 @@ impl Directory {
 				.to_string(),
 			},
 			ViewSpec::File(_) => String::from("{}"),
-		}
+			}
+		};
+		self.sync_focus_layout(&view_spec);
+		json
 	}
 
 	#[qslot]
