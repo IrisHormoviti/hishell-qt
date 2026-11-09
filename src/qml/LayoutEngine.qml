@@ -13,7 +13,7 @@ RowLayout {
 	property var created: []
 	property var pathBarItem: null
 
-	Component { id: paneComponent; FolderPane {} }
+	Component { id: paneComponent; FolderView {} }
 	Component { id: pathBarComponent; PathBar {} }
 	Component { id: menuBarComponent; MenuBar {} }
 	Component { id: spacerComponent; Spacer {} }

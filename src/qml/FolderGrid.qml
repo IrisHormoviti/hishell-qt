@@ -4,7 +4,7 @@ import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
 // Old FolderGrid role: owns the view geometry, grid/list/free delegates and
-// their delegate-owned drag. FolderPane keeps the pane chrome and actions.
+// their delegate-owned drag. FolderView keeps the pane chrome and actions.
 Item {
 	id: folderGrid
 
@@ -302,69 +302,19 @@ Item {
 					height: grid.cellHeight
 					opacity: dragArea.dragging ? 0.4 : 1.0
 
-					Rectangle {
+					FileSlot {
 						anchors.fill: parent
-						anchors.margins: 2
-						radius: 6
-						color: Kirigami.Theme.highlightColor
-						opacity: cell.selected ? 0.28 : 0
+						name: cell.name
+						title: cell.title
+						icon: cell.icon
+						thumb: cell.thumb
+						isDirectory: cell.is_directory
+						selected: cell.selected
+						active: pane.active && pane.directory.focused_path === cell.path
+						showLabels: folderGrid.showLabels
+						labelsBeside: folderGrid.labelsBeside
+						iconSize: folderGrid.spec.icon_size || 48
 					}
-
-					Rectangle {
-						anchors.fill: parent
-						anchors.margins: 1
-						color: "transparent"
-						border.width: 2
-						border.color: Kirigami.Theme.highlightColor
-						visible: pane.active && pane.directory.focused_path === path
-					}
-
-					GridLayout {
-						anchors.centerIn: parent
-						columns: folderGrid.labelsBeside && folderGrid.showLabels ? 2 : 1
-						columnSpacing: 4
-						rowSpacing: 4
-
-						Item {
-							Layout.preferredWidth: folderGrid.spec.icon_size || 48
-							Layout.preferredHeight: Layout.preferredWidth
-							Layout.alignment: Qt.AlignHCenter
-
-							Image {
-								anchors.fill: parent
-								source: cell.thumb
-								fillMode: Image.PreserveAspectCrop
-								visible: cell.thumb.length > 0
-							}
-
-							Image {
-								anchors.fill: parent
-								source: pane.isFileIcon(cell.icon) ? cell.icon : ""
-								fillMode: Image.PreserveAspectFit
-								visible: cell.thumb.length === 0 && pane.isFileIcon(cell.icon)
-							}
-
-							Kirigami.Icon {
-								anchors.fill: parent
-								source: cell.icon
-								visible: cell.thumb.length === 0 && !pane.isFileIcon(cell.icon)
-							}
-						}
-
-						Label {
-							Layout.fillWidth: folderGrid.labelsBeside && folderGrid.showLabels
-							Layout.preferredWidth: folderGrid.labelsBeside && folderGrid.showLabels
-								? Math.max(0, grid.cellWidth - (folderGrid.spec.icon_size || 48) - 12)
-								: grid.cellWidth - 8
-							Layout.alignment: Qt.AlignVCenter
-							visible: folderGrid.showLabels
-							text: folderGrid.displayName(name, title)
-							elide: Text.ElideMiddle
-							horizontalAlignment: folderGrid.labelsBeside && folderGrid.showLabels
-								? Text.AlignLeft : Text.AlignHCenter
-						}
-					}
-
 					DropArea {
 						anchors.fill: parent
 						enabled: cell.is_directory
@@ -724,68 +674,19 @@ Item {
 										freeDrag.dragging = false
 					}
 
-					Rectangle {
+					FileSlot {
 						anchors.fill: parent
-						anchors.margins: 2
-						radius: 6
-						color: Kirigami.Theme.highlightColor
-						opacity: freeSlot.selected ? 0.28 : 0
+						name: modelData.name
+						title: modelData.title || ""
+						icon: modelData.icon
+						thumb: freeSlot.thumb
+						isDirectory: modelData.is_directory
+						selected: freeSlot.selected
+						active: pane.active && pane.directory.focused_path === modelData.path
+						showLabels: folderGrid.showLabels
+						labelsBeside: folderGrid.labelsBeside
+						iconSize: 48
 					}
-
-					Rectangle {
-						anchors.fill: parent
-						anchors.margins: 1
-						color: "transparent"
-						border.width: 2
-						border.color: Kirigami.Theme.highlightColor
-						visible: pane.active && pane.directory.focused_path === modelData.path
-					}
-
-					GridLayout {
-						anchors.centerIn: parent
-						columns: folderGrid.labelsBeside && folderGrid.showLabels ? 2 : 1
-						columnSpacing: 4
-						rowSpacing: 4
-
-						Item {
-							Layout.preferredWidth: 48
-							Layout.preferredHeight: 48
-							Layout.alignment: Qt.AlignHCenter
-
-							Image {
-								anchors.fill: parent
-								source: freeSlot.thumb
-								fillMode: Image.PreserveAspectCrop
-								visible: freeSlot.thumb.length > 0
-							}
-
-							Image {
-								anchors.fill: parent
-								source: pane.isFileIcon(modelData.icon) ? modelData.icon : ""
-								fillMode: Image.PreserveAspectFit
-								visible: freeSlot.thumb.length === 0 && pane.isFileIcon(modelData.icon)
-							}
-
-							Kirigami.Icon {
-								anchors.fill: parent
-								source: modelData.icon
-								visible: freeSlot.thumb.length === 0 && !pane.isFileIcon(modelData.icon)
-							}
-						}
-
-						Label {
-							Layout.fillWidth: folderGrid.labelsBeside && folderGrid.showLabels
-							Layout.preferredWidth: folderGrid.labelsBeside && folderGrid.showLabels
-								? Math.max(0, freeSlot.width - 60) : freeSlot.width - 8
-							Layout.alignment: Qt.AlignVCenter
-							visible: folderGrid.showLabels
-							text: folderGrid.displayName(modelData.name, modelData.title || "")
-							elide: Text.ElideMiddle
-							horizontalAlignment: folderGrid.labelsBeside && folderGrid.showLabels
-								? Text.AlignLeft : Text.AlignHCenter
-						}
-					}
-
 					DropArea {
 						anchors.fill: parent
 						enabled: modelData.is_directory === true
